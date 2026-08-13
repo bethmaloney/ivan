@@ -103,7 +103,15 @@ void audio::Init(cfestring& musicDirectory)
    } catch (RtMidiError &error)
    {
       error.printMessage();
-      ABORT("MIDI Out Error");
+
+      /* No usable MIDI backend (no sequencer, headless session, CI runner...).
+         Continue without music rather than refusing to start. Every entry point
+         below is guarded by isInit, so the rest of the game is unaffected. */
+      midiout = 0;
+      isInit = false;
+      isTrackPlaying = false;
+      std::cerr << "MIDI unavailable, continuing without music." << std::endl;
+      return;
    }
 
 
@@ -181,6 +189,9 @@ cfestring& audio::GetCurrentlyPlayedFile()
 /* Port0 is NULL, and disabled. */
 int audio::ChangeMIDIOutputDevice(int newPort)
 {
+   if( !isInit )
+      return 0;
+
    if( newPort != CurrentMIDIOutPort)
    {
       audio::SetPlaybackStatus(0x00);
@@ -200,7 +211,10 @@ int audio::ChangeMIDIOutputDevice(int newPort)
       }
       catch (RtMidiError &error) {
         error.printMessage();
-        ABORT("MIDI Out Error");
+
+        /* Losing the output port is not worth killing the game over. */
+        CurrentMIDIOutPort = 0;
+        audio::SetPlaybackStatus(0x00);
       }
    }
 
@@ -209,6 +223,9 @@ int audio::ChangeMIDIOutputDevice(int newPort)
 
 int audio::GetMIDIOutputDevices(std::vector<std::string>& deviceNames)
 {
+   if( !isInit )
+      return 0;
+
    int nPorts = midiout->getPortCount();
    std::string portName;
 
@@ -219,12 +236,12 @@ int audio::GetMIDIOutputDevices(std::vector<std::string>& deviceNames)
      }
      catch (RtMidiError &error) {
        error.printMessage();
-       ABORT("MIDI Out Error");
+       continue;
      }
      deviceNames.push_back(portName);
    }
 
-   return nPorts;
+   return int(deviceNames.size());
 }
 
 
@@ -259,6 +276,9 @@ void audio::SendVolumeMessage(int targetVolume)
 
 int audio::PlayMIDIFile(cfestring& filename, int32_t loops)
 {
+   if( !isInit )
+      return 0;
+
    std::vector<unsigned char> message;
    MIDI_HEADER_CHUNK_t MIDIHdr;
 
@@ -416,6 +436,9 @@ void audio::LoadMIDIFile(cfestring& filename, int intensitylow, int intensityhig
 
 void audio::SendMIDIEvent(std::vector<unsigned char>* message)
 {
+   if( !isInit )
+      return;
+
    midiout->sendMessage( message );
 }
 
