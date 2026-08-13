@@ -2926,7 +2926,13 @@ truth character::AutoPlayAIDropThings()
   }
 
   if(!bDropSomething && GetBurdenState() == STRESSED){
-    if(clock()%100<5){ //5% chance to drop something weighty randomly every turn
+    /* Every randomised decision in the AutoPlayAI* family drew from clock(),
+       which is process CPU time. That is a fourth RNG stream: SetSeed does not
+       reach it, so replaying one recording twice gave the AI different
+       decisions and the run diverged in real game state as soon as it was
+       making any. These all draw from the pinned MT now. */
+
+    if(RAND_N(100)<5){ //5% chance to drop something weighty randomly every turn
       bDropSomething=true; DBGLN;
     }
   }
@@ -3004,7 +3010,7 @@ truth character::AutoPlayAIDropThings()
       }
 
       if(dropMe==NULL)
-        dropMe = clock()%2==0 ? heaviest : cheapest;
+        dropMe = RAND_N(2)==0 ? heaviest : cheapest;
     }
 
     // chose a throw direction
@@ -3015,7 +3021,7 @@ truth character::AutoPlayAIDropThings()
       v2 v2DropAt(0,0);
       lsquare* lsqrDropAt=NULL;
       for(int i=0;i<8;i++){
-        int k = clock()%vv2Dir.size(); //random chose from remaining TODO could be where there is NPC foe
+        int k = RAND_N(long(vv2Dir.size())); //random chose from remaining TODO could be where there is NPC foe
         int iDir = vv2Dir[k]; //collect direction value
         vv2Dir.erase(vv2Dir.begin() + k); //remove using the chosen index to prepare next random choice
 
@@ -3032,7 +3038,7 @@ truth character::AutoPlayAIDropThings()
         }
       };DBGLN;
 
-      if(iDirOk==-1){iDirOk=clock()%8;DBG2("RandomDir",iDirOk);}DBGLN; //TODO should just drop may be? unless hitting w/e is there could help
+      if(iDirOk==-1){iDirOk=RAND_N(8);DBG2("RandomDir",iDirOk);}DBGLN; //TODO should just drop may be? unless hitting w/e is there could help
 
       if(iDirOk>-1){DBG2("KickOrThrow",iDirOk);
         static itemcontainer* itc;itc = dynamic_cast<itemcontainer*>(dropMe);DBGLN;
@@ -3072,7 +3078,7 @@ bool character::IsAutoplayAICanPickup(item* it,bool bPlayerHasLantern)
   }else{
     if(it->IsBroken())return false;
     if(it->GetTruePrice()<=iMaxValueless)return false; //mainly to avoid all rocks from broken walls
-    if(clock()%3!=0 && it->GetSpoilLevel()>0)return false; //some spoiled may be consumed to randomly test diseases flows
+    if(RAND_N(3)!=0 && it->GetSpoilLevel()>0)return false; //some spoiled may be consumed to randomly test diseases flows
   }
 
   return true;
@@ -3328,7 +3334,7 @@ truth character::AutoPlayAINavigateDungeon(bool bPlayerHasLantern)
 
     if(v2NewKGTo.Is0()){
       if(bAutoPlayUseRandomNavTargetOnce){ //these targets were already path validated and are safe to use!
-        v2NewKGTo=vv2UndiscoveredValidPathSquares[clock()%vv2UndiscoveredValidPathSquares.size()]; DBG2("RandomTarget",DBGAV2(v2NewKGTo));
+        v2NewKGTo=vv2UndiscoveredValidPathSquares[RAND_N(long(vv2UndiscoveredValidPathSquares.size()))]; DBG2("RandomTarget",DBGAV2(v2NewKGTo));
         bAutoPlayUseRandomNavTargetOnce=false;
       }else{    //find nearest
         if(!v2NearestUndiscovered.Is0()){
@@ -3340,10 +3346,10 @@ truth character::AutoPlayAINavigateDungeon(bool bPlayerHasLantern)
     if(v2NewKGTo.Is0()){ //no new destination: fully explored
       if(v2Exits.size()>0){
         if(game::GetCurrentDungeonTurnsCount()==0){ DBG1("Dungeon:FullyExplored:FirstTurn");
-          iWanderTurns=100+clock()%300; DBG2("WanderALotOnFullyExploredLevel",iWanderTurns); //just move around a lot, some NPC may spawn
+          iWanderTurns=100+RAND_N(300); DBG2("WanderALotOnFullyExploredLevel",iWanderTurns); //just move around a lot, some NPC may spawn
         }else{
           // travel between dungeons if current fully explored
-          v2 v2Try = v2Exits[clock()%v2Exits.size()];
+          v2 v2Try = v2Exits[RAND_N(long(v2Exits.size()))];
           if(AutoPlayAITestValidPathTo(v2Try))
             v2NewKGTo = v2TravelingToAnotherDungeon = v2Try; DBGSV2(v2TravelingToAnotherDungeon);
         }
@@ -3358,7 +3364,7 @@ truth character::AutoPlayAINavigateDungeon(bool bPlayerHasLantern)
       std::vector<lsquare*> vlsqrChk(vv2AllDungeonSquares);
 
       while(vlsqrChk.size()>0){
-        static int i;i=clock()%vlsqrChk.size();
+        static int i;i=RAND_N(long(vlsqrChk.size()));
         static v2 v2Chk; v2Chk = vlsqrChk[i]->GetPos();
 
         if(!AutoPlayAITestValidPathTo(v2Chk)){
@@ -3380,7 +3386,7 @@ truth character::AutoPlayAINavigateDungeon(bool bPlayerHasLantern)
   if(!v2KeepGoingTo.Is0()){
     if(v2KeepGoingTo==GetPos()){ DBG3("ReachedDestination",DBGAV2(v2KeepGoingTo),DBGAV2(GoingTo));
       //wander a bit before following new target destination
-      iWanderTurns=(clock()%iMaxWanderTurns)+iMinWanderTurns; DBG2("WanderAroundAtReachedDestination",iWanderTurns);
+      iWanderTurns=RAND_N(iMaxWanderTurns)+iMinWanderTurns; DBG2("WanderAroundAtReachedDestination",iWanderTurns);
 
 //      v2KeepGoingTo=v2(0,0);
 //      TerminateGoingTo();
@@ -3455,7 +3461,7 @@ truth character::AutoPlayAIPray()
   bSafePrayOnce=false;
 
   if(bSPO){}
-  else if(StateIsActivated(PANIC) && clock()%10==0){
+  else if(StateIsActivated(PANIC) && RAND_N(10)==0){
     iWanderTurns=1; DBG1("Wandering:InPanic"); // to regain control as soon it is a ghost anymore as it can break navigation when inside walls
   }else return false;
 
@@ -3494,12 +3500,12 @@ truth character::AutoPlayAIPray()
 
   // chose and pray to one god
   god* g = NULL;
-  if(iKGTotP>0 && (bSPO || clock()%10!=0))
-    g = game::GetGod(aiKGodsP[clock()%iKGTotP]);
+  if(iKGTotP>0 && (bSPO || RAND_N(10)!=0))
+    g = game::GetGod(aiKGodsP[RAND_N(iKGTotP)]);
   else
-    g = game::GetGod(aiKGods[clock()%iKGTot]);
+    g = game::GetGod(aiKGods[RAND_N(iKGTot)]);
 
-  if(bSPO || clock()%10!=0){ //it may not recover some times to let pray unsafely
+  if(bSPO || RAND_N(10)!=0){ //it may not recover some times to let pray unsafely
     int iRecover=0;
     if(iKGTotP==0){
       if(iRecover==0 && g->GetRelation()==-1000)iRecover=1000; //to test all relation range
@@ -12087,7 +12093,11 @@ truth character::TryToTalkAboutScience()
       AddRandomScienceName(Science);
   }
 
-  switch((RAND() + GET_TICK()) % 10)
+  /* Not GET_TICK: the chosen sentence is added to the message history, which
+     game::Save writes into the save file, so mixing the wall clock in here
+     makes two runs that played identically save different bytes. */
+
+  switch(RAND_GOOD(10))
   {
    case 0:
     ADD_MESSAGE("You have a rather pleasant chat about %s with %s.",
@@ -13262,7 +13272,7 @@ truth character::CheckAIZapOpportunity()
     if(Equipment)
       ItemVector.push_back(Equipment);
   }
-  std::random_shuffle(ItemVector.begin(), ItemVector.end());
+  femath::Shuffle(ItemVector.begin(), ItemVector.end());
 
   item* ToBeZapped = 0;
   for(uint c = 0; c < ItemVector.size(); ++c)

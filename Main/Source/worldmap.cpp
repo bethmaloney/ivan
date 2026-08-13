@@ -525,7 +525,7 @@ void worldmap::Generate()
       }
 
       // Re-order the places so they appear in random order:
-      std::random_shuffle(ToBePlaced.begin(), ToBePlaced.end());
+      femath::Shuffle(ToBePlaced.begin(), ToBePlaced.end());
       
       // Then pick out the places that are generable core locations, and get their native terrain types
       for(int Type = 1; Type < protocontainer<owterrain>::GetSize(); ++Type)

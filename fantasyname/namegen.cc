@@ -24,6 +24,12 @@ using namespace NameGen;
 static std::mt19937 rng(std::chrono::high_resolution_clock::now().time_since_epoch().count());
 
 
+void NameGen::SetSeed(unsigned long Seed)
+{
+	rng.seed(Seed);
+}
+
+
 // https://isocpp.org/wiki/faq/ctors#static-init-order
 // Avoid the "static initialization order fiasco"
 const std::unordered_map<std::string, const std::vector<std::string>>& Generator::SymbolMap()

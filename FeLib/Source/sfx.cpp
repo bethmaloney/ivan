@@ -249,16 +249,31 @@ int soundeffects::addFile(festring filename) {
   return files.size() - 1;
 }
 
+/* Private on purpose. rand() is one process wide stream, and this is reached
+   only when the player has sound effects configured, so drawing from a shared
+   generator would let that setting shift every later draw. femath::Rand is
+   wrong for the same reason: which sounds exist must not change the game. */
+
+static ulong NextSoundRand()
+{
+  static ulong State = 88675123UL;
+
+  State ^= State << 13;
+  State ^= State >> 17;
+  State ^= State << 5;
+  return State;
+}
+
 SoundFile* soundeffects::findMatchingSound(festring Buffer)
 {
   if(Buffer.IsEmpty() || Buffer.CStr()[0]=='"') //skips all chat messages lowering config file regex complexity
     return NULL;
-  
+
   DBG1(Buffer.CStr());
   for(int i = patterns.size() - 1; i >= 0; i--){
     if(*patterns[i].re)
       if(pcre_exec(*patterns[i].re, *patterns[i].extra, Buffer.CStr(), Buffer.GetSize(), 0, 0, NULL, 0) >= 0){
-        SoundFile* p = &files[patterns[i].sounds[rand() % patterns[i].sounds.size()]];
+        SoundFile* p = &files[patterns[i].sounds[NextSoundRand() % patterns[i].sounds.size()]];
         DBG1(p->filename.CStr());
         return p;
       }

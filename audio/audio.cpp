@@ -44,6 +44,23 @@ musicfile::musicfile(cfestring& Filename, int LowThreshold, int HighThreshold)
    isPlaying = false;
 }
 
+/* Track picking deliberately does not use rand(): that is one process wide
+   stream, and audio::Loop below runs on its own thread, so every draw made
+   here would shift the draws made by the rest of the program by an amount
+   decided by the scheduler. It must not use femath::Rand either, or which
+   music the player has configured would change the game. This generator is
+   touched only by the audio thread and by nothing else. */
+
+static ulong NextTrackRand()
+{
+   static ulong State = 2463534242UL;
+
+   State ^= State << 13;
+   State ^= State >> 17;
+   State ^= State << 5;
+   return State;
+}
+
 int audio::MasterVolume;
 int audio::TargetIntensity;
 int audio::CurrentIntensity;
@@ -161,7 +178,7 @@ int audio::Loop(void *ptr)
       if( Tracks.size() && (PlaybackState & PLAYING) )
       {
          isTrackPlaying = true;
-         int randomIndex = rand() % Tracks.size();
+         int randomIndex = NextTrackRand() % Tracks.size();
          CurrentTrack = Tracks[randomIndex].GetFilename();
 
          festring MusFile = MusDir + CurrentTrack;

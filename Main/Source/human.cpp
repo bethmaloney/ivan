@@ -3711,7 +3711,7 @@ truth humanoid::AutoPlayAIequip()
         for(uint c = 0; c < vitEqW.size(); ++c){
           if(vitEqW[c]->IsWeapon(this) && vitEqW[c]->IsTwoHanded()){  DBG1(vitEqW[c]->GetNameSingular().CStr());
             vitEqW[c]->RemoveFromSlot();
-            SetEquipment(clock()%2==0 ? LEFT_WIELDED_INDEX : RIGHT_WIELDED_INDEX, vitEqW[c]); //DBG3("Wield",iEqIndex,vitEqW[c]->GetName(DEFINITE).CStr());
+            SetEquipment(RAND_N(2)==0 ? LEFT_WIELDED_INDEX : RIGHT_WIELDED_INDEX, vitEqW[c]); //DBG3("Wield",iEqIndex,vitEqW[c]->GetName(DEFINITE).CStr());
             bDoneLR=true;
             break;
           }
@@ -3762,7 +3762,7 @@ truth humanoid::AutoPlayAIequip()
     { //TODO let this happen for non-human too?
       static itemvector vitEqW;vitEqW.clear();GetStack()->FillItemVector(vitEqW);DBGLN;
       for(uint c = 0; c < vitEqW.size(); ++c){DBGLN;
-        if(clock()%3!=0 && GetHungerState() >= BLOATED)break;DBGLN; //randomly let it vomit and activate all related flows *eew* xD
+        if(RAND_N(3)!=0 && GetHungerState() >= BLOATED)break;DBGLN; //randomly let it vomit and activate all related flows *eew* xD
 
         //if(TryToConsume(vitEqW[c]))
         material* ConsumeMaterial = vitEqW[c]->GetConsumeMaterial(this);
@@ -3794,7 +3794,7 @@ truth humanoid::AutoPlayAIequip()
     if(game::GetTurn()>(iLastZapTurn+100)){ DBG2(game::GetTurn(),iLastZapTurn); //every X turns try to use stuff from inv
       iLastZapTurn=game::GetTurn();
 
-      int iDir=clock()%(8+1); // index 8 is the macro YOURSELF already... if(iDir==8)iDir=YOURSELF;
+      int iDir=RAND_N(8+1); // index 8 is the macro YOURSELF already... if(iDir==8)iDir=YOURSELF;
       static itemvector vitEqW;vitEqW.clear();GetStack()->FillItemVector(vitEqW);
       for(uint c = 0; c < vitEqW.size(); ++c){
         if(!vitEqW[c]->IsZappable(this))continue;

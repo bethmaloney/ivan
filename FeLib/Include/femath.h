@@ -13,6 +13,7 @@
 #ifndef __FEMATH_H__
 #define __FEMATH_H__
 
+#include <algorithm>
 #include <vector>
 #include <cmath>
 
@@ -54,6 +55,19 @@ class femath
   static long SumArray(const fearray<long>&);
   static int LoopRoll(int, int);
   static void GenerateFractalMap(int**, int, int, int);
+
+  /* Use this rather than std::random_shuffle for anything the game depends on.
+     Its two argument form draws from std::rand, which is a second generator:
+     SetSeed does not reach it, harness::CountRand cannot see it, and the audio
+     thread draws from it concurrently, so a shuffle decided by it is not
+     reproducible even from a pinned seed. */
+
+  template <class type> static void Shuffle(type First, type Last)
+  {
+    for(type i = Last; i - First > 1; --i)
+      std::iter_swap(i - 1, First + RandN(long(i - First)));
+  }
+
  protected:
   static ulong mt[];
   static long mti;

@@ -80,6 +80,13 @@
 
 namespace NameGen {
 
+/* Pins the generator this library draws from. Without it the names come from
+   an mt19937 seeded off the wall clock when the library is loaded, which puts
+   the player's default name, and so the save file, outside the control of
+   IVAN's own seed. */
+
+void SetSeed(unsigned long Seed);
+
 // Middle Earth
 #define MIDDLE_EARTH "(bil|bal|ban|hil|ham|hal|hol|hob|wil|me|or|ol|od|gor|for|fos|tol|ar|fin|ere|leo|vi|bi|bren|thor)(|go|orbis|apol|adur|mos|ri|i|na|ole|n)(|tur|axia|and|bo|gil|bin|bras|las|mac|grim|wise|l|lo|fo|co|ra|via|da|ne|ta|y|wen|thiel|phin|dir|dor|tor|rod|on|rdo|dis)"
 
