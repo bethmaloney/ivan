@@ -26,6 +26,7 @@
 
 #include "felibdef.h"
 #include "festring.h"
+#include "harness.h"
 
 #define GET_KEY globalwindowhandler::GetKey
 #define READ_KEY globalwindowhandler::ReadKey
@@ -77,7 +78,7 @@ class globalwindowhandler
 #ifdef USE_SDL
   static void Init();
   static void SetQuitMessageHandler(truth (*What)()){ QuitMessageHandler = What; }
-  static ulong UpdateTick() { return Tick = SDL_GetTicks() / 40; }
+  static ulong ReadTick() { return SDL_GetTicks() / 40; }
   static void SetFunctionKeyHandler(bool (*What)(SDL_Keycode)){ FunctionKeyHandler = What; }
   static void SetControlKeyHandler(bool (*What)(SDL_Keycode)){ ControlKeyHandler = What; }
 #endif
@@ -85,7 +86,22 @@ class globalwindowhandler
 #ifdef __DJGPP__
   static void Init() { }
   static void SetQuitMessageHandler(truth (*)()) { }
-  static ulong UpdateTick() { return Tick = uclock() * 25 / UCLOCKS_PER_SEC; }
+  static ulong ReadTick() { return uclock() * 25 / UCLOCKS_PER_SEC; }
+#endif
+
+#if defined(USE_SDL) || defined(__DJGPP__)
+
+  /* Tick is a wall clock reading, but it is not used as one: it picks the
+     animation frame of every animated terrain, item and body part drawn, and
+     char.cpp and rain.cpp let it reach game state. A replay must therefore
+     count draws rather than read the clock, or two replays of one recording
+     animate differently and none of their frame hashes can be compared. */
+
+  static ulong UpdateTick()
+  {
+    return Tick = harness::IsReplaying() ? Tick + 1 : ReadTick();
+  }
+
 #endif
 
   const static int iRestWaitKey;

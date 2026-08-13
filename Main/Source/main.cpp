@@ -39,9 +39,11 @@
 #include "whandler.h"
 #include "hscore.h"
 #include "graphics.h"
+#include "harness.h"
 #include "script.h"
 #include "specialkeys.h"
 #include "message.h"
+#include "namegen.h"
 #include "proto.h"
 #include "audio.h"
 #include "sfx.h"
@@ -112,6 +114,13 @@ int main(int argc, char** argv)
     std::cout << "--defgen Generate defines validator source file. " << std::endl;
     std::cout << "--defval Validate defines. " << std::endl;
     std::cout << "--version Show current game version. " << std::endl;
+    std::cout << "--record [file] Record every key the game reads to file. " << std::endl;
+    std::cout << "--replay [file] Play back a recording instead of reading real input. " << std::endl;
+    std::cout << "--trace [file] Write a per frame JSONL hash trace to file. " << std::endl;
+    std::cout << "--seed [number] Pin the random number seed. Continuing a saved game ignores this, as the seed is stored in the save. " << std::endl;
+    std::cout << "--shot [file.png] Write the screen to a PNG when the run ends, plus a .txt sidecar holding every string on it. " << std::endl;
+    std::cout << "--shot-dir [dir] Write every frame that differs from the one before it to dir/frame-NNNNNN.png. Uncompressed, about 1.4MB each and several hundred frames per session. " << std::endl;
+    std::cout << "--text [file] Log every string the game draws, in draw order, one line per string. " << std::endl;
     std::cout << std::endl;
     std::cout << "Environment Variables:" << std::endl;
     std::cout << "IVAN_SHOWFPS=[true] # show FPS at top right" << std::endl;
@@ -125,6 +134,12 @@ int main(int argc, char** argv)
     return 0;
   }
 
+  /* After the options that return immediately, so none of them creates a
+     recording, and before the seeding below and the first frame drawn by
+     igraph::Init(). */
+
+  harness::ParseArgs(argc, argv);
+
 #ifdef __DJGPP__
 
   /* Saves numlock state and toggles it off */
@@ -136,7 +151,17 @@ int main(int argc, char** argv)
 
   audio::Init(game::GetMusicDir());
 
-  femath::SetSeed(time(0));
+  culong Seed = harness::HasSeedOverride() ? harness::GetSeedOverride()
+                                           : ulong(time(0));
+  femath::SetSeed(Seed);
+
+  /* fantasyname keeps a generator of its own, seeded from the wall clock when
+     the library loads. It produces the player's default name, which reaches
+     the screen and the save file name, so it has to be pinned to this seed
+     too or no two runs agree. */
+
+  NameGen::SetSeed(Seed);
+
   game::InitGlobalValueMap();
   scriptsystem::Initialize();
   databasesystem::Initialize();
@@ -238,6 +263,7 @@ int main(int argc, char** argv)
   }
 
   msgsystem::DeInit();
+  harness::Shutdown();
 
   return 0;
 }

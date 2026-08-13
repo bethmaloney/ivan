@@ -11,6 +11,7 @@
  */
 
 #include <cstdio>
+#include <cstdlib>
 #include <ctime>
 #include <ratio>
 #include <chrono>
@@ -19,6 +20,7 @@
 #include "error.h"
 #include "graphics.h"
 #include "festring.h"
+#include "harness.h"
 #include "rawbit.h"
 #include "whandler.h"
 
@@ -81,7 +83,36 @@ void globalwindowhandler::DeInstallControlLoop(truth (*What)())
 
 bool globalwindowhandler::IsKeyPressed(int iSDLScanCode)
 {
+  /* Reads the hardware directly, bypassing GetKey, and reaches game state
+     through the wizard mode auto play stop, so it must not see the real
+     keyboard while a recording is being replayed. */
+
+  if(harness::IsReplaying())
+    return false;
+
   return SDL_GetKeyboardState(NULL)[iSDLScanCode];
+}
+
+/* Serves the replay short circuits in both the DJGPP and the SDL branch. When
+   the recording runs out there is nothing left to drive the game, so the run
+   ends here: quitrequest is caught in game::Run but not in main's menu loop,
+   which is exactly where a replay begins and where exhaustion is likeliest.
+   exit(0) from inside GetKey already happens on SDL_QUIT below. */
+
+static int ReplayKey()
+{
+  int Key = 0;
+
+  if(!harness::NextReplayKey(Key))
+  {
+    harness::Shutdown();
+    exit(0);
+  }
+
+  /* So that --record --replay round trips. */
+
+  harness::RecordKey(Key);
+  return Key;
 }
 
 
@@ -92,6 +123,9 @@ bool globalwindowhandler::IsKeyPressed(int iSDLScanCode)
 
 int globalwindowhandler::GetKey(truth EmptyBuffer)
 {
+  if(harness::IsReplaying())
+    return ReplayKey();
+
   if(EmptyBuffer)
     while(kbhit())
       getkey();
@@ -130,12 +164,24 @@ int globalwindowhandler::GetKey(truth EmptyBuffer)
     }
   }
 
+  harness::RecordKey(Key);
   return Key;
 }
 
 int globalwindowhandler::ReadKey()
 {
-  return kbhit() ? getkey() : 0;
+  /* Unlike the SDL version this does not delegate to GetKey, so it needs its
+     own instrumentation. Zero means no key and is not a record. */
+
+  if(harness::IsReplaying())
+    return GetKey(false);
+
+  int Key = kbhit() ? getkey() : 0;
+
+  if(Key)
+    harness::RecordKey(Key);
+
+  return Key;
 }
 
 #endif
@@ -362,6 +408,37 @@ int globalwindowhandler::GetKey(truth EmptyBuffer)
 {
   SDL_Event Event;
 
+  /* Deliberately above everything else in this function: the buffer drain, the
+     key timeout reference time, the window focus test, SDL_Delay and
+     SDL_WaitEvent. So a replay never blocks, never depends on focus and runs
+     under SDL_VIDEODRIVER=dummy. It also means the stand-by animation below
+     never runs, so BlitDBToScreen is called only from game code and the frame
+     trace of two replays of the same recording can be compared. */
+
+  if(harness::IsReplaying())
+  {
+    int Key = ReplayKey();
+
+    if(Key == KEY_MOUSE_EVENT)
+    {
+      /* The pointer position is not part of a recording, so hand the consumer
+         a fixed value instead of whatever was left over. */
+
+      LastMouseEvent = mouseclick();
+
+      static truth WarningGiven = false;
+
+      if(!WarningGiven)
+      {
+        WarningGiven = true;
+        fprintf(stderr, "harness: this recording contains mouse events, whose"
+                        " pointer positions were not recorded\n");
+      }
+    }
+
+    return Key;
+  }
+
   if(EmptyBuffer)
   {
     PollEvents(&Event);
@@ -380,15 +457,25 @@ int globalwindowhandler::GetKey(truth EmptyBuffer)
       KeyBuffer.erase(KeyBuffer.begin());
 
       if(Key > 0xE000)
-        return Key - 0xE000;
+      {
+        /* Recorded after the adjustment, which is what the caller receives. */
+
+        Key -= 0xE000;
+        harness::RecordKey(Key);
+        return Key;
+      }
 
       if(Key && Key < 0x81)
+      {
+        harness::RecordKey(Key);
         return Key;
+      }
     }
     else if(!MouseBuffer.empty())
     {
       LastMouseEvent = MouseBuffer.front();
       MouseBuffer.pop();
+      harness::RecordKey(KEY_MOUSE_EVENT);
       return KEY_MOUSE_EVENT;
     }
     else
@@ -479,6 +566,16 @@ uint globalwindowhandler::PollEvents(SDL_Event* pEvent)
 v2 v2MousePos;
 uint globalwindowhandler::UpdateMouse()
 {
+  /* The live pointer reaches the double buffer through the map note and the
+     equipment highlights, so pin it while replaying or the frame hash follows
+     the mouse around without any game state having changed. */
+
+  if(harness::IsReplaying())
+  {
+    v2MousePos = ZERO_V2;
+    return 0;
+  }
+
   /**
    * global didnt fix the wrong mouse position relatively to the visible cursor...
   if(SDL_GetWindowFlags(graphics::GetWindow()) & SDL_WINDOW_FULLSCREEN_DESKTOP)
@@ -491,6 +588,15 @@ uint globalwindowhandler::UpdateMouse()
 int globalwindowhandler::ReadKey()
 {
   SDL_Event Event;
+
+  /* Delegating reuses GetKey's single replay funnel, so exhaustion handling
+     and recording are inherited. A live ReadKey usually answers 0 for nothing
+     pending while this always answers the next key: the loops it feeds are
+     driven by the wall clock, so their iteration count can never be
+     reproduced, only the order in which the keys are consumed. */
+
+  if(harness::IsReplaying())
+    return GetKey(false);
 
 #if SDL_MAJOR_VERSION == 1
   if(SDL_GetAppState() & SDL_APPACTIVE)
@@ -512,6 +618,17 @@ int globalwindowhandler::ReadKey()
 truth globalwindowhandler::WaitForKeyEvent(uint Key)
 {
   SDL_Event Event;
+
+  /* Required, not just tidy: character::Act calls WAIT_FOR_KEY_DOWN every tick
+     of a voluntary multi turn action, and without focus the SDL_WaitEvent
+     below never returns. False also stops a replay from interrupting such an
+     action, which it could not do faithfully anyway.
+
+     Beware if FELIST_WAITKEYUP is ever defined: felist.cpp and game.cpp then
+     spin on WAIT_FOR_KEY_UP until it is true, which this would make endless. */
+
+  if(harness::IsReplaying())
+    return false;
 
 #if SDL_MAJOR_VERSION == 1
   if(SDL_GetAppState() & SDL_APPACTIVE)

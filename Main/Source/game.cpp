@@ -49,6 +49,7 @@
 #include "gear.h"
 #include "god.h"
 #include "graphics.h"
+#include "harness.h"
 #include "hscore.h"
 #include "human.h"
 #include "iconf.h"
@@ -4188,7 +4189,14 @@ void game::BusyAnimation(bitmap* Buffer, truth ForceDraw)
                          0,
                          0 };
 
-  if(ForceDraw || clock() - LastTime > CLOCKS_PER_SEC / 25)
+  /* The clock decides both how many of these frames are drawn and which of the
+     32 cache frames each one shows, so under a replay it would put the host's
+     speed into every hash BlitDBToScreen below produces. Level generation
+     calls this a fixed number of times, so drawing all of them is
+     reproducible. */
+
+  if(ForceDraw || harness::IsReplaying()
+     || clock() - LastTime > CLOCKS_PER_SEC / 25)
   {
     B2.Bitmap = Buffer;
     B2.Dest.X = (RES.X >> 1) - 100 + EnterTextDisplacement.X;

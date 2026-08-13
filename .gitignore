@@ -1,5 +1,9 @@
 # Do not track these files.
 
+# CMake build trees
+build/
+build-*/
+
 # Node artifact files
 node_modules/
 dist/

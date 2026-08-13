@@ -30,6 +30,7 @@
 #include "rawbit.h"
 #include "felist.h"
 #include "feio.h"
+#include "harness.h"
 
 void (*graphics::SwitchModeHandler)();
 
@@ -275,6 +276,8 @@ void graphics::SetMode(cchar* Title, cchar* IconName,
 
 void graphics::BlitDBToScreen()
 {
+  harness::TraceFrame();
+
 #if SDL_MAJOR_VERSION == 1
   SDL_LockSurface(TempSurface);
   packcol16* SrcPtr = DoubleBuffer->GetImage()[0];
@@ -680,6 +683,12 @@ int graphics::GetTotSRegions(){
 
 void graphics::BlitDBToScreen()
 {
+  /* Before PrepareBuffer() below, which scales through xBRZ and also draws the
+     DrawAboveAll overlays into the double buffer itself when no stretch region
+     fired, so hashing its result would depend on the user's configuration. */
+
+  harness::TraceFrame();
+
 #if SDL_MAJOR_VERSION == 1
   if(SDL_MUSTLOCK(Screen) && SDL_LockSurface(Screen) < 0)
     ABORT("Can't lock screen");
@@ -830,6 +839,8 @@ void graphics::SetMode(cchar*, cchar*, v2 NewRes, truth)
 
 void graphics::BlitDBToScreen()
 {
+  harness::TraceFrame();
+
   movedata(_my_ds(), ulong(DoubleBuffer->GetImage()[0]),
            ScreenSelector, 0, BufferSize);
 }

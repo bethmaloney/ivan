@@ -20,6 +20,7 @@
 #include "bitmap.h"
 #include "save.h"
 #include "femath.h"
+#include "harness.h"
 
 void rawbitmap::MaskedBlit(bitmap* Bitmap, packcol16* Color) const { MaskedBlit(Bitmap, ZERO_V2, ZERO_V2, Size, Color); }
 
@@ -426,6 +427,14 @@ void rawbitmap::Printf(bitmap* Bitmap, v2 Pos, packcol16 Color, cchar* Format, .
   vsnprintf(Buffer, sizeof(Buffer), Format, AP);
   va_end(AP);
 
+  /* Both Printf paths below turn the string into 8x8 glyph blits, after which
+     it is only recoverable by reading pixels. The harness takes a copy here so
+     that a headless capture can be read as text. Inert unless a capture mode
+     was asked for on the command line. */
+
+  if(harness::IsCapturingText())
+    harness::RecordText(Bitmap, Pos.X, Pos.Y, Color, Buffer);
+
   fontcache::const_iterator Iterator = FontCache.find(Color);
 
   if(Iterator == FontCache.end())
@@ -469,6 +478,9 @@ void rawbitmap::PrintfUnshaded(bitmap* Bitmap, v2 Pos, packcol16 Color, cchar* F
   va_start(AP, Format);
   vsnprintf(Buffer, sizeof(Buffer), Format, AP);
   va_end(AP);
+
+  if(harness::IsCapturingText())
+    harness::RecordText(Bitmap, Pos.X, Pos.Y, Color, Buffer);
 
   fontcache::const_iterator Iterator = FontCache.find(Color);
 

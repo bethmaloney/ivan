@@ -14,6 +14,7 @@
 
 #include "femath.h"
 #include "error.h"
+#include "harness.h"
 #include "save.h"
 
 cint basequadricontroller::OrigoDeltaX[4] = { 0, 1, 0, 1 };
@@ -90,6 +91,12 @@ void femath::SetSeed(ulong Seed)
 
 long femath::Rand()
 {
+  /* Every other generator here funnels through this one, so this single
+     counter sees all of them. Draws made between SaveSeed and LoadSeed are
+     counted too even though they are discarded; see harness.h. */
+
+  harness::CountRand();
+
   ulong y;
   static ulong mag01[2]={0x0, MATRIX_A};
 
@@ -278,6 +285,7 @@ truth femath::Clip(int& SourceX, int& SourceY,
 
 void femath::SaveSeed()
 {
+  harness::EnterSeedBracket();
   mtib = mti;
 
   for(int c = 0; c < N1; ++c)
@@ -286,6 +294,7 @@ void femath::SaveSeed()
 
 void femath::LoadSeed()
 {
+  harness::LeaveSeedBracket();
   mti = mtib;
 
   for(int c = 0; c < N1; ++c)
