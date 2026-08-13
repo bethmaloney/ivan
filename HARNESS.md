@@ -748,43 +748,53 @@ deliberate save-format break, so it wants a decision, not a drive-by.
 
 ## 8. Change inventory
 
-**Nothing is committed.** Working tree only.
+Committed on **`master` of the fork `bethmaloney/ivan`**, seven commits on top of upstream
+`de528ac`. `origin` still points at `Attnam/ivan` and is untouched; the fork is the remote
+named `fork`. **Nothing has been offered upstream.**
 
-Modified (19 files):
+| | Commit | Covers |
+|---|---|---|
+| 1 | `d4bda10` audio: continue without music when MIDI init fails | §6.1 |
+| 2 | `bfec4d1` Initialise memory that game logic and saves read | §6.1, §6.6 |
+| 3 | `a6f0c4a` Draw every game decision from the seeded generator | §6.1, §6.5 |
+| 4 | `ada30b4` Add a record/replay/trace harness | §4, §6.5a |
+| 5 | `2b79f7f` Add savediff, a differential reader for saved games | §5 |
+| 6 | `9a19bf2` Add play.py, a driver for steering the game | §5a |
+| 7 | `21a050b` Add HARNESS.md | this file |
+
+**Commits 1–3 depend on nothing the harness adds and are separately upstreamable.** They are
+pre-existing bugs that determinism testing merely made visible — the MIDI one fixes a launch
+failure on any machine without an ALSA sequencer, harness or no harness. That is why they are
+ordered first, and why `audio.cpp` and `graphics.cpp` were split by hunk rather than letting a
+bug fix ride along inside the harness commit.
+
+**Every commit builds independently**, verified by checking each one out into an isolated
+worktree and building it. Note `cmake` must be re-run per commit, not just `make`, because
+`FeLib/CMakeLists.txt` globs its sources. A clean build at the tip is exit 0 with **84
+warnings — the same count as the pre-change baseline**.
+
+Files touched, by area:
+
 ```
-CMakeLists.txt              FeLib/Source/rawbit.cpp      Main/Source/char.cpp
-FeLib/Include/femath.h      FeLib/Source/sfx.cpp         Main/Source/game.cpp
-FeLib/Include/whandler.h    FeLib/Source/whandler.cpp    Main/Source/main.cpp
-FeLib/Source/femath.cpp     audio/audio.cpp              Main/Source/worldmap.cpp
-FeLib/Source/graphics.cpp   fantasyname/namegen.cc       fantasyname/namegen.h
-Main/Include/script.h       Main/Include/igraph.h        Main/Source/database.cpp
-Main/Source/human.cpp
+harness core      FeLib/Include/harness.h      FeLib/Source/harness.cpp
+integration       FeLib/Source/whandler.cpp    FeLib/Include/whandler.h
+                  FeLib/Source/graphics.cpp    FeLib/Source/femath.cpp
+                  FeLib/Source/rawbit.cpp      Main/Source/main.cpp
+                  Main/Source/game.cpp
+RNG unification   FeLib/Include/femath.h       FeLib/Source/sfx.cpp
+                  audio/audio.cpp              fantasyname/namegen.{cc,h}
+                  Main/Source/char.cpp         Main/Source/human.cpp
+                  Main/Source/worldmap.cpp
+uninitialised     Main/Include/script.h        Main/Include/igraph.h
+                  Main/Source/database.cpp     FeLib/Source/graphics.cpp
+tools             tools/savediff/              tools/play/
+build             CMakeLists.txt               .gitignore
 ```
 
-The §6.5 and §6.6 work added three files to that list and touched two more:
-
-- `Main/Source/char.cpp`, `Main/Source/human.cpp` — the 19 `clock()` sites (§6.5).
-- `Main/Include/igraph.h` — `graphicid` zero-initialized (§6.6).
-- `Main/Source/database.cpp` — `new database()` (§6.6).
-- `FeLib/Include/harness.h`, `FeLib/Source/harness.cpp`, `FeLib/Source/femath.cpp` — the
-  `grng`/`nest`/`depth` attribution (§6.5a). Two inline counter bumps in `CountRand` and one each
-  in `SaveSeed`/`LoadSeed`; the zero-cost-when-disabled property is unaffected.
-
-New (untracked):
-```
-FeLib/Include/harness.h
-FeLib/Source/harness.cpp
-tools/savediff/CMakeLists.txt
-tools/savediff/Source/savediff.cpp
-tools/play/play.py
-tools/play/README.md
-```
-
-`rawbit.cpp` is the only file the capture work added to the modified list: two guarded
-`harness::RecordText` calls and one include.
-
-A clean build after all of this is **exit 0 with 84 warnings — the same count as the
-pre-change baseline**, verified by rebuilding from scratch in a separate build directory.
+`rawbit.cpp` is the only file the capture work added to the list: two guarded
+`harness::RecordText` calls and one include. `.gitignore` gained `build/` and `build-*/`,
+which were untracked but not ignored — a careless `git add -A` would have committed 35MB of
+objects plus a `play-session/` directory of saves.
 
 ---
 
