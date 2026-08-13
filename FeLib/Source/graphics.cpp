@@ -241,8 +241,14 @@ void graphics::SetMode(cchar* Title, cchar* IconName,
 #endif
 
   globalwindowhandler::Init();
-  DoubleBuffer = new bitmap(NewRes);
-  StretchedBuffer = new bitmap(NewRes); DBG2("StretchedBuffer",StretchedBuffer);
+
+  /* Cleared, not raw: bitmap(v2) leaves the pixels as whatever the allocator
+     handed back, and iosystem::Menu fades the previous contents of the double
+     buffer in over its first frames, so the menu of a fresh process would
+     otherwise blend uninitialised memory and never draw twice the same. */
+
+  DoubleBuffer = new bitmap(NewRes, 0);
+  StretchedBuffer = new bitmap(NewRes, 0); DBG2("StretchedBuffer",StretchedBuffer);
   Res = NewRes;
   SetScale(NewScale);
   ColorDepth = 16;
@@ -811,7 +817,7 @@ void graphics::SetMode(cchar*, cchar*, v2 NewRes, truth)
   Res.Y = ModeInfo.Height;
   BufferSize = Res.Y * ModeInfo.BytesPerLine;
   delete DoubleBuffer;
-  DoubleBuffer = new bitmap(Res);
+  DoubleBuffer = new bitmap(Res, 0);
   __dpmi_meminfo MemoryInfo;
   MemoryInfo.size = BufferSize;
   MemoryInfo.address = ModeInfo.PhysicalLFBAddress;

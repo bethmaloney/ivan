@@ -108,7 +108,16 @@ template <class type> void databasecreator<type>::ReadFrom(inputfile& SaveFile)
       {
         ABORT("Database has no description of <%s>!", const_cast<char*>(Proto->Base->GetClassID()));
       }
-      database *DataBase = Proto->Base ? new database(**Proto->Base->ConfigData) : new database;
+      /* new database() and not new database: the database structs have no
+         user-declared constructor, so the parentheses value-initialize every
+         POD member and leave the class-typed ones default-constructed as
+         before. Without them a field that neither InitDefaults nor the .dat
+         file mentions keeps whatever the heap held, and game logic reads it -
+         item::GetBaseDamage() through DataBase->DamageBonus, for one. Every
+         other database allocation here copy-constructs from this root, so
+         initializing it covers them all. */
+
+      database *DataBase = Proto->Base ? new database(**Proto->Base->ConfigData) : new database();
       DataBase->InitDefaults(Proto, 0);
       TempConfig[0] = DataBase;
       int Configs = 1;

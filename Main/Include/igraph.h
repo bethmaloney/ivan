@@ -13,6 +13,7 @@
 #ifndef __IGRAPH_H__
 #define __IGRAPH_H__
 
+#include <cstring>
 #include <map>
 #include <vector>
 
@@ -33,7 +34,21 @@ class festring;
 
 struct graphicid
 {
-  graphicid() = default;
+  /* Every byte of this object is significant: operator< below memcmps the
+     whole struct because it is a std::map key, and the serializer writes the
+     whole struct with a raw Write. So padding is a real input to both the
+     graphics cache ordering and the save content, and = default left it
+     uninitialized - object::UpdatePictures builds its key on the stack, so the
+     padding carried whatever the last call left there.
+
+     There is padding to carry, in Main only: NO_ALIGNMENT is
+     __attribute__((packed)) only where -DGCC is defined, and
+     FeLib/CMakeLists.txt defines it for FeLib alone, so this struct is 47
+     bytes in FeLib and 48 - one tail padding byte that nothing writes - in
+     Main. memset covers the hole; see HARNESS.md for the layout mismatch,
+     which is a separate bug and still open. */
+
+  graphicid() { memset(this, 0, sizeof(*this)); }
   bool operator<(const graphicid&) const;
   ushort BitmapPosX NO_ALIGNMENT;
   ushort BitmapPosY NO_ALIGNMENT;

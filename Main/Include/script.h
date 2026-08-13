@@ -114,7 +114,13 @@ template <class type> inline scriptmember<type>& scriptmember<type>::operator=(c
 
 template <class type> struct fastscriptmember : public scriptmemberbase
 {
-  fastscriptmember() = default;
+  /* Value initialised, not defaulted: Save() writes Member unconditionally, so
+     a member the script never set used to put four bytes of whatever the
+     allocator last held into the save file. That is undefined behaviour, it
+     leaks heap contents, and it made two identical runs save different
+     bytes. */
+
+  fastscriptmember() : Member() { }
   fastscriptmember(type Member) : Member(Member) { }
   virtual void ReadFrom(inputfile&);
   virtual void Replace(scriptmemberbase&);
