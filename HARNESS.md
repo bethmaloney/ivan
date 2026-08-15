@@ -1,10 +1,14 @@
 # IVAN Differential Test Harness — Progress & Handoff
 
-**Status:** working and verified. Twenty-four commits on `master` of the fork (§8). Nothing has
+**Status:** working and verified. Twenty-five commits on `master` of the fork (§8). Nothing has
 been offered upstream. The corpora are committed (§5b), the host libm is no longer an input
-(§6.7), and the one known Emscripten build error is fixed (§6.8). **The tree now compiles and
-links under Emscripten** — the remaining blocker is that the SDL2 port needs a DOM, which is
-§9.3, not a build problem.
+(§6.7), and the one known Emscripten build error is fixed (§6.8).
+
+**Seam 1 is open and half proven.** The WASM build runs headless under bare node (§9.3's
+no-video path, now `--headless`), and on the non-combat corpus a native replay and a WASM
+replay produce **byte-identical frame traces, text logs, screenshots, world maps and level
+files**. The auto-play corpus agrees for its first 389 frames and then diverges inside a long
+combat; what is found and fixed, what is left, and how to hunt the rest is §9.4.
 **Last updated:** 2026-08-15
 
 ---
@@ -76,7 +80,14 @@ validates the *rewrite*. You need both, in that order.
 | Emscripten build of the whole tree | exit 0 — `ivan.js` + a 6.2MB `ivan.wasm` |
 | `sizeof(long)` under `wasm32-unknown-emscripten` | **4** — measured, not assumed; the premise of §6.8 |
 | Native build and both corpora after the §9.3 CMake change | unchanged, **8/8 against goldens** |
-| WASM binary run under node | reaches `main`, reads the recording off the real FS, **aborts in SDL video init** (§9.3) |
+| WASM binary run under node, `--headless` | **runs both corpora to completion**, 2.4s for non-combat |
+| Native `--headless` vs native windowed, both corpora | trace, text log, screenshot and sidecar **byte-identical** |
+| **Native vs WASM, non-combat corpus** | trace, text log, screenshot, sidecar, `.wm` and level file **all byte-identical**; `.sav` differs by the one `GetTimeSpent` byte |
+| **Native vs WASM, auto-play corpus** | identical for 389 of 593 frames, and `.wm` and the descent level file are byte-identical; then diverges (§9.4) |
+| `portmath` output under GCC vs under Emscripten, 14,000 evaluations | **bit-identical** — §6.7's pin holds across compilers, not just across libms |
+| Level file across 4 ordinary runs, after §6.6e | **1 distinct** on both corpora; was 4 |
+| Uninitialized bytes reaching a level file, after §6.6e | **0** on both corpora, `MALLOC_PERTURB_` 42 vs 99 |
+| `valgrind` uninitialized reads, after §6.6e | **0 / 0** on both corpora |
 
 Everything above was re-measured from a clean build on 2026-08-15 and still holds. The
 level-file divergence is now **closed for both families the corpora reach** — `character`
@@ -99,7 +110,14 @@ neither corpus visits the whole world map, `.wm` still has the §6.2/§7.6 resid
 number here is a property of the levels these 210 keys generate. Treat native-vs-WASM as
 unblocked for the reached paths and unproven elsewhere, and keep widening the corpus before
 claiming more. The way §6.6d found a family that three prior passes had walked past is the
-argument for not trusting a clean valgrind as coverage.
+argument for not trusting a clean valgrind as coverage — and §6.6e is that argument being
+proved right a second time, by two fields no earlier pass had reached.
+
+**The determinism rows and the native-vs-WASM rows measure different things, and the second is
+much harder.** A build reproducing itself only needs the *program* to be deterministic. Two
+builds agreeing needs every place the program leaves a choice to the *compiler or the standard
+library* to have been closed as well, and §9.4 is a list of a dozen such places that no
+same-build test could ever have found.
 
 Two rules for anyone measuring determinism here, both learned by getting it wrong first:
 **give every run its own directory** (a portable build writes saves and question history into
@@ -111,10 +129,22 @@ layer can be a golden artifact in CI, not just a debugging aid.
 
 ### Not yet verified
 
+- **The rest of the auto-play corpus, native vs WASM.** It agrees for 389 of 593 frames and then
+  diverges in combat. §9.4 says what has been ruled out and how to continue.
 - **Uninitialized reads outside the two corpora.** Both corpora are clean under memcheck as of
-  §6.6d; nothing is known-broken and unfixed. What is unverified is everything they do not
-  reach — the rest of the world map, and the `.wm` residue of §6.2/§7.6.
-- **DJGPP / SDL1 branches.** Edited but no toolchain available to compile them.
+  §6.6e; nothing is known-broken and unfixed. What is unverified is everything they do not
+  reach — the rest of the world map, and the `.wm` residue of §6.2/§7.6. §6.6e is the second
+  time a corpus change alone surfaced a family three earlier passes had walked past, so read a
+  clean memcheck as "clean on what this corpus touches" and nothing more.
+- **Unsequenced draws and library ties outside what §9.4 fixed.** The scan behind §9.4 finds
+  *visible* draws sharing a statement. A visible draw unsequenced with a draw hidden inside a
+  called function is the same bug and no grep finds it — that is what
+  `SetLTerrain(GTerrain->Instantiate(), OTerrain->Instantiate())` was, and it was the most
+  consequential site of the lot. Likewise the comparators audited were the ones the corpora
+  reach.
+- **DJGPP / SDL1 branches.** Edited but no toolchain available to compile them. `--headless` is
+  guarded in the SDL branches only; the DJGPP `BlitDBToScreen` still writes to the VESA frame
+  buffer.
 
 The auto-play AI **does** run now (§7.2) and generates thousands of turns of real play, and as
 of §6.5 it reproduces: 2,800 turns including 36 deaths replay identically 16 times over. It is
@@ -168,16 +198,37 @@ thousands of frames from the cause. `latest` is not a toolchain, it is a moving 
 SDL2, SDL2_mixer and libpng come from Emscripten's own ports rather than the host — see §9.3
 for what that changed in the CMake files and why the flags are global. Two build options exist
 only on this target: `WASM_NODERAWFS` (ON, real filesystem under node — the harness needs to
-write its trace somewhere) and `WASM_ASYNCIFY` (ON, for interactive input; a replay never
-reaches the blocking path, so seam-1 runs do not need it).
+write its trace somewhere) and `WASM_ASYNCIFY` (ON, for interactive input; a replay does reach
+`SDL_Delay` through the menu fade, so leave it on).
+
+**`-fexceptions` is not optional on this target and is not a tuning knob.** Emscripten disables
+exception *throwing* by default, so `__cxa_throw` lowers to `abort()`, and IVAN throws as
+ordinary control flow: `areachangerequest` on every level change, `quitrequest` on quit,
+`genericException` out of the prototype database. Without it the WASM build dies drawing the
+main menu with a bare `Aborted(undefined)` and no stack. It is in the global compile *and* link
+flags in `CMakeLists.txt` for the §7.7 reason — the compile half is what emits the landing pads,
+so a translation unit built without it cannot catch what another one throws.
 
 ### Run headless
 
 ```bash
-SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy ./ivan --replay in.rec --trace out.jsonl --seed 999
+./ivan --replay in.rec --trace out.jsonl --seed 999 --headless          # native
+node build-wasm/Main/ivan.js --replay in.rec --trace out.jsonl --headless   # WASM
 ```
 
 Run from a directory containing `Graphics/ Script/ Music/ Sound/` (symlinks are fine).
+
+`--headless` is what makes those two command lines the same program. It skips the window, the
+renderer, the streaming texture, the final blit and `Mix_OpenAudio`, and skips nothing else:
+rendering is software into the bitmap double buffer either way, and `TraceFrame()` hashes that
+buffer before any of the skipped work. Native runs produce byte-identical traces, text logs and
+screenshots with it and without it, measured on both corpora.
+
+It replaces `SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy`, which still works natively and is
+still passed by `run-corpus.sh` as a belt-and-braces measure. Two reasons the decision had to
+move into the program: Emscripten's SDL2 port binds to the DOM at video init whatever the
+driver hint says, and **Emscripten does not forward the process environment into the module**,
+so under node those two variables reach nothing at all.
 
 ### Reproduce the determinism test
 
@@ -214,6 +265,10 @@ diff gena.jsonl genb.jsonl && echo IDENTICAL
                       so ~600MB to reach the first dungeon level.
 --text     [file]     Log every string the game draws, in draw order, for the
                       whole session.
+--headless            Run with no window, no renderer and no audio device. The
+                      game still renders in full into the double buffer, so
+                      --trace, --shot and --text all work. Required for the
+                      WASM build under node; free and byte-identical natively.
 ```
 
 ### API — `FeLib/Include/harness.h`
@@ -236,6 +291,9 @@ namespace harness
   void RecordText(const void* Target, int X, int Y, int Color, cchar*);
   void WriteShot(cchar* FileName, cchar* Reason);
 
+  inline truth IsHeadless();       // --headless, read by graphics.cpp,
+                                   // whandler.cpp and sfx.cpp
+
   inline void CountRand();         // ++RandCount
   inline ulong GetRandCount();
 
@@ -257,6 +315,9 @@ allocation, formatting or I/O.
 | `FeLib/Source/femath.cpp` | `CountRand()` in `femath::Rand()` |
 | `FeLib/Source/rawbit.cpp` | `RecordText()` in `Printf` and `PrintfUnshaded` |
 | `Main/Source/main.cpp` | `ParseArgs`, seed override, `Shutdown`, `--help` text |
+| `FeLib/Source/graphics.cpp` | `IsHeadless()` guards `SDL_Init`'s video bit, the window, the renderer, the texture, `SetScale`, `SwitchMode` and the blit |
+| `FeLib/Source/whandler.cpp` | `IsHeadless()` guards `SDL_ShowWindow` |
+| `FeLib/Source/sfx.cpp` | `IsHeadless()` declines to open an audio device |
 
 `TraceFrame()` hashes **`DOUBLE_BUFFER`, before `PrepareBuffer()`**. This is deliberate:
 `PrepareBuffer()` applies stretch regions and xBRZ scaling, so hashing its output would make
@@ -370,21 +431,28 @@ savediff [options] <dir-a> <dir-b>
 Exit: 0 all match, 1 something differs, 2 error.
 ```
 
-### Critical limitation — the *current* save format is not a native-vs-WASM oracle
+### The save format is a native-vs-WASM oracle now, and this section used to say it was not
 
-`SAVE_COMPATIBILITY` is dead code, so `long`/`ulong` serialize at **native width**. A WASM
-save is ILP32; every field after the first `long` sits at a different offset. `--word-size`
-exists to make this explicit rather than silently decoding a 32-bit save with 64-bit fields.
+**Measured 2026-08-15: a native `--headless` replay and a WASM one produce byte-identical `.wm`
+and level files on the non-combat corpus, at the same size, decoded at the same
+`--word-size 64`.** The `.sav` differs by the single `GetTimeSpent` byte below. On the auto-play
+corpus the `.wm` and the descent level file are byte-identical too, and what differs afterwards
+is real game state (§9.4), not format.
 
-**This is a format problem, not a tool problem.** savediff reads faithfully; the two platforms
-write different files. §7.9 scopes what it would take to fix, and the answer is smaller than it
-looks: half the format is already portable, and `long`/`ulong` is the only broken primitive.
-Do not read this section as "saves can never work across platforms" — read it as "they do not
-today, and here is the bounded piece of work that would change that."
+What this section used to say — that `long`/`ulong` serialize at native width, so a WASM save is
+ILP32 and every field after the first `long` sits at a different offset — was true when it was
+written and was fixed by §6.8, which writes both as 8 explicit little-endian bytes on every
+target. That closed the container-length problem with it, since every container writes its size
+as a `ulong`. `--word-size` survives for reading saves written before that change.
 
-**Consequence for the port plan meanwhile:** savediff works for native-vs-native regression
-testing but cannot validate the WASM port as things stand. Frame hashing carries that load until
-§7.9 lands.
+Two things are still open and are not contradicted by the measurement above: `graphicid` and
+`configid` are still written with a raw `sizeof` (§7.9 item 4), so they carry host layout and
+agree only because both targets happen to lay those two structs out the same way; and a `long`
+holding more than 32 bits would still narrow on load under wasm32. Neither has been audited.
+
+**Consequence for the port plan:** savediff is now a second, independent check on seam 1 rather
+than a native-only regression tool — and a sharper one than frame hashing for anything that does
+not reach the screen, which is exactly the class §6.4 is about.
 
 ### Other savediff notes
 
@@ -453,18 +521,32 @@ check them. Full notes in `tools/corpora/README.md`.
 ```bash
 tools/corpora/verify-corpora.sh          # 8 runs each: self-consistency, then golden
 tools/corpora/verify-corpora.sh --update # regenerate the goldens deliberately
+tools/corpora/compare-targets.sh         # native vs WASM: do two builds agree? (§9.4)
 ```
 
 About nine seconds for both corpora at eight runs each, which is cheap enough for CI (§7.3).
 
+The two scripts answer different questions and you want both. `verify-corpora.sh` compares a
+build against the committed goldens — *did this build change?* `compare-targets.sh` replays each
+corpus on two builds and compares them against each other — *do these two builds agree?* A
+change that moves both builds identically passes the second and fails the first; a
+compiler-dependent expression (§9.4) does the reverse, which is why nine such bugs survived
+every determinism test in this document.
+
 | | keys | lands on | frames | RNG draws |
 |---|---|---|---|---|
-| `noncombat.rec` | 7 | UT lvl 1, turn 3, HP 37/37 | 441 | — |
-| `autoplay-200.rec` | 210 | UT lvl 1, turn 202, **HP 29/37** | 679 | 1,670,383 |
+| `noncombat.rec` | 7 | UT lvl 1, turn 3, HP 37/37 | 365 | 1,075,023 |
+| `autoplay-200.rec` | 210 | UT lvl 1, turn 161, **HP 24/35** | 592 | 1,517,713 |
 
 Both are seed 999; `autoplay-200` extends `noncombat` with wizard mode and 200 AI actions.
-The HP and frame counts are the check values §6.6a–d were measured against, so a regenerated
-corpus can be confirmed to be the same corpus rather than assumed to be.
+The HP and frame counts are the check values a regenerated corpus is confirmed against.
+
+**These numbers moved once, in §9.4, and the older ones are all over §6.6a–d.** Until then the
+corpus landed at turn 202 with HP 29/37 and 441 / 679 frames. That is the same 210 keys and the
+same seed read by GCC 13; §9.4 stopped a dozen expressions letting the compiler choose which
+random draw went where, so the world these keys generate is now one world instead of one per
+compiler. When comparing against a measurement in §6.6a–d, check which set of numbers it was
+taken against before concluding anything.
 
 **Why this needed committing at all.** Every determinism number in this document is relative
 to these two key sequences, and until now they existed only as a paragraph describing how to
@@ -476,9 +558,11 @@ own directory, and the default is 8 runs rather than 2. `run-corpus.sh` also **p
 options**, because §6.6 records that changing them changes the allocation history; a golden
 trace only means something if the command line that produced it is fixed.
 
-Saves are deliberately not compared — see `tools/corpora/README.md`. Level files and `.wm` do
-reproduce (§6.6d), but `.sav` carries the `GetTimeSpent` byte of §5, which is a wall-clock
-flake and gives 2 distinct `.sav` files in 8 runs on the longer corpus.
+Saves are deliberately not compared by `verify-corpora.sh` — see `tools/corpora/README.md`.
+Level files and `.wm` do reproduce (§6.6d, §6.6e), but `.sav` carries the `GetTimeSpent` byte of
+§5, which is a wall-clock flake and gives 2 distinct `.sav` files in 8 runs on the longer corpus.
+`compare-targets.sh` does run savediff and prints its verdict, but never lets it decide the exit
+status, for the same reason.
 
 ## 6. Findings
 
@@ -1151,6 +1235,42 @@ on, no `MALLOC_PERTURB_`, nothing special — produced eight different level fil
 one. Every previous section in this series needed a fixed heap fill or ASLR disabled before the
 level file would reproduce at all; this is the first measurement taken with neither.
 
+### 6.6e Two more fields that reach a level file — FIXED (new)
+
+Same family as §6.6a-d, found the same way, and found because §9.4 changed what the corpora
+generate: a different dungeon reaches different classes. Two ordinary replays started producing
+four distinct level files again out of four runs, with the trace, the text log and the
+screenshot still byte-identical — the §6.4 shape exactly.
+
+| noncombat corpus | before | after |
+|---|---|---|
+| level-file bytes leaked, fill 42 vs 99 | 4 in 1 region | **0** |
+| distinct level files, 4 ordinary runs | 4 | **1** |
+| valgrind errors / contexts | 1 / 1 | **0 / 0** |
+
+- **`itemtrapbase::Team`** (`trap.h`). `itemtrapbase() : Active(false) { }` initialises one
+  member of three and `Save` writes `Team` unconditionally, so any level holding an unarmed item
+  trap — a mine, in this corpus — carried four bytes of heap. Now `NO_TEAM`, which is what
+  `TeleportRandomly` resets it to and what an unowned trap means. Nothing reads it while
+  `Active` is false: `CanBeSeenBy` short-circuits on `!Active`.
+- **`earth::PictureIndex`** (`lterras.h`). `PostConstruct` picks one of four earth tiles with
+  `RAND() & 3`, but it does not run on every path that creates an `earth`, and `Save` writes the
+  field on all of them. Now 0, which is one of the four values `PostConstruct` itself chooses.
+
+**The technique that found it is worth more than the fix, and it is new here.** §6.4a warns that
+valgrind's `write`/`writev` frames name whichever call flushed the 8KB `filebuf`, not the call
+that put the bad bytes in it — and that warning cost real time again: memcheck confidently named
+`earth::Save`, the earth field was zeroed, and the leak did not move. Making the save stream
+**unbuffered** for one diagnostic run collapses the two:
+
+```cpp
+File.rdbuf()->pubsetbuf(0, 0);   // before open(), in outputfile::outputfile
+```
+
+Every `<<` then becomes its own syscall, so memcheck's stack names the actual writer.
+`itemtrapbase::Save` appeared immediately. Do this first next time; it turns §6.4a's "the read
+half of the report is not sound for buffered output" from a caveat into a non-issue.
+
 ### 6.7 The host libm is no longer an input — FIXED (new)
 
 `sin`, `cos`, `atan`, `log10` and `pow` are not correctly rounded by any standard, so every
@@ -1191,6 +1311,17 @@ returned a different number and no state moved, because none of them truncated a
 boundary in these runs. That holds for this seed and these two corpora and nothing more,
 which is the argument *for* pinning: without it the first symptom would be an unexplained
 frame-hash divergence in a WASM build, thousands of frames from the cause.
+
+**Re-measured across compilers, 2026-08-15, and it holds.** Everything in this section compared
+musl against glibc with one compiler. What a WASM port actually needs is the *same* musl source
+compiled by two different compilers agreeing, which is a different claim and was never tested.
+It is now: a probe linking `portmath/src/*.c` with `pm_log`, `pm_sincos`, `pm_log10`, `pm_atan`
+and `pm_pow` over 2,000 arguments each — the shapes `NormalDistributedRand` and world gen
+actually produce — gives **bit-identical output** from `gcc -O2` and from `emcc -O2`, 14,000
+evaluations, same md5. The `-ffp-contract=off` and `-fno-builtin` on the portmath target are
+what earn that, and `__FP_FAST_FMA` is undefined on both targets so the `log`/`pow` fast paths
+agree as well. This mattered: when §9.4's hunt reached a float-heavy AI function, being able to
+*eliminate* the math in one cheap measurement was worth more than another guess.
 
 **The instrument was `LD_PRELOAD`, and it is worth reusing.** Interposing libm and recording
 `__builtin_return_address(0)` gives every call with its caller, which is how the site table
@@ -1239,10 +1370,13 @@ numbers (§6.7), and the `time_t` overload that would have failed the Emscripten
 is fixed along with the container-length width behind it (§6.8). **The Emscripten build itself
 now compiles and links** (§9.3), so the port is past the build-system stage entirely.
 
-What stands between here and a native-vs-WASM frame comparison is one thing: the SDL2 port wants
-a DOM, and the game needs a no-video path to run headless under node (§9.3). That is the work to
-do next, and it is worth getting right locally before any of it is automated. CI (§7.3) and the
-format warnings (§7.8) follow from that rather than gate it, and §9's step 1 (native scaling) is
+**The native-vs-WASM frame comparison exists and runs** — `tools/corpora/compare-targets.sh`,
+on top of the `--headless` path that closed §9.3's DOM blocker. It passes outright on the
+non-combat corpus and gets 389 of 593 frames into the auto-play one. **The single most valuable
+thing to do next is to finish it**: §9.4 names the remaining divergence, what has been ruled out,
+and the four-step technique that localised the nine already fixed. Everything else in this
+section is smaller. CI (§7.3) should wire in `compare-targets.sh` alongside `verify-corpora.sh`
+once it passes on both corpora; the format warnings (§7.8) and §9's step 1 (native scaling) are
 independent of all of it.
 
 The fluid family took one pass (§6.6d, 283 → 0, and 400 bytes → 0) and closed §7.6a with it —
@@ -1532,7 +1666,7 @@ savediff to prove the change did not alter semantics.
 
 ## 8. Change inventory
 
-Committed on **`master` of the fork `bethmaloney/ivan`**, twenty-four commits on top of upstream
+Committed on **`master` of the fork `bethmaloney/ivan`**, twenty-nine commits on top of upstream
 `de528ac`. `origin` still points at `Attnam/ivan` and is untouched; the fork is the remote
 named `fork`. **Nothing has been offered upstream.**
 
@@ -1561,7 +1695,20 @@ named `fork`. **Nothing has been offered upstream.**
 | 21 | `74980f1` Replace PCRE with std::regex and drop the dependency | §3, §9.2 |
 | 22 | `93119af` Make the build CMake 4 clean | §2, §9.2 |
 | 23 | `37cdb01` Build for Emscripten with SDL2, SDL2_mixer and libpng from ports | §3, §9.3 |
-| 24 | HARNESS.md: record the Emscripten build and the emsdk pin | §2, §3, §6.3, §7.3, §7.8, §8, §9.3 |
+| 24 | `84ba551` HARNESS.md: record the Emscripten build and the emsdk pin | §2, §3, §6.3, §7.3, §7.8, §8, §9.3 |
+| 25 | `54f27ed` Give the game a headless path so it needs no display or audio device | §2, §3, §4, §9.3 |
+| 26 | `8db4967` Build for Emscripten with exceptions enabled | §3, §9.3 |
+| 27 | `4428a26` Initialise trap and terrain members that level files read | §2, §6.6e |
+| 28 | `7ff0d4b` Stop the compiler and the standard library deciding the game | §2, §5, §5b, §9.4 |
+| 29 | HARNESS.md: record the headless path and the first native-vs-WASM comparison | §2, §3, §4, §5, §5b, §6.6e, §6.7, §7, §8, §9.3, §9.4 |
+
+**Commits 27 and 28 are the ones worth upstream's attention.** 27 is two more of the
+uninitialized-member family. 28 is nine defects that have been in the game for years and that
+nobody could have found without compiling it twice: a font blit whose width was
+`20 / sizeof(ulong)`, a dozen expressions that let the compiler choose which random draw went
+where, and six comparators that let the standard library choose how to break a tie. They change
+what a given seed generates, which is the one thing that makes them awkward to offer — the fix
+is not a no-op for anyone's saved game.
 
 **Commits 1–3, 11, 13, 15, 18, 19, 21 and 22 depend on nothing the harness adds and are
 separately upstreamable.** 18 and 19 are portability fixes rather than bug fixes — 19 in
@@ -1614,7 +1761,23 @@ RNG unification   FeLib/Include/femath.h       FeLib/Source/sfx.cpp
 uninitialised     Main/Include/script.h        Main/Include/igraph.h
                   Main/Source/database.cpp     FeLib/Source/graphics.cpp
                   Main/Include/bodypart.h      Main/Include/char.h
-                  Main/Include/human.h
+                  Main/Include/human.h         Main/Include/trap.h
+                  Main/Include/lterras.h
+headless          FeLib/Source/graphics.cpp    FeLib/Source/whandler.cpp
+                  FeLib/Source/sfx.cpp
+draw order        FeLib/Include/femath.h       FeLib/Include/typedef.h
+                  Main/Source/char.cpp         Main/Source/human.cpp
+                  Main/Source/nonhuman.cpp     Main/Source/bodypart.cpp
+                  Main/Source/level.cpp        Main/Include/level.h
+                  Main/Source/lsquare.cpp      Main/Source/lterras.cpp
+                  Main/Source/fluid.cpp        Main/Source/gods.cpp
+                  Main/Source/gear.cpp         Main/Source/miscitem.cpp
+                  Main/Source/game.cpp         Main/Source/igraph.cpp
+                  FeLib/Source/bitmap.cpp
+tie breaking      Main/Source/worldmap.cpp     Main/Source/wterra.cpp
+                  Main/Source/lsquare.cpp      Main/Source/char.cpp
+                  Main/Source/level.cpp        Main/Source/god.cpp
+                  Main/Source/game.cpp
 struct layout     FeLib/Include/felibdef.h     FeLib/Include/graphics.h
                   Main/Include/igraph.h        Main/Include/game.h
 tools             tools/savediff/              tools/play/
@@ -1694,7 +1857,7 @@ Recommended approach, for context on why the harness is shaped this way:
    re-verified rather than assumed: 128 warnings either way, and the **CMake 4-built binary
    replays both corpora 8/8 against the committed goldens**. `-std=c++11` is sufficient for
    `std::regex` and needed no bump.
-3. **Emscripten build — COMPILES AND LINKS. The remaining blocker is the DOM, not the build.**
+3. **Emscripten build — RUNS HEADLESS UNDER NODE. The DOM blocker is closed.**
 
    `emcmake cmake` configures the tree with zero warnings and zero errors, the build exits 0,
    and it produces `ivan.js` plus a 6.2MB `ivan.wasm`. Build commands and the emsdk pin are
@@ -1733,29 +1896,142 @@ Recommended approach, for context on why the harness is shaped this way:
    `emscripten_set_pointerlockchange_callback_on_thread`. Piecemeal shimming is a losing game;
    the port registers browser event callbacks and wants a canvas.
 
-   That matters more than it looks, because **seam 1 is a headless comparison**. Three ways
-   out, and the third is the one this codebase is unusually well shaped for:
+   **That blocker is gone — the no-video path is `--headless` (§4).** Of the three ways out
+   considered (run it in a real browser, put a DOM under node with jsdom, or give the game a
+   path that needs neither), the third is the one this codebase is shaped for: §6.3 already
+   establishes that rendering is entirely software into a `bitmap` double buffer and that the
+   only GPU contact in the tree is one streaming texture blit. Skipping the window, the
+   renderer, the texture and that blit — while still calling `TraceFrame()`, which hashes
+   `DOUBLE_BUFFER` *before* `PrepareBuffer()` and so never touches the texture — leaves the
+   identical game code running under bare node with no DOM at all, and it is byte-identical
+   natively with and without.
 
-   - Run the differential comparison in a real browser (headless Chrome/Playwright). Works
-     with the port as designed, but it makes CI heavy and puts a browser between the harness
-     and its trace file.
-   - Provide a DOM under node (jsdom). SDL2 also wants canvas and WebGL contexts, so this is
-     more surface than it sounds.
-   - **Give the game a no-video path.** §6.3 already establishes that rendering is entirely
-     software into a `bitmap` double buffer and that the *only* GPU contact in the tree is one
-     streaming texture blit in `BlitDBToScreen`. So a mode that skips `SDL_Init(SDL_INIT_VIDEO)`,
-     `SDL_CreateWindow` and that single blit — while still calling `TraceFrame()`, which
-     already hashes `DOUBLE_BUFFER` *before* `PrepareBuffer()` and therefore never touches the
-     texture — would let the identical game code run under bare node with no DOM at all. It
-     would also speed up native CI, and it is the smaller change. Start here.
+   Two things that turned out to be part of "no video" and were not obvious:
 
-   Asyncify is wired up behind `WASM_ASYNCIFY` (default ON) for the blocking `SDL_WaitEvent`
-   in `GetKey`, but note a replay never reaches it — the harness returns the recorded key
-   first (§4) — so seam-1 runs do not need it and are faster without it. JSPI or
+   - **The audio device is the other half.** Emscripten's SDL2 audio backend wants an
+     `AudioContext`, which node does not have, so `Mix_OpenAudio` fails — and the failure path
+     in `soundeffects::initSound` calls `iosystem::AlertConfirmMsg`, which draws a dialog and
+     then **blocks on `GET_KEY()`**. During a replay that eats a recorded key and desynchronises
+     the run. `--headless` declines to open a device rather than opening one and handling the
+     failure. Worth remembering as a general hazard: *any* modal alert during a replay consumes
+     a key the recording did not budget for.
+   - **The environment does not cross into the module.** `SDL_VIDEODRIVER=dummy` reaches nothing
+     under node, so the decision had to be a program flag rather than an env var.
+
+   Asyncify is wired up behind `WASM_ASYNCIFY` (default ON) for the blocking `SDL_WaitEvent` in
+   `GetKey`. The old note here said a replay never reaches it; that is wrong. `iosystem::Menu`
+   and `bitmap::FadeToScreen` call `globalwindowhandler::WaitUntil`, which is `SDL_Delay`, so a
+   replay unwinds and rewinds through the menu fade on every run. Leave it on. JSPI or
    `-sPROXY_TO_PTHREAD` later.
 
    Three pre-port hazards were already dealt with: the host libm (§6.7), the `time_t` overload
    that would have failed this step outright (§6.8), and the MT width question now recorded in
-   §6.3.
-4. **TinySoundFont** for MIDI (RtMidi cannot work in WASM), IDBFS for saves, touch input.
-5. **SDL3 / JSPI / threads** as optional performance and quality passes.
+   §6.3. A fourth was not anticipated at all and is the reason the build first died in the main
+   menu: **Emscripten compiles with exception throwing disabled**, and IVAN throws as ordinary
+   control flow. `-fexceptions`, §3.
+
+4. **Make the game compiler-independent — half done, and where the interesting bugs were.**
+   Nine defects where the source left a choice to the compiler or the standard library rather
+   than making it. The non-combat corpus now matches native-vs-WASM byte for byte; the auto-play
+   corpus matches for 389 of 593 frames. Findings, technique and what is left: **§9.4**.
+5. **TinySoundFont** for MIDI (RtMidi cannot work in WASM), IDBFS for saves, touch input.
+6. **SDL3 / JSPI / threads** as optional performance and quality passes.
+
+### 9.4 Native vs WASM: what the first real frame comparison found (new)
+
+With `--headless` in place, `tools/corpora/compare-targets.sh` replays each committed corpus on
+both builds and compares the traces. Where that stands:
+
+| | non-combat | auto-play 200 |
+|---|---|---|
+| frame trace | **identical** | identical for 389 of 593 frames |
+| text log, screenshot, sidecar | **identical** | identical to the same point |
+| `.wm` | **identical** | **identical** |
+| level file | **identical** | descent level identical; the fought-over one differs |
+| `.sav` | one byte — `GetTimeSpent`, §5 | differs after the divergence |
+
+Nine distinct defects stood between "it runs" and that table. Every one is a real bug that has
+been in IVAN for years, every one is invisible to any test that compares a build against itself,
+and none of them is about Emscripten: they are places where the program left a choice to the
+compiler or to the standard library.
+
+**Two classes account for all nine.**
+
+**(a) Unsequenced draws from the shared RNG.** C++ leaves function arguments, and the operands
+of arithmetic and relational operators, unsequenced with respect to each other. So
+
+```cpp
+EyeColor = MakeRGB16(R + RAND_N(41), G + RAND_N(41), B + RAND_N(41));
+```
+
+takes three draws in an order the compiler picks. GCC picks right-to-left and Clang picks
+left-to-right, and both are correct. The draw *count* is identical, so the RNG stream stays in
+lockstep and every determinism test in this document passes on both builds — what differs is
+which draw lands in which field. That one line is why the player's eyes came out a different
+colour under Emscripten, which is how this whole class was found: two pixels, at
+`(198,243)` and `(200,243)`, in a 16x16 sprite.
+
+The rule is now written where anyone adding RNG code will meet it, above the `RAND` macros in
+`FeLib/Include/femath.h`. Sites fixed:
+
+| Site | What it decided |
+|---|---|
+| `human.cpp` `playerkind::PostConstruct` | the player's hair and eye colour |
+| `femath.h` `region::Randomize` | **where every generated room sits and how big it is** |
+| `level.cpp` `GenerateDungeon` fill loop | ground vs over terrain for all 1,600 squares of every level |
+| `level.cpp` `CreateRoomSquare` x11, via a new overload | the same, per room square |
+| `level.cpp` fountain and altar placement | which square in the room |
+| `fluid.cpp` `AddLiquidToPicture` | the speckle colour in a pool of blood |
+| `lsquare.cpp`, `char.cpp`, `bodypart.cpp`, `human.cpp`, `nonhuman.cpp`, `gods.cpp`, `lterras.cpp`, `game.cpp`, `igraph.cpp`, `bitmap.cpp` | to-hit rolls, damage rolls, lightning and explosion colours, sparkle and scar positions, will-power contests |
+| `gear.cpp`, `miscitem.cpp`, `lterras.cpp` `InitMaterials` | the volume of an item's two materials |
+
+Not every multi-draw expression is a bug, and the ones left alone are left alone on purpose:
+`&&`, `||` and `?:` sequence their operands by definition, and `RAND()%36 + RAND()%36` gives the
+same value whichever half is drawn first. Roughly half the 61 candidate sites are of that kind.
+
+**Two traps in finding these.** A line-based grep misses them — `AddLiquidToPicture` spreads its
+three draws over three lines, and the scanner has to split on statements. And a *visible* draw
+can be unsequenced with a *hidden* one: `SetLTerrain(GTerrain->Instantiate(), OTerrain->Instantiate())`
+has no `RAND` in it at all, and it is the single most consequential site in the list.
+
+**(b) Ties broken by the standard library.** `std::sort` is not stable and `std::priority_queue`
+says nothing about equal elements, so a comparator that inspects less than the whole object
+leaves the rest to libstdc++ or libc++ — which disagree.
+
+| Site | Comparator looked at | What it decided |
+|---|---|---|
+| `worldmap.cpp` `distancetoattnam` | distance only | **where the towns and dungeon entrances go** |
+| `lsquare.cpp` ground/over border partners | tile priority only | what is drawn over what, and 3% of every level file |
+| `char.cpp` `svpriorityelement` | strength value only | which body part a bite lands on — the two legs are always a tie |
+| `level.cpp` `nodepointerstorer` | distance, then diagonals | the route every monster and the auto-play AI walks |
+| `wterra.cpp` `DrawOrderer`, `god.cpp` `materialsorter`, `game.cpp` `NameOrderer` | one field each | draw order, wish material, list order |
+
+Fixed either by making the order total (a body-part index, a position) or by moving to
+`std::stable_sort`, where the input order is already deterministic. Prefer the total order when
+there is an obvious tie-breaker; it cannot depend on the implementation at all.
+
+**What is still open.** On the auto-play corpus the two builds agree exactly — same frame
+hashes, same RNG count, same text — through world generation, dungeon generation, the descent
+and the first ~190 auto-play turns, and then diverge at frame 390 during a long fight with a
+hedgehog in which the player dies and insta-resurrects. At the divergence the RNG counts part
+company by 18 draws, so it is game state and not rendering. Ruled out so far: the pinned math
+(§6.7, now measured across compilers), `long` width in the fluid and volume paths,
+uninitialized memory (§6.6e, both corpora valgrind-clean), and pointer-ordered container
+iteration (§6.3 still holds — every `std::map` in the tree is keyed by an ID, a `v2` or a
+`configid`).
+
+**How to pick it up.** The technique that localised every one of the nine is worth following
+rather than reinventing:
+
+1. `compare-targets.sh` gives the first differing frame and whether `rng` moved with it.
+2. Bracket it with a temporary `fprintf` of `harness::GetRandCount()` at a frequent, portable
+   event — `msgsystem::AddMessage` and `character::Move` both work well — built on *both*
+   targets and diffed. That turns "somewhere in 1,039 draws" into "between these two events".
+3. Inside the bracket, run the native build under gdb with a breakpoint on `femath::Rand` and
+   aggregate the backtraces by call site. The histogram names the suspect.
+4. For a pixel difference instead of a draw-count difference, `--shot-dir` on a truncated
+   recording plus a PNG differ localises it to single pixels, and a gdb watchpoint on that
+   pixel of `graphics::DoubleBuffer->Image[y][x]` names the code that wrote it.
+
+The first divergence in this run was one pixel of a text shadow; the second was two pixels of a
+sprite's eyes. Neither would have survived being described as "a hash mismatch".
