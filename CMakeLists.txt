@@ -98,6 +98,26 @@ if(EMSCRIPTEN)
   # first frame on the whole download for something that may not make a sound.
   option(WASM_PRELOAD_AUDIO "Preload Music/ and Sound/ too (adds ~28MB to the browser first load)" OFF)
 
+  # A release build carries no name section, so a wasm trap prints raw byte
+  # offsets -- "at ivan.wasm:0xed4dd" -- and nothing, emsymbolizer included, can
+  # map those back to a function. There is no post-hoc fix for a trace from a
+  # stripped binary: the information was never emitted. WASM_DEBUG is what makes
+  # the next trap legible, and it is cheap enough to leave on while hunting one.
+  #
+  #   --profiling-funcs      keep the name section, so the browser prints
+  #                          function names instead of offsets. No codegen change.
+  #   ASSERTIONS=2           runtime checks with messages, rather than a trap.
+  #   STACK_OVERFLOW_CHECK=2 the 8MB stack is generous but the level generator is
+  #                          recursive, and an overflow otherwise looks exactly
+  #                          like the out-of-bounds access it is mistaken for.
+  option(WASM_DEBUG "Keep function names and turn on runtime assertions in the WASM build" OFF)
+
+  # Separate because it is the expensive one: SAFE_HEAP instruments every load
+  # and store, which is what turns "trapped somewhere" into "this access, this
+  # address", at a slowdown that makes the game unpleasant to steer. Turn it on
+  # once a recording reproduces the crash, not while hunting for one.
+  option(WASM_SAFE_HEAP "Bounds-check every load and store (slow; use with a recording)" OFF)
+
   if(WASM_BROWSER AND WASM_NODERAWFS)
     message(FATAL_ERROR
             "WASM_BROWSER needs WASM_NODERAWFS=OFF -- NODERAWFS binds to node's fs "
@@ -193,6 +213,23 @@ if(EMSCRIPTEN)
       set(IVAN_WASM_LINK_FLAGS
           "${IVAN_WASM_LINK_FLAGS} --preload-file ${CMAKE_CURRENT_SOURCE_DIR}/${PreloadDir}@/${PreloadDir}")
     endforeach()
+
+    # tools/web/harness-pre.js turns the query string into argv and hands the
+    # recording back after a crash. It needs FS on Module to read MEMFS, which
+    # is not exported by default. See tools/web/README.md.
+    set(IVAN_WASM_LINK_FLAGS
+        "${IVAN_WASM_LINK_FLAGS} -sEXPORTED_RUNTIME_METHODS=FS,callMain")
+    set(IVAN_WASM_LINK_FLAGS
+        "${IVAN_WASM_LINK_FLAGS} --pre-js ${CMAKE_CURRENT_SOURCE_DIR}/tools/web/harness-pre.js")
+  endif()
+
+  if(WASM_DEBUG)
+    set(IVAN_WASM_LINK_FLAGS
+        "${IVAN_WASM_LINK_FLAGS} --profiling-funcs -sASSERTIONS=2 -sSTACK_OVERFLOW_CHECK=2")
+  endif()
+
+  if(WASM_SAFE_HEAP)
+    set(IVAN_WASM_LINK_FLAGS "${IVAN_WASM_LINK_FLAGS} -sSAFE_HEAP=1")
   endif()
 endif()
 
