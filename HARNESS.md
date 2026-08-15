@@ -48,7 +48,7 @@ validates the *rewrite*. You need both, in that order.
 
 | Test | Result |
 |---|---|
-| Clean build from scratch | exit 0, **129 warnings** — 80 pre-existing `-Wstringop-overflow=`, plus 49 format warnings §7.7 made visible |
+| Clean build from scratch | exit 0, **128 warnings** — 79 pre-existing `-Wstringop-overflow=`, plus 49 format warnings §7.7 made visible |
 | `sizeof(graphicid)` under every combination of `-DGCC` / `-DVC` | **48 everywhere** — layout no longer depends on a build flag |
 | Headless boot (no display, no ALSA) | reaches main menu |
 | Replay end-to-end | exit 0 |
@@ -1666,7 +1666,7 @@ savediff to prove the change did not alter semantics.
 
 ## 8. Change inventory
 
-Committed on **`master` of the fork `bethmaloney/ivan`**, twenty-nine commits on top of upstream
+Committed on **`master` of the fork `bethmaloney/ivan`**, thirty commits on top of upstream
 `de528ac`. `origin` still points at `Attnam/ivan` and is untouched; the fork is the remote
 named `fork`. **Nothing has been offered upstream.**
 
@@ -1700,7 +1700,8 @@ named `fork`. **Nothing has been offered upstream.**
 | 26 | `8db4967` Build for Emscripten with exceptions enabled | §3, §9.3 |
 | 27 | `4428a26` Initialise trap and terrain members that level files read | §2, §6.6e |
 | 28 | `7ff0d4b` Stop the compiler and the standard library deciding the game | §2, §5, §5b, §9.4 |
-| 29 | HARNESS.md: record the headless path and the first native-vs-WASM comparison | §2, §3, §4, §5, §5b, §6.6e, §6.7, §7, §8, §9.3, §9.4 |
+| 29 | `b7c138f` HARNESS.md: record the headless path and the first native-vs-WASM comparison | §2, §3, §4, §5, §5b, §6.6e, §6.7, §7, §8, §9.3, §9.4 |
+| 30 | HARNESS.md: re-measure the warning baseline from a clean build | §2, §8 |
 
 **Commits 27 and 28 are the ones worth upstream's attention.** 27 is two more of the
 uninitialized-member family. 28 is nine defects that have been in the game for years and that
@@ -1727,14 +1728,15 @@ bug fix ride along inside the harness commit.
 worktree and building it. Note `cmake` must be re-run per commit, not just `make`, because
 `FeLib/CMakeLists.txt` globs its sources.
 
-A clean build at the tip is exit 0 with **129 warnings**: 80 pre-existing `-Wstringop-overflow=`
+A clean build at the tip is exit 0 with **128 warnings**: 79 pre-existing `-Wstringop-overflow=`
 plus the 49 format warnings commit 9 made visible (§7.8). Commit 9 introduced **no** warnings of
 its own — the layout change is clean, and the 49 are pre-existing bugs that `LIKE_PRINTF` had
 never been able to report in `Main`. Commit 13 introduced none either and removed four: the
 `-Wstringop-overflow=` baseline drops 84 → 80. All 84 were the same line, `festring.h:172`
 (`++REFS(Data)` in the copy constructor), reported once per inlining context, and adding
 initializers to `char.h`/`human.h` changes what GCC inlines. Nothing was fixed and nothing was
-hidden — expect that count to wobble whenever a widely-included header changes.
+hidden — expect that count to wobble whenever a widely-included header changes. It wobbled again
+at commit 28, 80 → 79, for the same reason: `typedef.h`, `femath.h` and `level.h` all moved.
 
 Files touched, by area:
 
@@ -1950,12 +1952,19 @@ both builds and compares the traces. Where that stands:
 | level file | **identical** | descent level identical; the fought-over one differs |
 | `.sav` | one byte — `GetTimeSpent`, §5 | differs after the divergence |
 
-Nine distinct defects stood between "it runs" and that table. Every one is a real bug that has
-been in IVAN for years, every one is invisible to any test that compares a build against itself,
-and none of them is about Emscripten: they are places where the program left a choice to the
-compiler or to the standard library.
+Getting from "it runs" to that table meant fixing eleven distinct defects across some fifty
+sites. Every one is a real bug that has been in IVAN for years, every one is invisible to any
+test that compares a build against itself, and none of them is about Emscripten: they are places
+where the program left a choice to the compiler or to the standard library.
 
-**Two classes account for all nine.**
+**They fall into three classes**, and the third is a single bug, so start with it. `cachedfont::
+PrintCharacter` walked a 9x9 character cell a `ulong` at a time, ending at
+`FontPtr + (20 / sizeof(ulong))` — two words and *eight* pixels on a 64-bit host, five words and
+*ten* on a 32-bit one, and nine on neither. Every 64-bit build of IVAN has been dropping the
+ninth column, which is the shadow's right edge: one dim pixel per character, for as long as
+64-bit builds have existed. It is now copied a pixel at a time, which is width-independent and
+agrees with the `NormalMaskedBlit` fallback the guard above it falls through to. The other two
+classes are larger.
 
 **(a) Unsequenced draws from the shared RNG.** C++ leaves function arguments, and the operands
 of arithmetic and relational operators, unsequenced with respect to each other. So
@@ -2009,6 +2018,10 @@ leaves the rest to libstdc++ or libc++ — which disagree.
 Fixed either by making the order total (a body-part index, a position) or by moving to
 `std::stable_sort`, where the input order is already deterministic. Prefer the total order when
 there is an obvious tie-breaker; it cannot depend on the implementation at all.
+
+Note how far each of these is from where it hurts. `distancetoattnam` is nine lines of world
+generation and it decided the whole overworld; `svpriorityelement` is a heap of at most ten
+elements and it decided which leg a hedgehog bit.
 
 **What is still open.** On the auto-play corpus the two builds agree exactly — same frame
 hashes, same RNG count, same text — through world generation, dungeon generation, the descent
