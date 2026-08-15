@@ -98,19 +98,24 @@ if(EMSCRIPTEN)
   # first frame on the whole download for something that may not make a sound.
   option(WASM_PRELOAD_AUDIO "Preload Music/ and Sound/ too (adds ~28MB to the browser first load)" OFF)
 
-  # A release build carries no name section, so a wasm trap prints raw byte
-  # offsets -- "at ivan.wasm:0xed4dd" -- and nothing, emsymbolizer included, can
-  # map those back to a function. There is no post-hoc fix for a trace from a
-  # stripped binary: the information was never emitted. WASM_DEBUG is what makes
-  # the next trap legible, and it is cheap enough to leave on while hunting one.
+  # Function names are not in here: WASM_BROWSER keeps them unconditionally,
+  # because a report from a player's crash is worthless without them and cannot
+  # be re-taken to order (§9.6). What is left is the part with a runtime cost.
   #
-  #   --profiling-funcs      keep the name section, so the browser prints
-  #                          function names instead of offsets. No codegen change.
   #   ASSERTIONS=2           runtime checks with messages, rather than a trap.
   #   STACK_OVERFLOW_CHECK=2 the 8MB stack is generous but the level generator is
   #                          recursive, and an overflow otherwise looks exactly
   #                          like the out-of-bounds access it is mistaken for.
-  option(WASM_DEBUG "Keep function names and turn on runtime assertions in the WASM build" OFF)
+  # Defaults ON for a browser build and OFF for node. The node host runs the
+  # differential corpora, where the measurement is the point and a runtime cost
+  # is a tax on every run; the browser host is played by a human who would
+  # rather be told what went wrong than have it inferred afterwards from a trap.
+  if(WASM_BROWSER)
+    set(IVAN_WASM_DEBUG_DEFAULT ON)
+  else()
+    set(IVAN_WASM_DEBUG_DEFAULT OFF)
+  endif()
+  option(WASM_DEBUG "Turn on runtime assertions and stack checking in the WASM build" ${IVAN_WASM_DEBUG_DEFAULT})
 
   # Separate because it is the expensive one: SAFE_HEAP instruments every load
   # and store, which is what turns "trapped somewhere" into "this access, this
@@ -214,18 +219,55 @@ if(EMSCRIPTEN)
           "${IVAN_WASM_LINK_FLAGS} --preload-file ${CMAKE_CURRENT_SOURCE_DIR}/${PreloadDir}@/${PreloadDir}")
     endforeach()
 
-    # tools/web/harness-pre.js turns the query string into argv and hands the
-    # recording back after a crash. It needs FS on Module to read MEMFS, which
-    # is not exported by default. See tools/web/README.md.
+    # tools/web/harness-pre.js turns the query string into argv and collects a
+    # crash report. It needs FS on Module to read MEMFS, which is not exported
+    # by default. See tools/web/README.md.
     set(IVAN_WASM_LINK_FLAGS
         "${IVAN_WASM_LINK_FLAGS} -sEXPORTED_RUNTIME_METHODS=FS,callMain")
+
+    # A crash report names the build it came from, because a stack trace is only
+    # meaningful against the binary that produced it -- symbolizing last week's
+    # report against this week's wasm gives confident, wrong answers. Git
+    # describes the source; a dirty tree says so, since that is exactly the
+    # build whose report nobody else can reproduce.
+    find_package(Git QUIET)
+
+    if(GIT_FOUND)
+      execute_process(COMMAND ${GIT_EXECUTABLE} describe --always --dirty --tags
+                      WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+                      OUTPUT_VARIABLE IVAN_BUILD_ID
+                      OUTPUT_STRIP_TRAILING_WHITESPACE
+                      ERROR_QUIET)
+    endif()
+
+    if(NOT IVAN_BUILD_ID)
+      set(IVAN_BUILD_ID "unknown")
+    endif()
+
+    # Where crash reports are POSTed. Empty means they are only kept locally,
+    # in localStorage and on the console. Overridable per-session with
+    # ?crashlog=<url> so a report can be redirected without a rebuild.
+    set(WASM_CRASH_ENDPOINT "" CACHE STRING
+        "URL to POST browser crash reports to (empty: keep them local only)")
+
+    configure_file(${CMAKE_CURRENT_SOURCE_DIR}/tools/web/harness-pre.js.in
+                   ${CMAKE_CURRENT_BINARY_DIR}/harness-pre.js @ONLY)
+
     set(IVAN_WASM_LINK_FLAGS
-        "${IVAN_WASM_LINK_FLAGS} --pre-js ${CMAKE_CURRENT_SOURCE_DIR}/tools/web/harness-pre.js")
+        "${IVAN_WASM_LINK_FLAGS} --pre-js ${CMAKE_CURRENT_BINARY_DIR}/harness-pre.js")
+
+    # Function names are kept in *every* browser build, not just a debug one.
+    # --profiling-funcs preserves the name section and changes no codegen, so it
+    # costs about 800KB and nothing else, and without it a trap from a player's
+    # session prints byte offsets that nothing on earth can resolve (§9.6). The
+    # asymmetry is the point: the cost is paid once at build time, the loss is
+    # paid on a crash that cannot be reproduced to order.
+    set(IVAN_WASM_LINK_FLAGS "${IVAN_WASM_LINK_FLAGS} --profiling-funcs")
   endif()
 
   if(WASM_DEBUG)
     set(IVAN_WASM_LINK_FLAGS
-        "${IVAN_WASM_LINK_FLAGS} --profiling-funcs -sASSERTIONS=2 -sSTACK_OVERFLOW_CHECK=2")
+        "${IVAN_WASM_LINK_FLAGS} -sASSERTIONS=2 -sSTACK_OVERFLOW_CHECK=2")
   endif()
 
   if(WASM_SAFE_HEAP)

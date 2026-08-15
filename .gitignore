@@ -64,3 +64,18 @@ Thumbs.db
 ~$*.doc*
 ~$*.xls*
 ~$*.ppt*
+
+# What a run leaves in the working tree. PORTABLE_BUILD makes both
+# game::GetDataDir() and GetUserDataDir() return "./" (game.cpp:5426,
+# save.cpp:814), so a game played -- or a recording replayed -- from the repo
+# root writes its saves, screenshots and prompt history here. Replaying a
+# recording is a documented debugging step (tools/web/README.md), so this is
+# ordinary traffic rather than an accident. Save/delsaves.bat and
+# Save/readme.txt are tracked and stay that way.
+Save/*
+!Save/delsaves.bat
+!Save/readme.txt
+Scrshot/*
+!Scrshot/.gitkeep
+.QuestionHistory_*.txt
+ivan.cfg

@@ -1,0 +1,297 @@
+/*
+ * Browser-side half of the harness (HARNESS.md §4, §9.6).
+ *
+ * Configured by CMake from harness-pre.js.in -- @IVAN_BUILD_ID@ and
+ * @IVAN_CRASH_ENDPOINT@ are substituted at configure time. Edit the .in file.
+ *
+ * The node host gets its harness arguments from argv and writes its outputs to
+ * the real filesystem through NODERAWFS. A browser has neither, so this does
+ * both jobs: it turns the query string into argv before main() runs, and it
+ * collects a crash report afterwards.
+ *
+ * RECORDING IS ON BY DEFAULT, and that is the whole point. A crash you have to
+ * have predicted is no use: by the time you know you want a recording, the
+ * session that would have produced one is gone. Recording costs nothing that
+ * matters -- harness::RecordKey appends a line per keystroke -- and it changes
+ * nothing about how the game plays, because the seed it pins is the same
+ * time(0) main.cpp would have used anyway (main.cpp:154). Opt out with
+ * ?record=off.
+ *
+ * What makes a report worth having is that harness::RecordKey flushes every key
+ * as it writes it (harness.cpp:545), so a trap leaves the recording complete but
+ * for its trailer. The keys that led to the crash survive the crash, and the
+ * seed rides along in the header, so the report contains a deterministic
+ * reproduction rather than a description of one:
+ *
+ *   ./ivan --replay session.rec
+ *
+ * Reports are kept in localStorage so they survive the reload or the closed tab
+ * that usually follows a crash, and POSTed to @IVAN_CRASH_ENDPOINT@ when one is
+ * configured. From the console:
+ *
+ *   ivanHarness.reports()        every stored report, newest first
+ *   ivanHarness.save()           write the newest one out as a .json file
+ *   ivanHarness.saveRecording()  just the .rec, ready for --replay
+ *   ivanHarness.clear()          forget them
+ */
+
+(function () {
+  var Mod = typeof Module !== 'undefined' ? Module : (Module = {});
+
+  var BuildId = '@IVAN_BUILD_ID@';
+  var Endpoint = '@IVAN_CRASH_ENDPOINT@';
+
+  var RecordPath = '/session.rec';
+  var StoreKey = 'ivan.crashReports';
+  var MaxStoredReports = 5;
+  var MaxRecordingBytes = 512 * 1024;
+
+  /* ---- query string to argv --------------------------------------------
+     A bare key becomes a flag with no value, so ?headless is --headless while
+     ?seed=999 is --seed 999. Order is preserved, which is the order ParseArgs
+     sees. --record is added unless the query string already spoke about it. */
+
+  var Args = [];
+  var Query = new URLSearchParams(location.search);
+  var RecordRequest = Query.get('record');
+
+  Query.forEach(function (Value, Key) {
+    if (Key === 'record' || Key === 'crashlog')
+      return;
+
+    Args.push('--' + Key);
+
+    if (Value !== '')
+      Args.push(Value);
+  });
+
+  if (RecordRequest !== 'off') {
+    RecordPath = RecordRequest || RecordPath;
+    Args.push('--record', RecordPath);
+  } else {
+    RecordPath = null;
+  }
+
+  Mod.arguments = Args;
+
+  if (Query.get('crashlog'))
+    Endpoint = Query.get('crashlog');
+
+  /* ---- storage ---------------------------------------------------------
+     Nothing below may throw. It all runs inside the module's own error path,
+     and a handler that fails there replaces the crash being reported with its
+     own -- which is a worse bug than the one being chased, because it is
+     invisible. Every entry point is wrapped and every failure is swallowed
+     after a console warning. */
+
+  function Safely(What, Fn, Fallback) {
+    try {
+      return Fn();
+    } catch (Error) {
+      console.warn('ivanHarness: ' + What + ' failed: ' + Error);
+      return Fallback;
+    }
+  }
+
+  function LoadReports() {
+    return Safely('reading stored reports', function () {
+      return JSON.parse(localStorage.getItem(StoreKey) || '[]');
+    }, []);
+  }
+
+  function StoreReport(Report) {
+    Safely('storing a report', function () {
+      var All = LoadReports();
+      All.unshift(Report);
+      localStorage.setItem(StoreKey, JSON.stringify(All.slice(0, MaxStoredReports)));
+    });
+  }
+
+  /* ---- reading MEMFS ---------------------------------------------------- */
+
+  function ReadFile(Name) {
+    return Safely('reading ' + Name, function () {
+      return Mod.FS.readFile(Name);
+    }, null);
+  }
+
+  function ReadText(Name) {
+    var Data = Name ? ReadFile(Name) : null;
+    return Data ? new TextDecoder().decode(Data) : null;
+  }
+
+  function Download(Name, Text, Type) {
+    return Safely('saving ' + Name, function () {
+      var Link = document.createElement('a');
+      Link.href = URL.createObjectURL(new Blob([Text], {type: Type}));
+      Link.download = Name;
+      document.body.appendChild(Link);
+      Link.click();
+      document.body.removeChild(Link);
+      URL.revokeObjectURL(Link.href);
+      return true;
+    }, false);
+  }
+
+  /* ---- the report ------------------------------------------------------
+     The seed and the game version are parsed back out of the recording header
+     rather than plumbed through from C++, because the recording is the thing
+     that has to carry them anyway for --replay to work. One source, not two. */
+
+  function BuildReport(What, Detail) {
+    var Recording = ReadText(RecordPath);
+    var Truncated = false;
+
+    if (Recording && Recording.length > MaxRecordingBytes) {
+      Recording = Recording.slice(0, MaxRecordingBytes);
+      Truncated = true;
+    }
+
+    var Header = Recording ? /ivan-record \d+ seed=(\d+) ivan=(\S+)/.exec(Recording) : null;
+    var Keys = Recording ? (Recording.match(/^K /gm) || []).length : 0;
+
+    return {
+      what: What,
+      detail: String(Detail == null ? '' : Detail),
+      build: BuildId,
+      ivan: Header ? Header[2] : null,
+      seed: Header ? Header[1] : null,
+      keys: Keys,
+      recording: Recording,
+      recordingTruncated: Truncated,
+      args: Args,
+      when: new Date().toISOString(),
+      url: location.href,
+      userAgent: navigator.userAgent
+    };
+  }
+
+  function Post(Report) {
+    if (!Endpoint)
+      return;
+
+    Safely('posting to ' + Endpoint, function () {
+      /* keepalive lets the request outlive the page, which a crash is often
+         followed by. It caps the body at 64KB, so a long recording goes as a
+         second best: the report without it, and the key count to say so. */
+
+      var Body = JSON.stringify(Report);
+      var Keepalive = Body.length < 60000;
+
+      if (!Keepalive) {
+        var Trimmed = Object.assign({}, Report);
+        Trimmed.recording = null;
+        Trimmed.recordingOmitted = 'too large to send with keepalive; '
+                                   + Report.keys + ' keys held locally';
+        Body = JSON.stringify(Trimmed);
+      }
+
+      fetch(Endpoint, {
+        method: 'POST',
+        headers: {'content-type': 'application/json'},
+        body: Body,
+        keepalive: true,
+        mode: 'cors'
+      }).catch(function (Error) {
+        console.warn('ivanHarness: crash report POST failed: ' + Error);
+      });
+    });
+  }
+
+  var Reported = false;
+
+  function Report(What, Detail) {
+    if (Reported)
+      return;
+
+    Reported = true;
+
+    var Report = Safely('building a report', function () {
+      return BuildReport(What, Detail);
+    }, null);
+
+    if (!Report) {
+      console.error('ivan: ' + What + '\n' + Detail);
+      return;
+    }
+
+    StoreReport(Report);
+    Post(Report);
+
+    console.error(
+      'ivan: ' + What + '\n' + Report.detail
+      + '\n\n--- crash report ---'
+      + '\nbuild   ' + Report.build
+      + '\nseed    ' + Report.seed
+      + '\nkeys    ' + Report.keys
+      + '\nstored  ivanHarness.reports() / ivanHarness.save()'
+      + (Report.recording
+         ? '\n\nReproduce it natively:\n'
+           + '  ivanHarness.saveRecording()   then\n'
+           + '  ./ivan --replay session.rec\n\n'
+           + Report.recording
+         : '\n\nNo recording -- started with ?record=off.'));
+  }
+
+  /* ---- failure paths ---------------------------------------------------
+     Three, and they do not overlap: abort() for a runtime assertion, a rejected
+     promise for a trap unwinding out of asyncify (which is the shape a wasm
+     trap takes here, because ASYNCIFY means main runs inside a promise), and
+     window.onerror for anything thrown synchronously on the main thread. */
+
+  var PriorAbort = Mod.onAbort;
+
+  Mod.onAbort = function (Reason) {
+    Report('aborted', Reason);
+
+    if (PriorAbort)
+      PriorAbort(Reason);
+  };
+
+  addEventListener('unhandledrejection', function (Event) {
+    var Reason = Event.reason;
+    Report('unhandled rejection', (Reason && Reason.stack) || Reason);
+  });
+
+  addEventListener('error', function (Event) {
+    Report('uncaught error', (Event.error && Event.error.stack) || Event.message);
+  });
+
+  globalThis.ivanHarness = {
+    build: BuildId,
+    endpoint: Endpoint,
+    args: Args,
+    recordingPath: RecordPath,
+
+    reports: LoadReports,
+    clear: function () { Safely('clearing', function () { localStorage.removeItem(StoreKey); }); },
+
+    /* The live recording, whether or not anything has gone wrong -- useful for
+       filing a bug about behaviour rather than a crash. */
+
+    text: function () { return ReadText(RecordPath); },
+
+    save: function () {
+      var All = LoadReports();
+
+      if (!All.length)
+        return console.warn('ivanHarness: no stored reports'), false;
+
+      return Download('ivan-crash-' + All[0].when.replace(/[:.]/g, '-') + '.json',
+                      JSON.stringify(All[0], null, 2), 'application/json');
+    },
+
+    saveRecording: function () {
+      var Text = ReadText(RecordPath) || (LoadReports()[0] || {}).recording;
+
+      if (!Text)
+        return console.warn('ivanHarness: no recording'), false;
+
+      return Download('session.rec', Text, 'text/plain');
+    },
+
+    /* Send a report for something that did not crash. */
+
+    report: function (Note) { Reported = false; Report('reported by hand', Note || ''); }
+  };
+})();
