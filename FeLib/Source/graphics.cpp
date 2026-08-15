@@ -114,11 +114,30 @@ void graphics::Init()
     AlreadyInstalled = true;
 
 #ifdef USE_SDL
-    if(SDL_Init(SDL_INIT_VIDEO | SDL_INIT_TIMER | SDL_INIT_NOPARACHUTE))
-      ABORT("Can't initialize SDL.");
+
+    /* --headless drops SDL_INIT_VIDEO, and with it every display the rest of
+       this file would otherwise ask SDL for. The timer subsystem stays: it
+       needs no device on any platform, and SDL_GetTicks/SDL_Delay are read by
+       the key timeout and the audio loop whether or not anything is drawn. */
+
+    ulong Subsystems = SDL_INIT_TIMER | SDL_INIT_NOPARACHUTE;
+
+    if(!harness::IsHeadless())
+      Subsystems |= SDL_INIT_VIDEO;
+
+    if(SDL_Init(Subsystems))
+      ABORT("Can't initialize SDL: %s", SDL_GetError());
 #if SDL_MAJOR_VERSION == 2
-  SDL_SetHint(SDL_HINT_RENDER_DRIVER, "opengl");
-  SDL_InitSubSystem(SDL_INIT_GAMECONTROLLER);
+
+    /* Both are display and input device business: the render driver hint is
+       read by SDL_CreateRenderer, which headless never calls, and opening a
+       game controller registers browser event callbacks under Emscripten. */
+
+    if(!harness::IsHeadless())
+    {
+      SDL_SetHint(SDL_HINT_RENDER_DRIVER, "opengl");
+      SDL_InitSubSystem(SDL_INIT_GAMECONTROLLER);
+    }
 #endif
 #endif
 
@@ -175,8 +194,15 @@ void graphics::SetMode(cchar* Title, cchar* IconName,
                        v2 NewRes, int NewScale, int ScalingQuality,
                        truth FullScreen)
 {
+  /* Everything below that talks to SDL is skipped when headless; everything
+     that shapes the double buffer is not, so DOUBLE_BUFFER, RES and the scale
+     the rest of the game reads come out identical either way. That is the
+     whole contract of --headless - see harness.h. */
+
+  ctruth NoVideo = harness::IsHeadless();
+
 #if SDL_MAJOR_VERSION == 1
-  if(IconName)
+  if(IconName && !NoVideo)
   {
     SDL_Surface* Icon = SDL_LoadBMP(IconName);
     SDL_SetColorKey(Icon, SDL_SRCCOLORKEY,
@@ -189,7 +215,7 @@ void graphics::SetMode(cchar* Title, cchar* IconName,
 
   if(FullScreen)
   {
-    if(!bAllowMouseInFullScreen)
+    if(!bAllowMouseInFullScreen && !NoVideo)
       SDL_ShowCursor(SDL_DISABLE);
 #if SDL_MAJOR_VERSION == 1
     Flags |= SDL_FULLSCREEN;
@@ -199,46 +225,52 @@ void graphics::SetMode(cchar* Title, cchar* IconName,
   }
 
 #if SDL_MAJOR_VERSION == 1
-  Screen = SDL_SetVideoMode(NewRes.X, NewRes.Y, 16, Flags);
-  if(!Screen)
-    ABORT("Couldn't set video mode.");
+  if(!NoVideo)
+  {
+    Screen = SDL_SetVideoMode(NewRes.X, NewRes.Y, 16, Flags);
+    if(!Screen)
+      ABORT("Couldn't set video mode.");
 
-  SDL_WM_SetCaption(Title, 0);
+    SDL_WM_SetCaption(Title, 0);
+  }
 #else
   Flags |= SDL_WINDOW_ALLOW_HIGHDPI|SDL_WINDOW_HIDDEN;
 
-  Window = SDL_CreateWindow(Title,
-                            SDL_WINDOWPOS_UNDEFINED,
-                            SDL_WINDOWPOS_UNDEFINED,
-                            NewRes.X, NewRes.Y, Flags);
-
-  if(!Window)
-    ABORT("Couldn't set video mode.");
-
-  if(IconName)
+  if(!NoVideo)
   {
-    SDL_Surface* Icon = SDL_LoadBMP(IconName);
-    SDL_SetColorKey(Icon, SDL_TRUE,
-                    SDL_MapRGB(Icon->format, 255, 255, 255));
-    SDL_SetWindowIcon(Window, Icon);
-    SDL_FreeSurface(Icon);
+    Window = SDL_CreateWindow(Title,
+                              SDL_WINDOWPOS_UNDEFINED,
+                              SDL_WINDOWPOS_UNDEFINED,
+                              NewRes.X, NewRes.Y, Flags);
+
+    if(!Window)
+      ABORT("Couldn't set video mode.");
+
+    if(IconName)
+    {
+      SDL_Surface* Icon = SDL_LoadBMP(IconName);
+      SDL_SetColorKey(Icon, SDL_TRUE,
+                      SDL_MapRGB(Icon->format, 255, 255, 255));
+      SDL_SetWindowIcon(Window, Icon);
+      SDL_FreeSurface(Icon);
+    }
+
+    Renderer = SDL_CreateRenderer(Window, -1, 0);
+    if(!Renderer)
+      ABORT("Couldn't set renderer mode.");
+
+    SDL_RenderSetLogicalSize(Renderer, NewRes.X, NewRes.Y);
+
+    switch(ScalingQuality){
+    case 1: SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "linear"); break;
+    default: SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "nearest");
+    }
+
+    Texture = SDL_CreateTexture(Renderer,
+                                SDL_PIXELFORMAT_RGB565,
+                                SDL_TEXTUREACCESS_STREAMING,
+                                NewRes.X, NewRes.Y);
   }
-
-  Renderer = SDL_CreateRenderer(Window, -1, 0);
-  if(!Renderer)
-    ABORT("Couldn't set renderer mode.");
-
-  SDL_RenderSetLogicalSize(Renderer, NewRes.X, NewRes.Y);
-
-  switch(ScalingQuality){
-  case 1: SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "linear"); break;
-  default: SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "nearest");
-  }
-
-  Texture = SDL_CreateTexture(Renderer,
-                              SDL_PIXELFORMAT_RGB565,
-                              SDL_TEXTUREACCESS_STREAMING,
-                              NewRes.X, NewRes.Y);
 #endif
 
   globalwindowhandler::Init();
@@ -257,16 +289,19 @@ void graphics::SetMode(cchar* Title, cchar* IconName,
 #if SDL_MAJOR_VERSION == 1
 #if SDL_BYTEORDER == SDL_BIG_ENDIAN
 
-  Uint32 rmask, gmask, bmask;
-  rmask = 0xF800;
-  gmask = 0x7E0;
-  bmask = 0x1F;
+  if(!NoVideo)
+  {
+    Uint32 rmask, gmask, bmask;
+    rmask = 0xF800;
+    gmask = 0x7E0;
+    bmask = 0x1F;
 
-  TempSurface = SDL_CreateRGBSurface(SDL_SWSURFACE, Res.X, Res.Y, 16,
-                                     rmask, gmask, bmask, 0);
+    TempSurface = SDL_CreateRGBSurface(SDL_SWSURFACE, Res.X, Res.Y, 16,
+                                       rmask, gmask, bmask, 0);
 
-  if(!TempSurface)
-    ABORT("CreateRGBSurface failed: %s\n", SDL_GetError());
+    if(!TempSurface)
+      ABORT("CreateRGBSurface failed: %s\n", SDL_GetError());
+  }
 
 #endif
 #endif
@@ -277,6 +312,9 @@ void graphics::SetMode(cchar* Title, cchar* IconName,
 void graphics::BlitDBToScreen()
 {
   harness::TraceFrame();
+
+  if(harness::IsHeadless())
+    return;
 
 #if SDL_MAJOR_VERSION == 1
   SDL_LockSurface(TempSurface);
@@ -690,6 +728,9 @@ void graphics::BlitDBToScreen()
   harness::TraceFrame();
 
 #if SDL_MAJOR_VERSION == 1
+  if(harness::IsHeadless())
+    return;
+
   if(SDL_MUSTLOCK(Screen) && SDL_LockSurface(Screen) < 0)
     ABORT("Can't lock screen");
 
@@ -707,7 +748,17 @@ void graphics::BlitDBToScreen()
 
   SDL_UpdateRect(Screen, 0, 0, Res.X, Res.Y);
 #else
+  /* PrepareBuffer() runs headless too, and deliberately. It is not only the
+     scaler: when no stretch region fires it hands back DOUBLE_BUFFER itself
+     and DrawAboveAll() then draws the map and dialog overlays into it, which
+     the *next* frame's hash sees. Skipping it here would silently change the
+     trace, which is the one thing this mode must not do. */
+
   packcol16* SrcPtr = PrepareBuffer()->GetImage()[0];
+
+  if(harness::IsHeadless())
+    return;
+
   void* DestPtr;
   int Pitch;
 
@@ -732,10 +783,17 @@ void graphics::BlitDBToScreen()
 
 void graphics::SetScale(int NewScale)
 {
+  /* Assigned before the headless return below, because Scale is read by game
+     code (GetScale) rather than only by SDL: a headless run must report the
+     scale it was configured with, it just has no window to resize. */
+
   Scale = NewScale;
 #if SDL_MAJOR_VERSION == 1
 #warning Graphics scaling not implemented for SDL v1
 #else
+  if(harness::IsHeadless())
+    return;
+
   // Scale the window, maintaining its center position.
   v2 WindowPos, OldSize, NewSize = Res * NewScale;
   SDL_GetWindowPosition(Window, &WindowPos.X, &WindowPos.Y);
@@ -749,6 +807,12 @@ void graphics::SetScale(int NewScale)
 
 void graphics::SwitchMode()
 {
+  /* Toggling fullscreen on a window that was never created. Reachable only
+     from a key binding, so a headless run should never get here at all. */
+
+  if(harness::IsHeadless())
+    return;
+
 #if SDL_MAJOR_VERSION == 1
   ulong Flags;
 

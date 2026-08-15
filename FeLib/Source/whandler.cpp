@@ -202,7 +202,12 @@ void globalwindowhandler::Init()
   SDL_EnableKeyRepeat(500, 30);
 #else
   //FIXSDL2 SDL_EnableKeyRepeat(500, 30);
-  SDL_ShowWindow(graphics::GetWindow());
+
+  /* graphics::SetMode creates no window when headless, and SDL_ShowWindow of
+     a null one is an error rather than a no-op. */
+
+  if(!harness::IsHeadless())
+    SDL_ShowWindow(graphics::GetWindow());
 #endif
 }
 

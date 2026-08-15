@@ -37,6 +37,7 @@ truth harness::Recording = false;
 truth harness::Replaying = false;
 truth harness::Tracing = false;
 truth harness::CapturingText = false;
+truth harness::Headless = false;
 ulong harness::RandCount = 0;
 ulong harness::GameRandCount = 0;
 int harness::SeedDepth = 0;
@@ -368,6 +369,14 @@ void harness::ParseArgs(int argc, char** argv)
       ShotDirName = NextArg(argc, argv, c);
     else if(Arg == "--text")
       TextName = NextArg(argc, argv, c);
+    else if(Arg == "--headless")
+    {
+      /* Set here rather than below the early return, so --headless works on
+         its own: it opens no file and pins no seed, and a plain headless run
+         with no recording is a legitimate thing to ask for. */
+
+      Headless = true;
+    }
     else if(Arg == "--seed")
     {
       cchar* Value = NextArg(argc, argv, c);

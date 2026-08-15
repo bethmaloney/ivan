@@ -121,6 +121,7 @@ int main(int argc, char** argv)
     std::cout << "--shot [file.png] Write the screen to a PNG when the run ends, plus a .txt sidecar holding every string on it. " << std::endl;
     std::cout << "--shot-dir [dir] Write every frame that differs from the one before it to dir/frame-NNNNNN.png. Uncompressed, about 1.4MB each and several hundred frames per session. " << std::endl;
     std::cout << "--text [file] Log every string the game draws, in draw order, one line per string. " << std::endl;
+    std::cout << "--headless Run with no window and no audio device. The game still renders into the double buffer, so --trace and --shot work. " << std::endl;
     std::cout << std::endl;
     std::cout << "Environment Variables:" << std::endl;
     std::cout << "IVAN_SHOWFPS=[true] # show FPS at top right" << std::endl;

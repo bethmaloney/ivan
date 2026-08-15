@@ -27,6 +27,7 @@
 #include "bitmap.h"
 #include "sfx.h"
 #include "feio.h"
+#include "harness.h"
 #include "dbgmsgproj.h"
 
 /* SOUND SYSTEM */
@@ -89,6 +90,22 @@ void soundeffects::initSound()
 {
   if(SoundState == 0)
   {
+    /* --headless: an audio device is the other half of what a display is, and
+       under Emscripten it is the same kind of problem - the port's audio
+       backend wants an AudioContext, which node does not have. Failing to open
+       one is not harmless here either: the failure path below calls
+       iosystem::AlertConfirmMsg, which draws a dialog and then blocks on
+       GET_KEY, and during a replay that eats a recorded key and desynchronises
+       the run. So headless declines to open a device rather than trying and
+       handling the failure. -1 is the state initSound already uses for
+       "sound unavailable, do not retry". */
+
+    if(harness::IsHeadless())
+    {
+      SoundState = -1;
+      return;
+    }
+
     festring fsSndDbgFile = GetUserDataDir() + "SndDebug.txt";
     debf = fopen(fsSndDbgFile.CStr(), "wt"); //"a");
     if(debf)fprintf(debf, "This file can be used to diagnose problems with sound.\n");

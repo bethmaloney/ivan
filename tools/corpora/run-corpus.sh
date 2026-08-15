@@ -7,8 +7,17 @@
 # golden trace if the command line that produced it is fixed. Change the options
 # and you must regenerate every golden file.
 #
+# --headless is one of those pinned options and is what makes this script work
+# on both targets: it drops the window, the renderer and the audio device while
+# leaving the software rendering that TraceFrame() hashes untouched. Native runs
+# produce byte-identical traces, text logs and screenshots with it and without
+# it; the WASM build cannot run at all without it, because Emscripten's SDL2
+# port binds to the DOM at video init (HARNESS.md §9.3).
+#
 # Usage: run-corpus.sh <corpus.rec> <outdir>
-# Env:   IVAN_BIN   path to the ivan binary (default build/Main/ivan)
+# Env:   IVAN_BIN   path to the ivan binary (default build/Main/ivan). A path
+#                   ending in .js is run under node, which is how the same
+#                   script replays the Emscripten build.
 #        IVAN_DATA  directory holding Graphics/ Script/ Music/ Sound/ (default .)
 
 set -eu
@@ -25,7 +34,22 @@ IVAN_BIN=${IVAN_BIN:-$REPO/build/Main/ivan}
 IVAN_DATA=${IVAN_DATA:-$REPO}
 
 [ -f "$CORPUS" ] || { echo "no such corpus: $CORPUS" >&2; exit 2; }
-[ -x "$IVAN_BIN" ] || { echo "no ivan binary: $IVAN_BIN" >&2; exit 2; }
+
+# The Emscripten build is ivan.js plus ivan.wasm and is launched through node;
+# a native build is executed directly. Nothing else differs between the two.
+case $IVAN_BIN in
+  *.js)
+    IVAN_RUNNER=node
+    [ -f "$IVAN_BIN" ] || { echo "no ivan.js: $IVAN_BIN" >&2; exit 2; }
+    command -v node > /dev/null || { echo "node not on PATH" >&2; exit 2; }
+    ;;
+  *)
+    IVAN_RUNNER=
+    [ -x "$IVAN_BIN" ] || { echo "no ivan binary: $IVAN_BIN" >&2; exit 2; }
+    ;;
+esac
+
+IVAN_BIN=$(cd "$(dirname "$IVAN_BIN")" && pwd)/$(basename "$IVAN_BIN")
 
 CORPUS=$(cd "$(dirname "$CORPUS")" && pwd)/$(basename "$CORPUS")
 
@@ -41,12 +65,18 @@ for d in Graphics Script Music Sound; do
   ln -sfn "$IVAN_DATA/$d" "$OUTDIR/$d"
 done
 
+# The two SDL_*DRIVER variables are redundant now that --headless never asks SDL
+# for a device, and are kept only so that dropping --headless by hand still runs
+# on a machine with no display. Note Emscripten does not forward the process
+# environment into the module, so under node they reach nothing at all -- which
+# is the second reason the no-device decision had to move into the program.
 cd "$OUTDIR"
-SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy "$IVAN_BIN" \
+SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy ${IVAN_RUNNER} "$IVAN_BIN" \
   --replay "$CORPUS" \
   --trace trace.jsonl \
   --text text.log \
   --shot screen.png \
+  --headless \
   > run.log 2>&1
 
 # The trace's own header carries the seed and resolution, so a truncated run is

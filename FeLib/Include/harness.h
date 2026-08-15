@@ -20,10 +20,10 @@
  * hashing of the double buffer, RNG call counting and screen capture.
  *
  * Everything here is inert until harness::ParseArgs() sees one of --record,
- * --replay, --trace, --seed, --shot, --shot-dir or --text. This header is
- * included from femath.cpp, whandler.cpp, graphics.cpp and rawbit.cpp, all of
- * which are compiled in every #ifdef branch, so it must not pull in SDL,
- * graphics.h or anything from Main.
+ * --replay, --trace, --seed, --shot, --shot-dir, --text or --headless. This
+ * header is included from femath.cpp, whandler.cpp, graphics.cpp, sfx.cpp and
+ * rawbit.cpp, all of which are compiled in every #ifdef branch, so it must not
+ * pull in SDL, graphics.h or anything from Main.
  */
 
 namespace harness
@@ -35,6 +35,7 @@ namespace harness
   extern truth Replaying;
   extern truth Tracing;
   extern truth CapturingText;
+  extern truth Headless;
   extern ulong RandCount;
 
   /* Diagnostic attribution of RNG draws. RandCount counts every MT draw;
@@ -55,6 +56,24 @@ namespace harness
   inline truth IsReplaying() { return Replaying; }
   inline truth IsTracing() { return Tracing; }
   inline truth IsCapturingText() { return CapturingText; }
+
+  /*
+   * --headless: run with no display and no audio device. Every SDL call that
+   * needs one is skipped - the window, the renderer, the streaming texture,
+   * the final blit and Mix_OpenAudio - and nothing else is. The game still
+   * renders in full, because rendering is software into the bitmap double
+   * buffer and only the last blit ever reaches the GPU, so TraceFrame() still
+   * hashes exactly what it hashes with a window open.
+   *
+   * This is what lets the WASM build run under bare node: Emscripten's SDL2
+   * port binds to the DOM at video init (emscripten_get_screen_size wants
+   * `screen`) and its audio backend wants an AudioContext, neither of which
+   * exists outside a browser. Native and WASM then run the same path, which
+   * is the point - a frame comparison across two platforms is only evidence
+   * if both took the same route to the frame.
+   */
+
+  inline truth IsHeadless() { return Headless; }
 
   void RecordKey(int);
   truth NextReplayKey(int&);
