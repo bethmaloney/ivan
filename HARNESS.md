@@ -1,6 +1,6 @@
 # IVAN Differential Test Harness — Progress & Handoff
 
-**Status:** working and verified. Thirty-two commits on `master` of the fork (§8). Nothing has
+**Status:** working and verified. Thirty-four commits on `master` of the fork (§8). Nothing has
 been offered upstream. The corpora are committed (§5b), the host libm is no longer an input
 (§6.7), and the one known Emscripten build error is fixed (§6.8).
 
@@ -95,6 +95,10 @@ validates the *rewrite*. You need both, in that order.
 | Browser build loaded in headless Chrome 143 | **reaches the main menu** — art, fonts and all five entries |
 | Same, driven 8x ENTER over CDP | **intro, world gen, character, world map**, "Turn 0", side panel populated |
 | Page console for that whole run | one line, `MidiOutDummy: This class provides no functionality.` — no abort, no exception |
+| Release WASM inspected for symbols | **no `name` section, no DWARF** — a trap's offsets are unrecoverable (§9.6) |
+| Same build with `WASM_DEBUG=ON` | `name` section present, 0x8b9f4 bytes; 8.3MB against 7.5MB |
+| Browser recording pulled from MEMFS, replayed natively | exit 0 — **358 frames** (8 keys) and **752 frames** (403 keys) |
+| 400 turns of auto-play in a browser under `WASM_DEBUG` | **no trap, no assertion** — does not reproduce the reported crash (§9.6) |
 | Level file across 4 ordinary runs, after §6.6e | **1 distinct** on both corpora; was 4 |
 | Uninitialized bytes reaching a level file, after §6.6e | **0** on both corpora, `MALLOC_PERTURB_` 42 vs 99 |
 | `valgrind` uninitialized reads, after §6.6e | **0 / 0** on both corpora |
@@ -1711,7 +1715,7 @@ savediff to prove the change did not alter semantics.
 
 ## 8. Change inventory
 
-Committed on **`master` of the fork `bethmaloney/ivan`**, thirty-two commits on top of upstream
+Committed on **`master` of the fork `bethmaloney/ivan`**, thirty-four commits on top of upstream
 `de528ac`. `origin` still points at `Attnam/ivan` and is untouched; the fork is the remote
 named `fork`. **Nothing has been offered upstream.**
 
@@ -1748,7 +1752,9 @@ named `fork`. **Nothing has been offered upstream.**
 | 29 | `b7c138f` HARNESS.md: record the headless path and the first native-vs-WASM comparison | §2, §3, §4, §5, §5b, §6.6e, §6.7, §7, §8, §9.3, §9.4 |
 | 30 | `663d197` HARNESS.md: re-measure the warning baseline and correct §9.4's count | §2, §8, §9.4 |
 | 31 | `4ec9fe1` Build for the browser as well as for node | §2, §3, §9.3, §9.5 |
-| 32 | HARNESS.md: record the browser host | §1, §2, §3, §8, §9.3, §9.5 |
+| 32 | `f92c257` HARNESS.md: record the browser host | §1, §2, §3, §8, §9.3, §9.5 |
+| 33 | `459721d` Make a browser crash collectable and legible | §3, §9.5, §9.6 |
+| 34 | HARNESS.md: record the crash-collection path | §2, §8, §9.5, §9.6 |
 
 **Commits 27 and 28 are the ones worth upstream's attention.** 27 is two more of the
 uninitialized-member family. 28 is eleven defects that have been in the game for years and that
@@ -2153,6 +2159,79 @@ run and both were wrong, which is worth recording as plainly as the successes:
   against a native frame time; `ASYNCIFY_ONLY` or JSPI is the tuning knob if it needs one.
 - **Audio is unexercised.** Headless Chrome has no audio device, so `WASM_PRELOAD_AUDIO=ON`
   needs a human with speakers, not another CDP script.
-- **Input beyond `ENTER` is unexercised.** Direction keys, `>` and the command set all go
-  through the same `GetKey`, so there is no reason to expect trouble, but "no reason to expect
-  trouble" is what §9.4 was full of.
+- **Input beyond the auto-play set is unexercised.** `` ` ``, `y`, `~` and 400 `.` have all
+  crossed `GetKey` in a browser (§9.6). Direction keys, `>` and the rest of the command set go
+  the same way, so there is no reason to expect trouble, but "no reason to expect trouble" is
+  what §9.4 was full of.
+
+---
+
+### 9.6 Collecting a browser crash, and why a stripped trap is not a lead (new)
+
+A wasm trap out of a release build looks like this, and it is worth being precise about how
+little it contains:
+
+```
+Uncaught (in promise) RuntimeError: memory access out of bounds
+    at ivan.wasm:0xed4dd
+```
+
+Those are byte offsets into the binary. A release build carries **no name section and no
+DWARF** — measured with `llvm-objdump -h`, the sections are TYPE, IMPORT, FUNCTION, TABLE,
+MEMORY, GLOBAL, EXPORT, ELEM, DATACOUNT, CODE, DATA and nothing else. So nothing maps `0xed4dd`
+back to a function: not `emsymbolizer`, which needs DWARF; not the browser; and not a later
+rebuild, because the offsets belong to the exact binary that produced them and even that binary
+no longer knows its own function names. **The information was never emitted.** A trace of this
+shape is a prompt to rebuild, not a lead, and time spent staring at it is wasted.
+
+That splits into two independent problems: make the next trap legible, and make the crash
+reproducible somewhere with a debugger.
+
+**Legible: `WASM_DEBUG`.** `--profiling-funcs` keeps the name section at no codegen cost, so
+frames print as `character::Move`. Measured: the debug wasm carries an 0x8b9f4-byte `name`
+section against the release build's none, for 8.3MB against 7.5MB. `ASSERTIONS=2` and
+`STACK_OVERFLOW_CHECK=2` come with it, the second because the 8MB stack (§3) is generous but the
+level generator recurses, and an overflow is otherwise indistinguishable from the out-of-bounds
+access it gets mistaken for. `WASM_SAFE_HEAP` is a separate option because it instruments every
+load and store: it names the access and the address outright, at a slowdown that makes the game
+hard to steer by hand. Turn it on once a recording reproduces the crash, not while hunting one.
+
+**Reproducible: `tools/web/harness-pre.js`.** The point is not to debug in the browser but to
+get the crash onto the native build, where gdb, valgrind and ASan all apply and where the
+harness already replays a session deterministically. The node host reads argv and writes through
+NODERAWFS; a browser has neither, so the pre-js turns the query string into argv and reads the
+recording back out of MEMFS:
+
+```
+http://localhost:8112/ivan.html?record=/session.rec&seed=999
+```
+
+**What makes this work was already in the harness.** `RecordKey` flushes every key as it writes
+it (`harness.cpp:545`), and the comment above `ReadTrailer` says a killed recorder "loses nothing
+but the trailer". A trap therefore leaves the recording complete but for its `# end keys=` line —
+the keys that led to the crash survive the crash, and the seed rides along in the header, so the
+file is self-contained. Nothing in the harness had to change; it had no way to be *reached* from
+a browser, which is all the pre-js supplies.
+
+**Measured 2026-08-16, end to end.** A session driven with `?record=/session.rec&seed=999`,
+extracted from MEMFS with `ivanHarness.text()`, replayed on the native binary:
+
+| Run | Result |
+|---|---|
+| 8-key browser recording, replayed natively | exit 0, **358 frames** |
+| 403-key auto-play browser recording, replayed natively | exit 0, **752 frames** |
+| Either, on the native harness's reading of the missing trailer | correctly reported as "cut short" |
+
+**A WASM-only crash is a finding, not a dead end.** wasm32 traps on accesses x86-64 absorbs
+silently: a read past a buffer is still inside a mapped page natively and returns garbage, where
+in wasm it is either outside linear memory or caught by `SAFE_HEAP`. The same goes for a null
+dereference and for a `long` that was 8 bytes when a save was written and is 4 here (§6.8, §7.9).
+So a crash that will not reproduce natively usually means a real latent defect that native
+testing structurally cannot see — the class §6.6 and §9.4 were about, and an argument for
+keeping the second host rather than a reason to distrust it.
+
+**One crash is reported and unreproduced.** A `memory access out of bounds` during ordinary
+interactive play, reported against a release build, so its trace is unsymbolizable per the above
+and nothing can be recovered from it. **400 turns of auto-play under `WASM_DEBUG` did not
+reproduce it** — clean run, no trap, no assertion — which rules out the auto-play path and means
+the next attempt needs the steps that produced it, recorded with `?record=`.
