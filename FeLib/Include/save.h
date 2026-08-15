@@ -17,6 +17,8 @@
 #include <fstream>
 #include <vector>
 #include <deque>
+#include <stdint.h>
+
 #include <list>
 #include <map>
 #include <set>
@@ -229,41 +231,64 @@ inline inputfile& operator>>(inputfile& SaveFile, ushort& Value)
   return SaveFile;
 }
 
-/* SAVE_COMPATIBILITY:
- * make x86_64-w64-mingw32 saves compatible with Linux,
- * by forcing the correct sizes.
- * Note: This also lets us save 64-bit time_t values.
- **/
+/* long and ulong are the only primitives whose width differs across the targets
+   this has to reach: 8 bytes on x86-64, 4 under Emscripten. That matters more
+   than one field, because every container writes its length as a ulong (the
+   vector/deque/list/map/set operators below), so at native width a WASM save
+   would diverge from a native one at the first container and never resynchronise.
 
-#if SAVE_COMPATIBILITY
-#include <stdint.h>
-RAW_SAVE_LOAD(int64_t)
-RAW_SAVE_LOAD(uint64_t)
+   They therefore go out as 8 explicit little-endian bytes, the way short and
+   ushort already do here. On x86-64 that is byte-for-byte what the previous raw
+   write produced -- little-endian host, same width -- so existing saves still
+   load and SAVE_FILE_VERSION does not move.
 
-inline outputfile& operator<<(outputfile& SaveFile, long Value)
+   long long needs its own overload because time_t is a typedef, not a distinct
+   type: it is long on x86-64 but long long under Emscripten, where musl uses a
+   64-bit time_t on 32-bit targets. Without it, `SaveFile >> TimePlayedBeforeLastLoad`
+   (game.cpp) has no viable candidate and the build fails outright -- it only
+   compiles today because time_t happens to *be* long here. C++ keeps long and
+   long long distinct types even when both are 64 bits, so declaring both is
+   legal on every target.
+
+   This replaces a SAVE_COMPATIBILITY block that solved the same problem via
+   int64_t, and was dead: the macro is defined nowhere in the tree, so
+   `#if SAVE_COMPATIBILITY` was always false. */
+
+inline void SavePut64(outputfile& SaveFile, uint64_t Value)
 {
-  int64_t Value2 = Value; return SaveFile << Value2;
+  for(int c = 0; c < 8; ++c)
+    SaveFile.Put(char(Value >> (c << 3)));
 }
 
-inline inputfile& operator>>(inputfile& SaveFile, long& Value)
+inline uint64_t SaveGet64(inputfile& SaveFile)
 {
-  int64_t Value2; SaveFile >> Value2; Value = Value2; return SaveFile;
+  uint64_t Value = 0;
+
+  for(int c = 0; c < 8; ++c)
+    Value |= uint64_t(SaveFile.Get() & 0xFF) << (c << 3);
+
+  return Value;
 }
 
-inline outputfile& operator<<(outputfile& SaveFile, ulong Value)
-{
-  uint64_t Value2 = Value; return SaveFile << Value2;
+/* static_cast, not a functional cast: `long long(x)` is not valid syntax for a
+   multi-word type name. */
+#define LE64_SAVE_LOAD(type)\
+inline outputfile& operator<<(outputfile& SaveFile, type Value)\
+{\
+  SavePut64(SaveFile, static_cast<uint64_t>(Value));\
+  return SaveFile;\
+}\
+\
+inline inputfile& operator>>(inputfile& SaveFile, type& Value)\
+{\
+  Value = static_cast<type>(SaveGet64(SaveFile));\
+  return SaveFile;\
 }
 
-inline inputfile& operator>>(inputfile& SaveFile, ulong& Value)
-{
-  uint64_t Value2; SaveFile >> Value2; Value = Value2; return SaveFile;
-}
-
-#else
-RAW_SAVE_LOAD(long)
-RAW_SAVE_LOAD(ulong)
-#endif
+LE64_SAVE_LOAD(long)
+LE64_SAVE_LOAD(ulong)
+LE64_SAVE_LOAD(long long)
+LE64_SAVE_LOAD(unsigned long long)
 RAW_SAVE_LOAD(int)
 RAW_SAVE_LOAD(uint)
 RAW_SAVE_LOAD(double)
