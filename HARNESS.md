@@ -117,10 +117,11 @@ a usable differential corpus for native-vs-native work.
 ### Dependencies
 
 ```
-sudo apt-get install -y libsdl2-dev libsdl2-mixer-dev libpng-dev libpcre3-dev
+sudo apt-get install -y libsdl2-dev libsdl2-mixer-dev libpng-dev
 ```
 
-All four are required. Without `libsdl2-mixer-dev` and `libpcre3-dev` the link fails.
+All three are required. Without `libsdl2-mixer-dev` the link fails. `libpcre3-dev` used to be a
+fourth — §9.2 replaced it with `std::regex`.
 
 ### Build
 
@@ -1578,9 +1579,39 @@ Recommended approach, for context on why the harness is shaped this way:
    `game.cpp:287` ("no way to fit as scaler is integer and not float"). SDL3's
    `SDL_SetRenderLogicalPresentation` has explicit LETTERBOX/STRETCH/INTEGER_SCALE modes and
    is worth considering; the SDL surface area is only ~1,800 lines.
-2. **Drop PCRE** — used in 3 files (`Main/Source/message.cpp`, `Main/Source/game.cpp`,
-   `FeLib/Source/sfx.cpp`), never uses capture groups, so `std::regex` covers it. Bump
-   `cmake_minimum_required` from 3.5 (CMake 4.x refuses it) and `-std=c++11`.
+2. **Drop PCRE — DONE.** Was used in 3 files: `Main/Source/message.cpp` (a dead include),
+   `Main/Source/game.cpp` (the auto-pickup pattern) and `FeLib/Source/sfx.cpp` (the
+   sound-effect trigger patterns). No call site used capture groups — every `pcre_exec`
+   passed a NULL output vector and tested `>= 0` — so each became a `std::regex_search`
+   over the same `(ptr, GetSize())` range, under the ECMAScript grammar. `pcre_study` has
+   no equivalent and was dropped; `std::regex` compiles once at config-load either way.
+   `find_package(PCRE REQUIRED)` is gone from both `CMakeLists.txt` and
+   `cmake/FindPCRE.cmake` is deleted, so the dependency is off the build.
+
+   **The grammar change was measured, not assumed.** PCRE is Perl-compatible and ECMAScript
+   is not, and the patterns are *data* — 153 shipped in `Sound/SoundEffects.cfg` plus the
+   default `AutoPickUpMatching`, several using `(?:` and negative lookahead `(?!`, both of
+   which ECMAScript has (lookbehind, which it does not have, is unused). `tools/regexdiff/`
+   compiles all 154 under both engines and compares their verdicts on every distinct string
+   the two corpora draw: **111,342 comparisons, 0 mismatches, 0 compile failures**.
+
+   ```bash
+   g++ -std=c++11 -O1 -o regexdiff tools/regexdiff/regexdiff.cpp -lpcre   # needs libpcre3-dev
+   ./regexdiff Sound/SoundEffects.cfg tools/corpora/*.text.log
+   ```
+
+   It is deliberately not in CMake — it needs the dependency this item removed, the same way
+   savediff is `EXCLUDE_FROM_ALL` so the oracle cannot be broken by the thing it judges. Rerun
+   it if `SoundEffects.cfg` or the `AutoPickUpMatching` default changes; it is the only thing
+   standing between a config-file regex and a silent behaviour change.
+
+   Note the corpora themselves do **not** exercise either regex path (headless runs make no
+   sound, and the default auto-pickup pattern is disabled with a leading `!`), so
+   `verify-corpora.sh` passing is evidence of no regression elsewhere, not evidence the
+   swap works. The differential run above is what covers that.
+
+   Still outstanding from this item: bump `cmake_minimum_required` from 3.5 (CMake 4.x
+   refuses it). `-std=c++11` is sufficient for `std::regex` and needs no bump for this.
 3. **Emscripten build with Asyncify**, audio stubbed — get it rendering in a browser.
    The blocking `SDL_WaitEvent` inside `GetKey` is the core obstacle; Asyncify first,
    JSPI or `-sPROXY_TO_PTHREAD` later. `audio/audio.cpp` and `audio/RtMidi.cpp` hold the

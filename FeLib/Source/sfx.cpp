@@ -16,7 +16,7 @@
 
 #include <cstdarg>
 #include <cctype>
-#include <pcre.h>
+#include <regex>
 
 #include <ctype.h>
 
@@ -58,17 +58,13 @@ struct SoundFile
 struct SoundInfo
 {
   std::vector<int> sounds;
-  std::unique_ptr<pcre*> re = std::unique_ptr<pcre*>(new (pcre*)());
-  std::unique_ptr<pcre_extra*> extra = std::unique_ptr<pcre_extra*>(new (pcre_extra*)(NULL));
+  std::regex re;
+  bool bValid = false; // a default-constructed re is never matched against
 
   SoundInfo() = default;
   SoundInfo(SoundInfo&) = delete;
   SoundInfo(SoundInfo&&) = default;
-  ~SoundInfo()
-  {
-    if(re.get() && *re) free(*re);
-    if(extra.get() && *extra) pcre_free_study(*extra);
-  }
+  ~SoundInfo() = default;
 };
 
 bool eol = false;
@@ -91,9 +87,6 @@ festring getstr(FILE *f, truth word)
 FILE *debf = NULL;
 void soundeffects::initSound()
 {
-  const char *error;
-  int erroffset;
-
   if(SoundState == 0)
   {
     festring fsSndDbgFile = GetUserDataDir() + "SndDebug.txt";
@@ -174,10 +167,16 @@ void soundeffects::initSound()
         }
 
         // configure the regex
-        *si.re = pcre_compile(Pattern.CStr(), 0, &error, &erroffset, NULL);
-        if(debf && !*si.re) fprintf(debf, "PCRE compilation failed at expression offset %d: %s\n", erroffset, error);
-        if(*si.re) *si.extra = pcre_study(*si.re, 0, &error);
-        if(error) *si.extra = NULL;
+        try
+        {
+          si.re.assign(Pattern.CStr(), Pattern.GetSize(), std::regex::ECMAScript);
+          si.bValid = true;
+        }
+        catch(const std::regex_error& e)
+        {
+          si.bValid = false;
+          if(debf) fprintf(debf, "regex compilation failed for '%s': %s\n", Pattern.CStr(), e.what());
+        }
 
         // configure the assigned files, now they are separated with ',' and the filename now accepts spaces.
         festring FileName;
@@ -271,8 +270,8 @@ SoundFile* soundeffects::findMatchingSound(festring Buffer)
 
   DBG1(Buffer.CStr());
   for(int i = patterns.size() - 1; i >= 0; i--){
-    if(*patterns[i].re)
-      if(pcre_exec(*patterns[i].re, *patterns[i].extra, Buffer.CStr(), Buffer.GetSize(), 0, 0, NULL, 0) >= 0){
+    if(patterns[i].bValid)
+      if(std::regex_search(Buffer.CStr(), Buffer.CStr() + Buffer.GetSize(), patterns[i].re)){
         SoundFile* p = &files[patterns[i].sounds[NextSoundRand() % patterns[i].sounds.size()]];
         DBG1(p->filename.CStr());
         return p;

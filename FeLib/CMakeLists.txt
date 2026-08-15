@@ -1,16 +1,4 @@
 include(FindPkgConfig)
-if(PKG_CONFIG_FOUND)
-  pkg_check_modules(PCRE libpcre)
-  set(PCRE_LIBRARIES ${PCRE_LDFLAGS})
-endif()
-if(NOT PCRE_FOUND)
-  if(MSVC)
-    find_path(PCRE_INCLUDE_DIR NAMES pcre.h)
-    find_library(PCRE_LIBRARY pcre)
-  endif()
-  find_package(PCRE REQUIRED)
-  add_definitions(${PCRE_DEFINITIONS})
-endif()
 
 file(GLOB FELIB_SOURCES Include/*.h Source/*.cpp)
 
@@ -67,7 +55,7 @@ if(MINGW)
 
     install(CODE [[
       file(GET_RUNTIME_DEPENDENCIES
-        LIBRARIES ${PNG_LIBRARIES} ${SDL2_LIBRARY} ${PCRE_LIBRARIES} ${SDL2_mixer_LIBRARY}
+        LIBRARIES ${PNG_LIBRARIES} ${SDL2_LIBRARY} ${SDL2_mixer_LIBRARY}
         EXECUTABLES $<TARGET_FILE:ivan>
         RESOLVED_DEPENDENCIES_VAR _r_deps
         UNRESOLVED_DEPENDENCIES_VAR _u_deps
@@ -101,14 +89,14 @@ if(MSVC AND _VCPKG_INSTALLED_DIR)
 endif()
 
 target_include_directories(FeLib PUBLIC Include)
-target_include_directories(FeLib SYSTEM PUBLIC ${SDL2_INCLUDE_DIR} PRIVATE ${PNG_INCLUDE_DIRS} ${PCRE_INCLUDE_DIRS} ${SDL2_mixer_INCLUDE_DIR})
+target_include_directories(FeLib SYSTEM PUBLIC ${SDL2_INCLUDE_DIR} PRIVATE ${PNG_INCLUDE_DIRS} ${SDL2_mixer_INCLUDE_DIR})
 target_include_directories(FeLib PUBLIC ../xbrzscale ../xbrzscale/xbrz)
 target_include_directories(FeLib PUBLIC ../portmath)
 
 if((NOT BUILD_SHARED_LIBS) AND BUILD_STATIC_LIBS)
-  target_link_libraries(FeLib ${PNG_LIBRARIES} ${SDL2_LIBRARIES} portmath ${PCRE_LIBRARIES} ${SDL2_mixer_LIBRARY} -static-libgcc -static-libstdc++)
+  target_link_libraries(FeLib ${PNG_LIBRARIES} ${SDL2_LIBRARIES} portmath ${SDL2_mixer_LIBRARY} -static-libgcc -static-libstdc++)
 else()
-  target_link_libraries(FeLib ${PNG_LIBRARIES} ${SDL2_LIBRARY} portmath ${PCRE_LIBRARIES} ${SDL2_mixer_LIBRARY})
+  target_link_libraries(FeLib ${PNG_LIBRARIES} ${SDL2_LIBRARY} portmath ${SDL2_mixer_LIBRARY})
 endif()
 
 target_compile_options(FeLib PUBLIC ${SDL2_CFLAGS} ${SDL2_CFLAGS_OTHER})

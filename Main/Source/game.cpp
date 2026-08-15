@@ -18,7 +18,7 @@
 #include <vector>
 #include <bitset>
 #include <ctime>
-#include <pcre.h>
+#include <regex>
 
 #if defined(UNIX) || defined(__DJGPP__)
 #include <sys/stat.h>
@@ -1328,7 +1328,8 @@ int game::RotateMapNotes()
 }
 
 std::vector<festring> afsAutoPickupMatch;
-pcre *reAutoPickup=NULL;
+std::regex reAutoPickup;
+bool bAutoPickupValid=false; // reAutoPickup is only matched against when this is set
 void game::UpdateAutoPickUpMatching() //simple matching syntax
 {
   afsAutoPickupMatch.clear();
@@ -1344,24 +1345,23 @@ void game::UpdateAutoPickUpMatching() //simple matching syntax
   }else{
     //TODO test regex about: ignoring broken lanterns and bottles, ignore sticks on fire but pickup scrolls on fire
   //  static bool bDummyInit = [](){reAutoPickup=NULL;return true;}();
-    const char *errMsg;
-    int iErrOffset;
-    if(reAutoPickup)pcre_free(reAutoPickup);
-    reAutoPickup = pcre_compile(
-      ivanconfig::GetAutoPickUpMatching().CStr(), //pattern
-      0, //no options
-      &errMsg,    &iErrOffset,
-      0); // default char tables
-    if (!reAutoPickup){
+    bAutoPickupValid=false;
+    try{
+      reAutoPickup.assign(
+        ivanconfig::GetAutoPickUpMatching().CStr(), //pattern
+        ivanconfig::GetAutoPickUpMatching().GetSize(),
+        std::regex::ECMAScript);
+      bAutoPickupValid=true;
+    }catch(const std::regex_error& e){
       std::vector<festring> afsFullProblems;
-      afsFullProblems.push_back(festring(errMsg));
-      afsFullProblems.push_back(festring()+"offset:"+iErrOffset);
+      afsFullProblems.push_back(festring(e.what()));
       bool bDummy = iosystem::AlertConfirmMsg("regex validation failed, if ignored will just not work at all",afsFullProblems,false);
     }
   }
 }
 bool game::IsAutoPickupMatch(cfestring fsName) {
-  return pcre_exec(reAutoPickup, 0, fsName.CStr(), fsName.GetSize(), 0, 0, NULL, 0) >= 0;
+  if(!bAutoPickupValid)return false;
+  return std::regex_search(fsName.CStr(), fsName.CStr() + fsName.GetSize(), reAutoPickup);
 }
 int game::CheckAutoPickup(square* sqr)
 {
@@ -1384,7 +1384,7 @@ int game::CheckAutoPickup(square* sqr)
     bool b=false;
     if(!b && ivanconfig::IsAutoPickupThrownItems() && it->HasTag('t') )b=true; //was thrown
     if(!b && !it->HasTag('d')){
-      if(reAutoPickup!=NULL){
+      if(bAutoPickupValid){
         if(IsAutoPickupMatch(it->GetName(DEFINITE))){
           b=true;
         }
