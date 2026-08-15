@@ -22,7 +22,7 @@ two intro screens.
 | | keys | lands on | exercises |
 |---|---|---|---|
 | `noncombat.rec` | 7 | UT lvl 1, turn 3, HP 37/37 | world gen, character creation, level gen, descent |
-| `autoplay-200.rec` | 210 | UT lvl 1, turn 202, HP 29/37 | the above plus combat, item use, equipment, hunger, death |
+| `autoplay-200.rec` | 210 | UT lvl 1, turn 161, HP 24/35 | the above plus combat, item use, equipment, hunger, death |
 
 `down left >` is **specific to seed 999**: it walks onto the cave mouth one tile
 west of the start and enters. Another seed generates another island.
@@ -38,10 +38,18 @@ are recorded across HARNESS.md §6.6a–d as the check values for those fixes.
 
 | | noncombat | autoplay-200 |
 |---|---|---|
-| trace frames | 441 | 679 |
-| cumulative RNG draws | — | 1,670,383 |
-| final HP | 37/37 | **29/37** |
-| final turn | 3 | 202 |
+| trace frames | 365 | 592 |
+| cumulative RNG draws | 1,075,023 | 1,517,713 |
+| final HP | 37/37 | **24/35** |
+| final turn | 3 | 161 |
+
+These moved once, deliberately, in the commit that made the game compiler
+independent (HARNESS.md §9.4). The key sequences did not change and neither did
+the seed; what changed is that a dozen expressions used to let the compiler
+decide which random draw went where, so the world these 210 keys generate is
+now the same world under GCC and under Clang instead of two different ones. The
+old values (441 / 679 frames, 1,670,383 draws, HP 29/37, turn 202) are the
+GCC 13 reading of the same corpus and appear throughout §6.6a-d.
 
 `nest` must be 0 on every frame of both. If it ever goes positive the single
 `mtb` backup slot is corrupting the game stream — HARNESS.md §6.5a.

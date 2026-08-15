@@ -497,7 +497,16 @@ void worldmap::Generate()
       }
 
       // Sort the vector of global available locations according to distance to Attnam. Closest places are first.
-      std::sort(AvailableLocations.begin(), AvailableLocations.end(), distancetoattnam());
+      //
+      // stable_sort, and it has to be: this comparator looks at the distance
+      // and nothing else, so every location at the same Manhattan distance is
+      // a tie, and std::sort is free to order ties however its implementation
+      // finds convenient. libstdc++ and libc++ find different things
+      // convenient, which put the towns and dungeon entrances of an otherwise
+      // identical world in different places under Emscripten (HARNESS.md
+      // §9.4). The input order is the deterministic x,y scan above, so keeping
+      // ties in it is well defined on both.
+      std::stable_sort(AvailableLocations.begin(), AvailableLocations.end(), distancetoattnam());
       
       // Pick out only the places that can be generated that are not core locations, and get their native ground terrain type
       for(int Type = 1; Type < protocontainer<owterrain>::GetSize(); ++Type)

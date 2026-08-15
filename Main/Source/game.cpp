@@ -838,7 +838,11 @@ truth game::Init(cfestring& loadBaseName)
       for(int c = 0; c < ATTRIBUTES; ++c)
       {
         if(c != ENDURANCE)
-          Player->EditAttribute(c, (RAND() & 1) - (RAND() & 1));
+        {
+          cint Up = RAND() & 1;
+          cint Down = RAND() & 1;
+          Player->EditAttribute(c, Up - Down);
+        }
 
         Player->EditExperience(c, 500, 1 << 11);
       }
@@ -6696,7 +6700,8 @@ truth game::PolymorphControlKeyHandler(int Key, festring& String)
     List.SetPageLength(15);
     List.AddFlags(SELECTABLE);
     protosystem::CreateEverySeenCharacter(CharacterDrawVector);
-    std::sort(CharacterDrawVector.begin(), CharacterDrawVector.end(), NameOrderer);
+    /* stable_sort: two characters can share a name - see worldmap.cpp. */
+    std::stable_sort(CharacterDrawVector.begin(), CharacterDrawVector.end(), NameOrderer);
     List.SetEntryDrawer(CharacterEntryDrawer);
     std::vector<festring> StringVector;
     uint c;

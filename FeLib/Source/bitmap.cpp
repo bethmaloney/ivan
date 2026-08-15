@@ -1652,7 +1652,9 @@ void bitmap::CreateFlies(ulong Seed, int Frame, int FlyAmount)
   for(int c = 0; c < FlyAmount; ++c)
   {
     double Constant = double(RAND() % 10000) / 10000 * FPI;
-    v2 StartPos = v2(5 + RAND() % 6, 5 + RAND() % 6);
+    cint StartX = RAND() % 6;
+    cint StartY = RAND() % 6;
+    v2 StartPos = v2(5 + StartX, 5 + StartY);
     double Temp = (double(16 - Frame) * FPI) / 16;
 
     if(RAND() & 1)
@@ -1745,7 +1747,9 @@ truth bitmap::CreateLightning(v2 StartPos, v2 Direction, int MaxLength, col16 Co
 
   for(;;)
   {
-    v2 Move(1 + (RAND() & 3), 1 + (RAND() & 3));
+    cint MoveX = RAND() & 3;
+    cint MoveY = RAND() & 3;
+    v2 Move(1 + MoveX, 1 + MoveY);
 
     if(Direction.X < 0 || (!Direction.X && RAND() & 1))
       Move.X = -Move.X;
@@ -2264,6 +2268,27 @@ void cachedfont::PrintCharacter(cblitdata B) const
     return;
   }
 
+  /* A character cell is 9x9 - eight pixels of glyph plus the shadow Printf
+     draws one pixel down and right - which is what B.Border says and what the
+     NormalMaskedBlit fallback above copies. This loop used to walk the row a
+     ulong at a time, ending at `FontPtr + (20 / sizeof(ulong))`, and the width
+     that expression produces is decided by the host:
+
+       x86-64   sizeof(ulong) 8   ->  2 words = 16 bytes =  8 pixels
+       wasm32   sizeof(ulong) 4   ->  5 words = 20 bytes = 10 pixels
+
+     so 64-bit builds silently dropped the ninth column - the shadow's right
+     edge, one dim pixel per character - and 32-bit builds wrote a tenth column
+     the cell does not own. Neither is 9, and the comment left here said as much
+     ("I don't know how correct this is"). It is also an unaligned ulong access:
+     B.Dest.X is any integer, so the cast has no alignment guarantee to make.
+
+     Copying pixel by pixel is width-independent, aligned by construction, and
+     agrees with the fallback. Nine iterations of a two-byte load, and, or and
+     store is not the part of this program worth optimising. Found by the
+     native-vs-WASM frame comparison, HARNESS.md §9.4: it is one pixel, and the
+     frame hashes disagreed on it immediately. */
+
   packcol16** SrcLine = &Image[B.Src.Y];
   packcol16** EndLine = SrcLine + 9;
   packcol16** SrcMaskLine = &MaskMap[B.Src.Y];
@@ -2271,11 +2296,10 @@ void cachedfont::PrintCharacter(cblitdata B) const
 
   for(; SrcLine != EndLine; ++SrcLine, ++SrcMaskLine, ++DestLine)
   {
-    culong* FontPtr = reinterpret_cast<culong*>(*SrcLine + B.Src.X);
-        // I don't know how correct this is, but longs are 64 bit on 64 bit.
-    culong* EndPtr = FontPtr + (20 / sizeof(ulong));
-    culong* MaskPtr = reinterpret_cast<culong*>(*SrcMaskLine + B.Src.X);
-    ulong* DestPtr = reinterpret_cast<ulong*>(*DestLine + B.Dest.X);
+    cpackcol16* FontPtr = *SrcLine + B.Src.X;
+    cpackcol16* EndPtr = FontPtr + 9;
+    cpackcol16* MaskPtr = *SrcMaskLine + B.Src.X;
+    packcol16* DestPtr = *DestLine + B.Dest.X;
 
     for(; FontPtr != EndPtr; ++DestPtr, ++MaskPtr, ++FontPtr)
       *DestPtr = (*DestPtr & *MaskPtr) | *FontPtr;

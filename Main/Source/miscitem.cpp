@@ -18,7 +18,13 @@ void materialcontainer::InitMaterials(material* M1, material* M2, truth CUP)
 { ObjectInitMaterials(MainMaterial, M1, GetDefaultMainVolume(),
                       SecondaryMaterial, M2, GetDefaultSecondaryVolume(), CUP); }
 void materialcontainer::InitMaterials(const materialscript* M, const materialscript* C, truth CUP)
-{ InitMaterials(M->Instantiate(), C->Instantiate(), CUP); }
+{
+  /* Both Instantiate() calls draw and are unsequenced - see femath.h. */
+
+  material* Main = M->Instantiate();
+  material* Contained = C->Instantiate();
+  InitMaterials(Main, Contained, CUP);
+}
 
 int holybanana::GetSpecialFlags() const { return ST_FLAME_1; }
 

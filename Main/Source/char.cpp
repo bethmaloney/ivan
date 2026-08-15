@@ -939,8 +939,21 @@ struct svpriorityelement
 {
   svpriorityelement(int BodyPart, int StrengthValue)
   : BodyPart(BodyPart), StrengthValue(StrengthValue) { }
+  /* The body part index breaks ties, and it has to: a humanoid's two legs
+     have the same strength value and the same HP, so without it they are
+     equal elements, and which of two equal elements a std::priority_queue
+     leaves on top is up to the heap algorithm. libstdc++ and libc++ answer
+     differently, so the same bite landed on the right leg natively and the
+     left leg under Emscripten (HARNESS.md §9.4). Lower index wins, which is
+     the order the loop below pushes them in. */
+
   bool operator<(const svpriorityelement& AnotherPair) const
-  { return StrengthValue > AnotherPair.StrengthValue; }
+  {
+    if(StrengthValue != AnotherPair.StrengthValue)
+      return StrengthValue > AnotherPair.StrengthValue;
+
+    return BodyPart > AnotherPair.BodyPart;
+  }
   int BodyPart;
   int StrengthValue;
 };
@@ -12774,7 +12787,10 @@ truth character::ReceiveSirenSong(character* Siren)
   if(Siren->GetRelation(this) != HOSTILE)
     return false;
 
-  if(RAND_N(GetAttribute(WILL_POWER)) > RAND_N(Siren->GetAttribute(CHARISMA)))
+  clong Will = RAND_N(GetAttribute(WILL_POWER));
+  clong Charisma = RAND_N(Siren->GetAttribute(CHARISMA));
+
+  if(Will > Charisma)
   {
     if(IsPlayer())
       ADD_MESSAGE("The beautiful song of %s makes you feel a little sad.", Siren->CHAR_NAME(DEFINITE));

@@ -25,7 +25,14 @@ truth meleeweapon::AllowRegularColors() const { return SecondaryMaterial->GetVol
 v2 meleeweapon::GetWieldedBitmapPos(int I) const
 { return SecondaryMaterial->GetVolume() ? item::GetWieldedBitmapPos(I) : v2(160, 128); }
 void meleeweapon::InitMaterials(const materialscript* M, const materialscript* S, truth CUP)
-{ InitMaterials(M->Instantiate(), S->Instantiate(), CUP); }
+{
+  /* Instantiate() draws for the material volume, and two of them as sibling
+     arguments are unsequenced - see femath.h. */
+
+  material* Main = M->Instantiate();
+  material* Secondary = S->Instantiate();
+  InitMaterials(Main, Secondary, CUP);
+}
 truth meleeweapon::IsRuneSword() const { return (GetConfig() == RUNE_SWORD); }
 
 col16 justifier::GetOutlineColor(int) const { return MakeRGB16(0, 255, 0); }

@@ -1491,7 +1491,9 @@ void cruentus::PrayBadEffect()
   else
   {
     ADD_MESSAGE("%s gets mad and hits you!", GetName());
-    PLAYER->ReceiveDamage(0, 1 + RAND() % 30, PHYSICAL_DAMAGE, ALL, RAND() & 7);
+    cint Damage = 1 + RAND() % 30;
+    cint BodyPart = RAND() & 7;
+    PLAYER->ReceiveDamage(0, Damage, PHYSICAL_DAMAGE, ALL, BodyPart);
     PLAYER->CheckDeath(CONST_S("destroyed by ") + GetName(), 0);
   }
 }

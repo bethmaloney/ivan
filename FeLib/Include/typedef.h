@@ -37,6 +37,7 @@ typedef uchar paletteindex;
 typedef const bool ctruth;
 typedef const char cchar;
 typedef const int cint;
+typedef const long clong;
 typedef const unsigned char cuchar;
 typedef const unsigned short cushort;
 typedef const unsigned int cuint;

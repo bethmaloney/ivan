@@ -416,7 +416,8 @@ truth god::TryToAttachBodyPart(character* Char)
       BodyPart = 0;
       materialvector MaterialVector;
       protosystem::CreateEveryGodlyMaterial(MaterialVector, this, Char);
-      std::sort(MaterialVector.begin(), MaterialVector.end(), materialsorter(0));
+      /* stable_sort: equal harden modifiers are ties - see worldmap.cpp. */
+      std::stable_sort(MaterialVector.begin(), MaterialVector.end(), materialsorter(0));
       uint c;
 
       for(c = 0; c < MaterialVector.size(); ++c)
@@ -484,7 +485,8 @@ truth god::TryToHardenBodyPart(character* Char)
   int OldModifier = OldMaterial->GetHardenModifier(BodyPart);
   materialvector MaterialVector;
   protosystem::CreateEveryGodlyMaterial(MaterialVector, this, Char);
-  std::sort(MaterialVector.begin(), MaterialVector.end(), materialsorter(BodyPart));
+  /* stable_sort: equal harden modifiers are ties - see worldmap.cpp. */
+  std::stable_sort(MaterialVector.begin(), MaterialVector.end(), materialsorter(BodyPart));
   truth Changed = false;
 
   for(c = 0; c < MaterialVector.size(); ++c)

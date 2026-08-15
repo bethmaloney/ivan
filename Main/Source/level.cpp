@@ -474,13 +474,20 @@ truth level::MakeRoom(const roomscript* RoomScript)
   GenerateRectangularRoom(OKForDoor, Inside, Border, RoomScript, RoomClass, Pos, Size);
   game::BusyAnimation();
 
+  /* Spawn() draws too, and it is unsequenced with the square pick beside it,
+     so the pick is taken first by hand - see femath.h. */
+
   if(*RoomScript->GenerateFountains() && !(RAND() % 10))
-    GetLSquare(Inside[RAND() % Inside.size()])->ChangeOLTerrain(fountain::Spawn());
+  {
+    lsquare* Square = GetLSquare(Inside[RAND() % Inside.size()]);
+    Square->ChangeOLTerrain(fountain::Spawn());
+  }
 
   if(*RoomScript->AltarPossible() && !(RAND() % 5))
   {
     int Owner = 1 + RAND() % GODS;
-    GetLSquare(Inside[RAND() % Inside.size()])->ChangeOLTerrain(altar::Spawn(Owner));
+    lsquare* Square = GetLSquare(Inside[RAND() % Inside.size()]);
+    Square->ChangeOLTerrain(altar::Spawn(Owner));
     game::GetGod(Owner)->SignalRandomAltarGeneration(Inside);
     RoomClass->SetDivineMaster(Owner);
   }
@@ -800,6 +807,22 @@ void level::CreateRoomSquare(glterrain* GLTerrain, olterrain* OLTerrain, int X, 
   FlagMap[X][Y] |= FORBIDDEN;
   Map[X][Y]->SetRoomIndex(Room);
   Map[X][Y]->AddFlags(Flags);
+}
+
+/* Instantiate() draws - through RandomizeVisualEffects, and through the
+   material volume interval - and two of them written as sibling arguments are
+   unsequenced, so the ground square and the square above it would swap draws
+   depending on the compiler (femath.h). This overload exists so the dozen call
+   sites in the room generators say what they mean and get the order once,
+   here, instead of a hoisted pair each. */
+
+void level::CreateRoomSquare(const contentscript<glterrain>* GTerrain,
+                             const contentscript<olterrain>* OTerrain,
+                             int X, int Y, int Room, int Flags) const
+{
+  glterrain* Ground = GTerrain->Instantiate();
+  olterrain* Over = OTerrain->Instantiate();
+  CreateRoomSquare(Ground, Over, X, Y, Room, Flags);
 }
 
 void level::GenerateMonsters()
@@ -1455,24 +1478,24 @@ void level::GenerateRectangularRoom(std::vector<v2>& OKForDoor, std::vector<v2>&
     {
       if(x == Pos.X)
       {
-        CreateRoomSquare(GTerrain->Instantiate(), OTerrain->Instantiate(), x + 1, Pos.Y + 1, Room, Flags);
-        CreateRoomSquare(GTerrain->Instantiate(), OTerrain->Instantiate(), x + 1, Pos.Y + Size.Y - 2, Room, Flags);
+        CreateRoomSquare(GTerrain, OTerrain, x + 1, Pos.Y + 1, Room, Flags);
+        CreateRoomSquare(GTerrain, OTerrain, x + 1, Pos.Y + Size.Y - 2, Room, Flags);
         Border.push_back(v2(x + 1, Pos.Y + 1));
         Border.push_back(v2(x + 1, Pos.Y + Size.Y - 2));
         continue;
       }
       else if(x == Pos.X + Size.X - 1)
       {
-        CreateRoomSquare(GTerrain->Instantiate(), OTerrain->Instantiate(), x - 1, Pos.Y + 1, Room, Flags);
-        CreateRoomSquare(GTerrain->Instantiate(), OTerrain->Instantiate(), x - 1, Pos.Y + Size.Y - 2, Room, Flags);
+        CreateRoomSquare(GTerrain, OTerrain, x - 1, Pos.Y + 1, Room, Flags);
+        CreateRoomSquare(GTerrain, OTerrain, x - 1, Pos.Y + Size.Y - 2, Room, Flags);
         Border.push_back(v2(x - 1, Pos.Y + 1));
         Border.push_back(v2(x - 1, Pos.Y + Size.Y - 2));
         continue;
       }
     }
 
-    CreateRoomSquare(GTerrain->Instantiate(), OTerrain->Instantiate(), x, Pos.Y, Room, Flags);
-    CreateRoomSquare(GTerrain->Instantiate(), OTerrain->Instantiate(), x, Pos.Y + Size.Y - 1, Room, Flags);
+    CreateRoomSquare(GTerrain, OTerrain, x, Pos.Y, Room, Flags);
+    CreateRoomSquare(GTerrain, OTerrain, x, Pos.Y + Size.Y - 1, Room, Flags);
 
     if((Shape == RECTANGLE && x != Pos.X && x != Pos.X + Size.X - 1)
        || (Shape == ROUND_CORNERS && x > Pos.X + 1 && x < Pos.X + Size.X - 2))
@@ -1495,8 +1518,8 @@ void level::GenerateRectangularRoom(std::vector<v2>& OKForDoor, std::vector<v2>&
 
   for(y = Pos.Y + 1; y < Pos.Y + Size.Y - 1; ++y, Counter += 2)
   {
-    CreateRoomSquare(GTerrain->Instantiate(), OTerrain->Instantiate(), Pos.X, y, Room, Flags);
-    CreateRoomSquare(GTerrain->Instantiate(), OTerrain->Instantiate(), Pos.X + Size.X - 1, y, Room, Flags);
+    CreateRoomSquare(GTerrain, OTerrain, Pos.X, y, Room, Flags);
+    CreateRoomSquare(GTerrain, OTerrain, Pos.X + Size.X - 1, y, Room, Flags);
 
     if(Shape == RECTANGLE
        || (Shape == ROUND_CORNERS && y != Pos.Y + 1 && y != Pos.Y + Size.Y - 2))
@@ -1555,7 +1578,7 @@ void level::GenerateRectangularRoom(std::vector<v2>& OKForDoor, std::vector<v2>&
            && (x == Pos.X + 1 || x == Pos.X + Size.X - 2)
            && (y == Pos.Y + 1 || y == Pos.Y + Size.Y - 2)))
       {
-        CreateRoomSquare(GTerrain->Instantiate(), OTerrain->Instantiate(), x, y, Room, Flags);
+        CreateRoomSquare(GTerrain, OTerrain, x, y, Room, Flags);
         Inside.push_back(v2(x, y));
       }
     }
@@ -1576,13 +1599,13 @@ void level::GenerateRectangularRoom(std::vector<v2>& OKForDoor, std::vector<v2>&
           GTerrain = RoomScript->GetWallSquare()->GetGTerrain();
           OTerrain = RoomScript->GetWallSquare()->GetOTerrain();
         }
-        CreateRoomSquare(GTerrain->Instantiate(), OTerrain->Instantiate(), x, y, Room, Flags);
+        CreateRoomSquare(GTerrain, OTerrain, x, y, Room, Flags);
       }
       else if((Shape == MAZE_ROOM) && MazeRoom.MazeKernel[(y - Pos.Y - 1) * (Size.X - 2) + (x - Pos.X - 1)]) // Put in a floor:
       {
         GTerrain = RoomScript->GetFloorSquare()->GetGTerrain();
         OTerrain = RoomScript->GetFloorSquare()->GetOTerrain();
-        CreateRoomSquare(GTerrain->Instantiate(), OTerrain->Instantiate(), x, y, Room, Flags);
+        CreateRoomSquare(GTerrain, OTerrain, x, y, Room, Flags);
         Inside.push_back(v2(x, y));
       }
     }
@@ -2056,7 +2079,15 @@ void level::GenerateDungeon(int Index)
 
   for(x = 0; x < XSize; ++x)
     for(int y = 0; y < YSize; ++y, ++Counter)
-      Map[x][y]->SetLTerrain(GTerrain->Instantiate(), OTerrain->Instantiate());
+    {
+      /* Both Instantiate() calls draw, and as sibling arguments they are
+         unsequenced - see femath.h. This loop runs once per square of every
+         level in the game, so the whole dungeon hangs off the order. */
+
+      glterrain* Ground = GTerrain->Instantiate();
+      olterrain* Over = OTerrain->Instantiate();
+      Map[x][y]->SetLTerrain(Ground, Over);
+    }
 
   uint c;
   uint Rooms = LevelScript->GetRooms()->Randomize();
@@ -2161,7 +2192,11 @@ void level::GenerateJungle()
         StartPos = v2(XSize - 1, RAND_N(YSize));
         break;
        case 4:
-        StartPos = v2(RAND_N(XSize), RAND_N(YSize));
+       {
+        clong X = RAND_N(XSize);
+        clong Y = RAND_N(YSize);
+        StartPos = v2(X, Y);
+       }
       }
 
       CreateTunnelNetwork(1, 4, 20, 120, StartPos);
@@ -2226,12 +2261,21 @@ void level::GenerateDesert()
   int c;
 
   for(c = 0; c < AmountOfCactuses; ++c)
-    Map[RAND_N(XSize)][RAND_N(YSize)]->ChangeOLTerrain(decoration::Spawn(CACTUS));
+  {
+    clong X = RAND_N(XSize);
+    clong Y = RAND_N(YSize);
+    Map[X][Y]->ChangeOLTerrain(decoration::Spawn(CACTUS));
+  }
 
   int AmountOfBoulders = RAND_N(10);
 
   for(c = 0; c < AmountOfBoulders; ++c)
-    Map[RAND_N(XSize)][RAND_N(YSize)]->ChangeOLTerrain(boulder::Spawn(1 + RAND_2));
+  {
+    clong X = RAND_N(XSize);
+    clong Y = RAND_N(YSize);
+    clong Config = 1 + RAND_2;
+    Map[X][Y]->ChangeOLTerrain(boulder::Spawn(Config));
+  }
 }
 
 void level::GenerateSteppe()
@@ -2249,7 +2293,12 @@ void level::GenerateSteppe()
   int AmountOfBoulders = RAND_N(20) + 5;
 
   for(c = 0; c < AmountOfBoulders; ++c)
-    Map[RAND_N(XSize)][RAND_N(YSize)]->ChangeOLTerrain(boulder::Spawn(1 + RAND_2));
+  {
+    clong X = RAND_N(XSize);
+    clong Y = RAND_N(YSize);
+    clong Config = 1 + RAND_2;
+    Map[X][Y]->ChangeOLTerrain(boulder::Spawn(Config));
+  }
 }
 
 void level::GenerateLeafyForest()
@@ -2331,12 +2380,20 @@ void level::GenerateTundra()
   int AmountOfBoulders = RAND_N(20) + 8;
 
   for(c = 0; c < AmountOfBoulders; ++c)
-    Map[RAND_N(XSize)][RAND_N(YSize)]->ChangeOLTerrain(boulder::Spawn(SNOW_BOULDER));
+  {
+    clong X = RAND_N(XSize);
+    clong Y = RAND_N(YSize);
+    Map[X][Y]->ChangeOLTerrain(boulder::Spawn(SNOW_BOULDER));
+  }
 
   int AmountOfDwarfBirches = RAND_N(10);
 
   for(c = 0; c < AmountOfDwarfBirches; ++c)
-    Map[RAND_N(XSize)][RAND_N(YSize)]->ChangeOLTerrain(decoration::Spawn(DWARF_BIRCH));
+  {
+    clong X = RAND_N(XSize);
+    clong Y = RAND_N(YSize);
+    Map[X][Y]->ChangeOLTerrain(decoration::Spawn(DWARF_BIRCH));
+  }
 }
 
 void level::GenerateGlacier()
@@ -2353,7 +2410,11 @@ void level::GenerateGlacier()
   int AmountOfBoulders = RAND_N(20) + 5;
 
   for(int c = 0; c < AmountOfBoulders; ++c)
-    Map[RAND_N(XSize)][RAND_N(YSize)]->ChangeOLTerrain(boulder::Spawn(SNOW_BOULDER));
+  {
+    clong X = RAND_N(XSize);
+    clong Y = RAND_N(YSize);
+    Map[X][Y]->ChangeOLTerrain(boulder::Spawn(SNOW_BOULDER));
+  }
 
   for(;;)
   {
@@ -2379,7 +2440,11 @@ void level::GenerateGlacier()
         StartPos = v2(XSize - 1, RAND_N(YSize));
         break;
        case 4:
-        StartPos = v2(RAND_N(XSize), RAND_N(YSize));
+       {
+        clong X = RAND_N(XSize);
+        clong Y = RAND_N(YSize);
+        StartPos = v2(X, Y);
+       }
       }
 
       CreateTunnelNetwork(1, 4, 20, 120, StartPos);
@@ -2442,8 +2507,22 @@ bool nodepointerstorer::operator<(const nodepointerstorer& N) const
 
   if(Node->TotalDistanceEstimate != N.Node->TotalDistanceEstimate)
     return Node->TotalDistanceEstimate > N.Node->TotalDistanceEstimate;
-  else
+
+  if(Node->Diagonals != N.Node->Diagonals)
     return Node->Diagonals > N.Node->Diagonals;
+
+  /* Position breaks the remaining ties, and something must: equally long
+     routes with equally many diagonals are ordinary in a grid, and which of
+     two equal elements a std::priority_queue leaves on top is the heap
+     algorithm's business - libstdc++ and libc++ disagree. Without this the
+     route a monster picks depends on which standard library built the game
+     (HARNESS.md §9.4). Each node owns a distinct square, so this is a total
+     order. */
+
+  if(Node->Pos.Y != N.Node->Pos.Y)
+    return Node->Pos.Y > N.Node->Pos.Y;
+
+  return Node->Pos.X > N.Node->Pos.X;
 }
 
 void node::CalculateNextNodes()

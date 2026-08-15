@@ -44,7 +44,13 @@ int dolphin::GetSpecialBodyPartFlags(int) const { return RAND() & (MIRROR|ROTATE
 
 bodypart* bat::MakeBodyPart(int) const { return battorso::Spawn(0, NO_MATERIALS); }
 
-col16 chameleon::GetSkinColor() const { return MakeRGB16(60 + RAND() % 190, 60 + RAND() % 190, 60 + RAND() % 190); }
+col16 chameleon::GetSkinColor() const
+{
+  cint Red = RAND() % 190;
+  cint Green = RAND() % 190;
+  cint Blue = RAND() % 190;
+  return MakeRGB16(60 + Red, 60 + Green, 60 + Blue);
+}
 
 void floatingeye::SetWayPoints(const fearray<packv2>& What) { ArrayToVector(What, WayPoints); }
 
@@ -68,9 +74,21 @@ int hattifattener::GetSpecialBodyPartFlags(int) const { return ST_LIGHTNING; }
 int hattifattener::GetBodyPartWobbleData(int) const
 { return WOBBLE_HORIZONTALLY|(1 << WOBBLE_SPEED_SHIFT)|(1 << WOBBLE_FREQ_SHIFT); }
 
-col16 vladimir::GetSkinColor() const { return MakeRGB16(60 + RAND() % 190, 60 + RAND() % 190, 60 + RAND() % 190); }
+col16 vladimir::GetSkinColor() const
+{
+  cint Red = RAND() % 190;
+  cint Green = RAND() % 190;
+  cint Blue = RAND() % 190;
+  return MakeRGB16(60 + Red, 60 + Green, 60 + Blue);
+}
 
-col16 fusanga::GetSkinColor() const { return MakeRGB16(60 + RAND() % 190, 60 + RAND() % 190, 60 + RAND() % 190); }
+col16 fusanga::GetSkinColor() const
+{
+  cint Red = RAND() % 190;
+  cint Green = RAND() % 190;
+  cint Blue = RAND() % 190;
+  return MakeRGB16(60 + Red, 60 + Green, 60 + Blue);
+}
 
 bodypart* blinkdog::MakeBodyPart(int) const { return blinkdogtorso::Spawn(0, NO_MATERIALS); }
 
@@ -282,8 +300,11 @@ void nonhumanoid::Bite(character* Enemy, v2 HitPos, int Direction, truth ForceHi
   EditExperience(ARM_STRENGTH, 75, 1 << 8);
   EditExperience(AGILITY, 150, 1 << 8);
   EditStamina(GetAdjustedStaminaCost(-1000, GetAttribute(AGILITY)), false);
-  Enemy->TakeHit(this, 0, GetTorso(), HitPos, GetBiteDamage(), GetBiteToHitValue(), RAND() % 26 - RAND() % 26,
-                 BITE_ATTACK, Direction, !(RAND() % GetCriticalModifier()), ForceHit);
+  cint ToHitRoll = RAND() % 26;
+  cint DodgeRoll = RAND() % 26;
+  ctruth Critical = !(RAND() % GetCriticalModifier());
+  Enemy->TakeHit(this, 0, GetTorso(), HitPos, GetBiteDamage(), GetBiteToHitValue(), ToHitRoll - DodgeRoll,
+                 BITE_ATTACK, Direction, Critical, ForceHit);
 }
 
 void nonhumanoid::Kick(lsquare* Square, int Direction, truth ForceHit)
@@ -292,8 +313,12 @@ void nonhumanoid::Kick(lsquare* Square, int Direction, truth ForceHit)
   EditAP(-GetKickAPCost());
   EditStamina(GetAdjustedStaminaCost(-1000, GetAttribute(ARM_STRENGTH)), false);
 
-  if(Square->BeKicked(this, 0, GetTorso(), GetKickDamage(), GetKickToHitValue(), RAND() % 26 - RAND() % 26,
-                      Direction, !(RAND() % GetCriticalModifier()), ForceHit))
+  cint ToHitRoll = RAND() % 26;
+  cint DodgeRoll = RAND() % 26;
+  ctruth Critical = !(RAND() % GetCriticalModifier());
+
+  if(Square->BeKicked(this, 0, GetTorso(), GetKickDamage(), GetKickToHitValue(), ToHitRoll - DodgeRoll,
+                      Direction, Critical, ForceHit))
   {
     EditExperience(LEG_STRENGTH, 150, 1 << 8);
     EditExperience(AGILITY, 75, 1 << 8);
@@ -381,9 +406,13 @@ void nonhumanoid::UnarmedHit(character* Enemy, v2 HitPos, int Direction, truth F
   EditAP(-GetUnarmedAPCost());
   EditStamina(GetAdjustedStaminaCost(-1000, GetAttribute(ARM_STRENGTH)), false);
 
+  cint ToHitRoll = RAND() % 26;
+  cint DodgeRoll = RAND() % 26;
+  ctruth Critical = !(RAND() % GetCriticalModifier());
+
   switch(Enemy->TakeHit(this, 0, GetTorso(), HitPos, GetUnarmedDamage(), GetUnarmedToHitValue(),
-                        RAND() % 26 - RAND() % 26, UNARMED_ATTACK, Direction,
-                        !(RAND() % GetCriticalModifier()), ForceHit))
+                        ToHitRoll - DodgeRoll, UNARMED_ATTACK, Direction,
+                        Critical, ForceHit))
   {
    case HAS_HIT:
    case HAS_BLOCKED:
@@ -697,12 +726,30 @@ void genetrixvesana::GetAICommand()
 
 col16 carnivorousplant::GetTorsoSpecialColor() const // the flower
 {
+  /* A bright channel is 125 + RAND() % 125 and a dark one RAND() % 100, and
+     which is which depends on the config. Drawn into named channels rather
+     than straight into the MakeRGB16 arguments, which are unsequenced - see
+     femath.h. */
+
+  int Base[3];
+
   if(!GetConfig())
-    return MakeRGB16(RAND() % 100, 125 + RAND() % 125, RAND() % 100);
+  {
+    Base[0] = 0;   Base[1] = 125; Base[2] = 0;
+  }
   else if(GetConfig() == GREATER)
-    return MakeRGB16(RAND() % 100, RAND() % 100, 125 + RAND() % 125);
+  {
+    Base[0] = 0;   Base[1] = 0;   Base[2] = 125;
+  }
   else
-    return MakeRGB16(125 + RAND() % 125, 125 + RAND() % 125, RAND() % 100);
+  {
+    Base[0] = 125; Base[1] = 125; Base[2] = 0;
+  }
+
+  cint Red = Base[0] + RAND() % (Base[0] ? 125 : 100);
+  cint Green = Base[1] + RAND() % (Base[1] ? 125 : 100);
+  cint Blue = Base[2] + RAND() % (Base[2] ? 125 : 100);
+  return MakeRGB16(Red, Green, Blue);
 }
 
 void ostrich::GetAICommand()
@@ -1052,7 +1099,10 @@ int nerfbat::TakeHit(character* Enemy, item* Weapon, bodypart* EnemyBodyPart, v2
   if(Return != HAS_DIED)
   {
     // Compare Mana against enemy Willpower to see if they resist polymorph.
-    if(RAND_N(GetAttribute(MANA)) > RAND_N(Enemy->GetAttribute(WILL_POWER)))
+    clong Mana = RAND_N(GetAttribute(MANA));
+    clong Will = RAND_N(Enemy->GetAttribute(WILL_POWER));
+
+    if(Mana > Will)
     {
       if(IsPlayer())
         ADD_MESSAGE("You are engulfed in a malignant aura!.");
@@ -1208,12 +1258,14 @@ void mushroom::GetAICommand()
 
 void mushroom::PostConstruct()
 {
-  switch(RAND() % 3)
-  {
-   case 0: SetSpecies(MakeRGB16(125 + RAND() % 125, RAND() % 100, RAND() % 100)); break;
-   case 1: SetSpecies(MakeRGB16(RAND() % 100, 125 + RAND() % 125, RAND() % 100)); break;
-   case 2: SetSpecies(MakeRGB16(RAND() % 100, RAND() % 100, 125 + RAND() % 125)); break;
-  }
+  /* One of the three channels is bright, the other two dark. Drawn into named
+     channels because MakeRGB16's arguments are unsequenced - see femath.h. */
+
+  cint Bright = RAND() % 3;
+  cint Red = (Bright == 0 ? 125 : 0) + RAND() % (Bright == 0 ? 125 : 100);
+  cint Green = (Bright == 1 ? 125 : 0) + RAND() % (Bright == 1 ? 125 : 100);
+  cint Blue = (Bright == 2 ? 125 : 0) + RAND() % (Bright == 2 ? 125 : 100);
+  SetSpecies(MakeRGB16(Red, Green, Blue));
 }
 
 /**
@@ -1728,6 +1780,11 @@ void hattifattener::GetAICommand()
     if(CanBeSeenByPlayer())
       ADD_MESSAGE("%s emits a lightning bolt!", CHAR_DESCRIPTION(DEFINITE));
 
+    /* Two constructor arguments, two draws, and arguments are unsequenced -
+       see femath.h. */
+
+    cint Direction = RAND() & 7;
+    cint Range = 1 + (RAND() & 7);
     beamdata Beam
       (
         this,
@@ -1735,8 +1792,8 @@ void hattifattener::GetAICommand()
         GetPos(),
         WHITE,
         BEAM_LIGHTNING,
-        RAND() & 7,
-        1 + (RAND() & 7),
+        Direction,
+        Range,
         0,
         NULL
       );

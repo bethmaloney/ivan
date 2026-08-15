@@ -20,6 +20,31 @@
 #include "v2.h"
 #include "rect.h"
 
+/*
+ * Never draw twice in one expression unless the two draws are interchangeable.
+ *
+ * C++ leaves function arguments, and the operands of arithmetic and relational
+ * operators, unsequenced with respect to each other - so which draw of the
+ * shared Mersenne Twister stream reaches which slot is the compiler's choice,
+ * not the program's. GCC and Clang make opposite choices, and both are right.
+ * Write
+ *
+ *     clong X = RAND_N(XSize);         // not v2(RAND_N(XSize), RAND_N(YSize))
+ *     clong Y = RAND_N(YSize);
+ *     v2 Pos(X, Y);
+ *
+ * and the draw order is the order you read. Note this is unspecified behaviour
+ * rather than undefined: every build is internally consistent and reproduces
+ * itself perfectly, which is why it survived twenty-five years and every
+ * determinism test in HARNESS.md. It surfaces only when two *compilers* are
+ * compared, which is exactly what a WASM port does - the player's eye colour
+ * came out a different colour under Emscripten (HARNESS.md §9.4).
+ *
+ * Interchangeable draws are fine and are left alone: RAND()%36 + RAND()%36 has
+ * the same distribution and the same value whichever half is drawn first, and
+ * &&, || and ?: sequence their operands by definition.
+ */
+
 #define RAND femath::Rand
 #define RAND_N femath::RandN
 #define RAND_2 (femath::Rand() & 1)
@@ -85,7 +110,17 @@ struct interval
 
 struct region
 {
-  v2 Randomize() const { return v2(X.Randomize(), Y.Randomize()); }
+  /* Both halves draw, and the two arguments of v2() are unsequenced, so which
+     draw becomes X and which becomes Y would otherwise be the compiler's
+     choice - see the note above the RAND macros. This one decides where every
+     generated room sits and how big it is. */
+
+  v2 Randomize() const
+  {
+    clong RX = X.Randomize();
+    clong RY = Y.Randomize();
+    return v2(RX, RY);
+  }
   interval X;
   interval Y;
 };

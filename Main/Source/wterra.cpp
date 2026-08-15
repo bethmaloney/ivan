@@ -170,7 +170,11 @@ void gwterrain::CalculateNeighbourBitmapPoses()
     }
   }
 
-  std::sort(Neighbour, Neighbour + Index, DrawOrderer);
+  /* stable_sort: DrawOrderer compares priority only, so two neighbours of
+     equal priority are a tie and std::sort would order them by whatever its
+     implementation does - and this decides what is drawn over what. */
+
+  std::stable_sort(Neighbour, Neighbour + Index, DrawOrderer);
 
   if(Index < 8)
     Neighbour[Index].second = 0;

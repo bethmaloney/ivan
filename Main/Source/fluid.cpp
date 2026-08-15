@@ -572,7 +572,11 @@ void fluid::imagedata::AddLiquidToPicture(const rawbitmap* Shadow, long Pixels, 
     if(Shadow)
       Cords = PixelAllowed[RAND() % PixelsAllowed];
     else
-      Cords = v2(1 + RAND() % 14, 1 + RAND() % 14);
+    {
+      cint X = RAND() % 14;
+      cint Y = RAND() % 14;
+      Cords = v2(1 + X, 1 + Y);
+    }
 
     Picture->PutPixel(Cords, Color);
     long Alpha = Limit<long>(AlphaSuggestion - 25 + RAND() % 50, 0, 0xFF);
@@ -592,9 +596,18 @@ void fluid::imagedata::AddLiquidToPicture(const rawbitmap* Shadow, long Pixels, 
                        && ValidityMap[Pos.X] & (1 << Pos.Y)))
         {
           --Pixels;
-          Picture->PutPixel(Pos, MakeRGB16(Limit<int>(Red - 25 + RAND() % 51, 0, 0xFF),
-                                           Limit<int>(Green - 25 + RAND() % 51, 0, 0xFF),
-                                           Limit<int>(Blue - 25 + RAND() % 51, 0, 0xFF)));
+
+          /* One draw per channel, taken here rather than inside MakeRGB16's
+             argument list, where they would be unsequenced - see femath.h.
+             This is the speckle in a pool of blood, and it is what first told
+             the native and WASM builds apart on the auto-play corpus. */
+
+          cint RedNoise = RAND() % 51;
+          cint GreenNoise = RAND() % 51;
+          cint BlueNoise = RAND() % 51;
+          Picture->PutPixel(Pos, MakeRGB16(Limit<int>(Red - 25 + RedNoise, 0, 0xFF),
+                                           Limit<int>(Green - 25 + GreenNoise, 0, 0xFF),
+                                           Limit<int>(Blue - 25 + BlueNoise, 0, 0xFF)));
 
           long Alpha = Limit<long>(AlphaSuggestion - 25 + RAND() % 50, 0, 0xFF);
           AlphaSum += Alpha - Picture->GetAlpha(Pos);

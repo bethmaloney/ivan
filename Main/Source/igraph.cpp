@@ -655,7 +655,9 @@ bitmap* igraph::GenerateScarBitmap(int BodyPart, int Severity, int Color)
   v2 StartPos;
   while(true)
   {
-    StartPos = v2(RAND_N(SILHOUETTE_SIZE.X), RAND_N(SILHOUETTE_SIZE.Y));
+    clong X = RAND_N(SILHOUETTE_SIZE.X);
+    clong Y = RAND_N(SILHOUETTE_SIZE.Y);
+    StartPos = v2(X, Y);
     if(CacheBitmap->GetPixel(StartPos) != 0)
       break;
   }

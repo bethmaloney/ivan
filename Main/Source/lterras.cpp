@@ -26,7 +26,14 @@ v2 christmastree::GetBitmapPos(int Frame) const { return game::IsXMas() ? v2(16 
 material* fountain::SetSecondaryMaterial(material* What, int SpecialFlags) { return SetMaterial(SecondaryMaterial, What, 0, SpecialFlags); }
 void fountain::InitMaterials(material* M1, material* M2, truth CUP) { ObjectInitMaterials(MainMaterial, M1, 0, SecondaryMaterial, M2, 0, CUP); }
 v2 fountain::GetBitmapPos(int) const { return v2(GetSecondaryMaterial() ? 16 : 32, 288); }
-void fountain::InitMaterials(const materialscript* M, const materialscript* C, truth CUP) { InitMaterials(M->Instantiate(), C->Instantiate(), CUP); }
+void fountain::InitMaterials(const materialscript* M, const materialscript* C, truth CUP)
+{
+  /* Both Instantiate() calls draw and are unsequenced - see femath.h. */
+
+  material* Main = M->Instantiate();
+  material* Contained = C->Instantiate();
+  InitMaterials(Main, Contained, CUP);
+}
 
 void brokendoor::HasBeenHitByItem(character* Thrower, item*, int Damage) { ReceiveDamage(Thrower, Damage, PHYSICAL_DAMAGE); }
 
@@ -882,8 +889,10 @@ void door::ActivateBoobyTrap()
    case 1: // Explosion
    {
      BoobyTrap = 0;
+     cint Up = RAND() % 5;
+     cint Down = RAND() % 5;
      GetLevel()->Explosion(0, "killed by an exploding booby-trapped door",
-                           GetPos(), 20 + RAND() % 5 - RAND() % 5);
+                           GetPos(), 20 + Up - Down);
      break;
    }
    case 2: // Gas

@@ -1207,12 +1207,21 @@ void lsquare::DrawParticles(long Color, truth DrawHere)
     game::DrawEverythingNoBlit();
 
   if(Color & RANDOM_COLOR)
-    Color = MakeRGB16(60 + RAND() % 190, 60 + RAND() % 190, 60 + RAND() % 190);
+  {
+    cint Red = RAND() % 190;
+    cint Green = RAND() % 190;
+    cint Blue = RAND() % 190;
+    Color = MakeRGB16(60 + Red, 60 + Green, 60 + Blue);
+  }
 
   v2 Pos = game::CalculateScreenCoordinates(GetPos());
 
   for(int c = 0; c < 10; ++c)
-    DOUBLE_BUFFER->PutPixel(Pos + v2(1 + RAND() % 14, 1 + RAND() % 14), Color);
+  {
+    cint X = RAND() % 14;
+    cint Y = RAND() % 14;
+    DOUBLE_BUFFER->PutPixel(Pos + v2(1 + X, 1 + Y), Color);
+  }
 
   Flags |= STRONG_NEW_DRAW_REQUEST; // Clean the pixels from the screen afterwards
 
@@ -1430,7 +1439,12 @@ v2 lsquare::DrawLightning(v2 StartPos, long Color, int Direction, truth DrawHere
   Empty.ActivateFastFlag();
 
   if(Color & RANDOM_COLOR)
-    Color = MakeRGB16(60 + RAND() % 190, 60 + RAND() % 190, 60 + RAND() % 190);
+  {
+    cint Red = RAND() % 190;
+    cint Green = RAND() % 190;
+    cint Blue = RAND() % 190;
+    Color = MakeRGB16(60 + Red, 60 + Green, 60 + Blue);
+  }
 
   if(Direction != YOURSELF)
   {
@@ -1520,7 +1534,9 @@ truth lsquare::Polymorph(const beamdata& Beam)
 
 truth lsquare::Strike(const beamdata& Beam)
 {
-  int Damage = 50 + RAND() % 21 - RAND() % 21;
+  cint Up = RAND() % 21;
+  cint Down = RAND() % 21;
+  int Damage = 50 + Up - Down;
   GetStack()->ReceiveDamage(Beam.Owner, Damage, ENERGY, Beam.Direction);
   ReceiveTrapDamage(Beam.Owner, Damage, ENERGY, Beam.Direction);
 
@@ -1567,7 +1583,9 @@ truth lsquare::FireBall(const beamdata& Beam)
     if(CanBeSeenByPlayer(true))
       ADD_MESSAGE("A magical explosion is triggered!");
 
-    GetLevel()->Explosion(Beam.Owner, Beam.DeathMsg, Pos, 75 + RAND() % 25 - RAND() % 25, true, true);
+    cint Up = RAND() % 25;
+    cint Down = RAND() % 25;
+    GetLevel()->Explosion(Beam.Owner, Beam.DeathMsg, Pos, 75 + Up - Down, true, true);
     return true;
   }
 
@@ -1702,7 +1720,9 @@ truth lsquare::Duplicate(const beamdata& Beam)
 
 truth lsquare::Lightning(const beamdata& Beam)
 {
-  int Damage = 20 + RAND() % 6 - RAND() % 6;
+  cint Up = RAND() % 6;
+  cint Down = RAND() % 6;
+  int Damage = 20 + Up - Down;
   GetStack()->ReceiveDamage(Beam.Owner, Damage, ELECTRICITY, Beam.Direction);
   ReceiveTrapDamage(Beam.Owner, Damage, ELECTRICITY, Beam.Direction);
 
@@ -1891,7 +1911,10 @@ truth lsquare::LowerEnchantment(const beamdata& Beam)
 
   if(Char)
   {
-    if(Beam.Owner && RAND_N(Char->GetAttribute(WILL_POWER)) > RAND_N(Beam.Owner->GetAttribute(MANA)))
+    clong Will = Beam.Owner ? RAND_N(Char->GetAttribute(WILL_POWER)) : 0;
+    clong Mana = Beam.Owner ? RAND_N(Beam.Owner->GetAttribute(MANA)) : 0;
+
+    if(Beam.Owner && Will > Mana)
     {
       if(Char->IsPlayer())
         ADD_MESSAGE("%s glows dull brown for a second, but then it passes.", RandomItem->CHAR_NAME(DEFINITE));
@@ -2219,7 +2242,14 @@ void lsquare::CalculateGroundBorderPartners()
   if(!GroundBorderPartnerTerrain)
     GroundBorderPartnerTerrain = new glterrain*[8];
 
-  std::sort(BorderPartner, BorderPartner + Index);
+  /* stable_sort: operator< above compares the border tile priority and
+     nothing else, so partners of equal priority are ties, and the order this
+     leaves them in is packed into BorderPartnerInfo - which is drawn and
+     saved. libstdc++ sorts a range this short with an insertion sort and
+     libc++ with a sorting network, so std::sort disagreed across the two
+     (HARNESS.md §9.4). */
+
+  std::stable_sort(BorderPartner, BorderPartner + Index);
   truth Animated = false;
 
   for(int c = 0; c < Index; ++c)
@@ -2290,7 +2320,14 @@ void lsquare::CalculateOverBorderPartners()
   if(!OverBorderPartnerTerrain)
     OverBorderPartnerTerrain = new olterrain*[8];
 
-  std::sort(BorderPartner, BorderPartner + Index);
+  /* stable_sort: operator< above compares the border tile priority and
+     nothing else, so partners of equal priority are ties, and the order this
+     leaves them in is packed into BorderPartnerInfo - which is drawn and
+     saved. libstdc++ sorts a range this short with an insertion sort and
+     libc++ with a sorting network, so std::sort disagreed across the two
+     (HARNESS.md §9.4). */
+
+  std::stable_sort(BorderPartner, BorderPartner + Index);
   truth Animated = false;
 
   for(int c = 0; c < Index; ++c)

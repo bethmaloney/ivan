@@ -38,6 +38,7 @@ class team;
 struct node;
 struct emitter;
 template <class type> struct fearray;
+template <class type> class contentscript;
 
 struct nodepointerstorer
 {
@@ -265,6 +266,9 @@ class level : public area
   truth GenerateLanterns(int, int, int) const;
   truth GenerateWindows(int, int) const;
   void CreateRoomSquare(glterrain*, olterrain*, int, int, int, int) const;
+  void CreateRoomSquare(const contentscript<glterrain>*,
+                        const contentscript<olterrain>*,
+                        int, int, int, int) const;
   void EmitSunBeams();
   void EmitSunBeam(v2, ulong, int) const;
   void ChangeSunLight();

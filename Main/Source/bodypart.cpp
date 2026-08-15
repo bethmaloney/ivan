@@ -919,9 +919,13 @@ void arm::Hit(character* Enemy, v2 HitPos, int Direction, int Flags)
     THW = TwoHandWieldIsActive();
   }
 
+  cint ToHitRoll = RAND() % 26;
+  cint DodgeRoll = RAND() % 26;
+  ctruth Critical = !(RAND() % Master->GetCriticalModifier());
+
   switch(Enemy->TakeHit(Master, Wielded ? Wielded : GetGauntlet(), this, HitPos, GetTypeDamage(Enemy),
-                        GetToHitValue(), RAND() % 26 - RAND() % 26, Wielded ? WEAPON_ATTACK : UNARMED_ATTACK,
-                        Direction, !(RAND() % Master->GetCriticalModifier()), Flags & SADIST_HIT))
+                        GetToHitValue(), ToHitRoll - DodgeRoll, Wielded ? WEAPON_ATTACK : UNARMED_ATTACK,
+                        Direction, Critical, Flags & SADIST_HIT))
   {
    case HAS_HIT:
    case HAS_BLOCKED:

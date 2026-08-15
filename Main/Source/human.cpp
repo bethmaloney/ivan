@@ -2413,8 +2413,11 @@ void humanoid::Bite(character* Enemy, v2 HitPos, int Direction, truth ForceHit)
   EditAP(-GetHead()->GetBiteAPCost());
   EditExperience(AGILITY, 150, 1 << 9);
   EditStamina(GetAdjustedStaminaCost(-1000, GetAttribute(AGILITY)), false);
+  cint ToHitRoll = RAND() % 26;
+  cint DodgeRoll = RAND() % 26;
+  ctruth Critical = !(RAND() % GetCriticalModifier());
   Enemy->TakeHit(this, 0, GetHead(), HitPos, GetHead()->GetBiteDamage(), GetHead()->GetBiteToHitValue(),
-                 RAND() % 26 - RAND() % 26, BITE_ATTACK, Direction, !(RAND() % GetCriticalModifier()), ForceHit);
+                 ToHitRoll - DodgeRoll, BITE_ATTACK, Direction, Critical, ForceHit);
 }
 
 void humanoid::Kick(lsquare* Square, int Direction, truth ForceHit)
@@ -2425,8 +2428,12 @@ void humanoid::Kick(lsquare* Square, int Direction, truth ForceHit)
   EditAP(-KickLeg->GetKickAPCost());
   EditStamina(GetAdjustedStaminaCost(-1000, GetAttribute(LEG_STRENGTH)), false);
 
+  cint ToHitRoll = RAND() % 26;
+  cint DodgeRoll = RAND() % 26;
+  ctruth Critical = !(RAND() % GetCriticalModifier());
+
   if(Square->BeKicked(this, Boot, KickLeg, KickLeg->GetKickDamage(), KickLeg->GetKickToHitValue(),
-                      RAND() % 26 - RAND() % 26, Direction, !(RAND() % GetCriticalModifier()), ForceHit))
+                      ToHitRoll - DodgeRoll, Direction, Critical, ForceHit))
   {
     KickLeg->EditExperience(LEG_STRENGTH, 75, 1 << 9);
     KickLeg->EditExperience(AGILITY, 75, 1 << 9);
@@ -6347,7 +6354,10 @@ void playerkind::PostConstruct()
    case 3: R = 50; G = 30; B = 5; break;
   }
 
-  HairColor = MakeRGB16(R + RAND_N(41), G + RAND_N(41), B + RAND_N(41));
+  cint HairR = RAND_N(41);
+  cint HairG = RAND_N(41);
+  cint HairB = RAND_N(41);
+  HairColor = MakeRGB16(R + HairR, G + HairG, B + HairB);
 
   switch(RAND_N(4))
   {
@@ -6357,7 +6367,10 @@ void playerkind::PostConstruct()
    case 3: R = 60; G = 20; B = 0; break;
   }
 
-  EyeColor = MakeRGB16(R + RAND_N(41), G + RAND_N(41), B + RAND_N(41));
+  cint EyeR = RAND_N(41);
+  cint EyeG = RAND_N(41);
+  cint EyeB = RAND_N(41);
+  EyeColor = MakeRGB16(R + EyeR, G + EyeG, B + EyeB);
   Talent = RAND_N(TALENTS);
   Weakness = RAND_N(TALENTS);
 }
@@ -7020,8 +7033,10 @@ truth crimsonimp::SpecialBiteEffect(character* Victim, v2 HitPos, int BodyPartIn
 
 void crimsonimp::CreateCorpse(lsquare* Square)
 {
+  cint Up = RAND() % 5;
+  cint Down = RAND() % 5;
   game::GetCurrentLevel()->Explosion(this, "consumed by the hellfire of "  + GetName(INDEFINITE),
-                                     Square->GetPos(), 20 + RAND() % 5 - RAND() % 5);
+                                     Square->GetPos(), 20 + Up - Down);
   SendToHell();
 }
 
@@ -7032,10 +7047,16 @@ truth mirrorimp::DrinkMagic(const beamdata& Beam)
   if(!Beam.Wand->IsExplosive())
     return false;
 
-  if(Beam.Owner && RAND_N(GetAttribute(MANA)) <= RAND_N(Beam.Owner->GetAttribute(WILL_POWER)))
+  if(Beam.Owner)
   {
-    Beam.Owner->EditExperience(WILL_POWER, 100, 1 << 12);
-    return false;
+    clong Mine = RAND_N(GetAttribute(MANA));
+    clong Theirs = RAND_N(Beam.Owner->GetAttribute(WILL_POWER));
+
+    if(Mine <= Theirs)
+    {
+      Beam.Owner->EditExperience(WILL_POWER, 100, 1 << 12);
+      return false;
+    }
   }
 
   festring DeathMsg = CONST_S("killed by an explosion of ");
