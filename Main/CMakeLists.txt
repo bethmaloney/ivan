@@ -1,6 +1,8 @@
 include(FindPkgConfig)
 
-find_package(SDL2 REQUIRED)
+if(NOT EMSCRIPTEN)
+  find_package(SDL2 REQUIRED)
+endif()
 
 file(GLOB IVAN_SOURCES Include/*.h Source/*.cpp)
 # The following files are #included from other .cpp files and so shouldn't be
@@ -23,6 +25,13 @@ set_source_files_properties(
 add_executable(ivan ${IVAN_SOURCES} Resource/Ivan.rc)
 target_include_directories(ivan PUBLIC Include ../Felib/Include ../audio ../fantasyname ../FastNoise ${SDL2_mixer_INCLUDE_DIR})
 target_link_libraries(ivan FeLib FeAudio xbrzscale fantasyname fastnoise portmath ${SDL2_mixer_LIBRARY})
+
+if(EMSCRIPTEN)
+  # Assembled in the top-level CMakeLists so the knobs live in one place.
+  # LINK_FLAGS rather than target_link_options because the floor is CMake 3.10
+  # and target_link_options arrived in 3.13.
+  set_target_properties(ivan PROPERTIES LINK_FLAGS "${IVAN_WASM_LINK_FLAGS}")
+endif()
 
 if(UNIX)
     install(TARGETS ivan DESTINATION "${CMAKE_INSTALL_BINDIR}")

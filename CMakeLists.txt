@@ -70,6 +70,68 @@ if(PORTABLE_BUILD)
   add_definitions(-DPORTABLE_BUILD)
 endif()
 
+if(EMSCRIPTEN)
+  # Declared in here rather than beside the other options so a native cmake -LH
+  # does not offer two knobs that do nothing on its target.
+  option(WASM_NODERAWFS "Use the real filesystem instead of MEMFS (node only, not browsers)" ON)
+  option(WASM_ASYNCIFY "Unwind the stack around blocking input so interactive play works" ON)
+
+  # SDL2, SDL2_mixer and libpng come from Emscripten's own ports rather than
+  # from the system, so the find_package(SDL2/PNG REQUIRED) calls in FeLib,
+  # Main and audio are skipped and their result variables are simply left
+  # empty. Nothing else in those files has to change: they interpolate the
+  # variables into target_link_libraries, and an empty variable expands to
+  # nothing.
+  #
+  # The port flags are set globally, and that is deliberate. -sUSE_SDL=2 is a
+  # *compile* flag as well as a link flag -- it is what puts the port's headers
+  # on the include path -- so a target that misses it cannot find SDL.h, and a
+  # target that gets a different set from its neighbours is the exact shape of
+  # bug HARNESS.md §7.7 records: -DGCC in one sibling directory gave graphicid
+  # two layouts inside one binary. Uniform beats scoped here, which is why this
+  # is add_compile_options at the top level and not add_definitions per
+  # directory.
+  set(IVAN_WASM_PORTS -sUSE_SDL=2 -sUSE_SDL_MIXER=2 -sUSE_LIBPNG=1)
+  add_compile_options(${IVAN_WASM_PORTS})
+  string(REPLACE ";" " " IVAN_WASM_PORTS_LINK "${IVAN_WASM_PORTS}")
+  set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${IVAN_WASM_PORTS_LINK}")
+
+  # Runtime shape of the ivan binary. Applied to the executable in
+  # Main/CMakeLists.txt; assembled here so every knob is in one place.
+  #
+  #   INITIAL_MEMORY   128MB. The 200-turn auto-play corpus peaks at 55.6MB RSS
+  #                    natively (/usr/bin/time -v), and wasm32 halves every
+  #                    pointer, so this is roughly 2x measured headroom rather
+  #                    than a guess. ALLOW_MEMORY_GROWTH covers a corpus that
+  #                    goes deeper.
+  #   STACK_SIZE       8MB, to match the Linux default this code was written
+  #                    against. Emscripten's default is 64KB, which the level
+  #                    generator would find quickly.
+  #   EXIT_RUNTIME     the harness writes its trace, PNG and text log on the way
+  #                    out, and audio::Init registers an atexit handler. Without
+  #                    this the runtime is kept alive when main returns and none
+  #                    of that flushes.
+  set(IVAN_WASM_LINK_FLAGS
+      "-sINITIAL_MEMORY=134217728 -sALLOW_MEMORY_GROWTH=1 -sSTACK_SIZE=8388608 -sEXIT_RUNTIME=1")
+
+  # NODERAWFS swaps MEMFS for the real filesystem. That is what the differential
+  # harness needs -- it reads a recording and Graphics/Script/Music/Sound from
+  # disk and writes a trace back, and under MEMFS those writes go nowhere. It is
+  # node-only, so a browser build wants this OFF plus --preload-file for the data
+  # directories and IDBFS for saves (§9 step 4).
+  if(WASM_NODERAWFS)
+    set(IVAN_WASM_LINK_FLAGS "${IVAN_WASM_LINK_FLAGS} -sNODERAWFS=1")
+  endif()
+
+  # Asyncify unwinds the stack around the blocking SDL_WaitEvent inside
+  # globalwindowhandler::GetKey (§9 step 3). Note a *replay* never reaches it --
+  # the harness returns the recorded key first (§4) -- so seam-1 differential
+  # runs do not need this and are faster without it. Interactive play does.
+  if(WASM_ASYNCIFY)
+    set(IVAN_WASM_LINK_FLAGS "${IVAN_WASM_LINK_FLAGS} -sASYNCIFY=1")
+  endif()
+endif()
+
 find_path(EXECINFO_INCLUDE_DIR NAMES execinfo.h)
 if(NOT EXECINFO_INCLUDE_DIR MATCHES "-NOTFOUND$")
   add_definitions(-DBACKTRACE)

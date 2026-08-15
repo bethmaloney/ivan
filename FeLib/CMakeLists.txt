@@ -23,18 +23,23 @@ endfunction()
 
 add_library(FeLib ${FELIB_SOURCES})
 
-find_package(SDL2 REQUIRED)
+# Under Emscripten both of these come from -sUSE_SDL=2 / -sUSE_LIBPNG=1, set
+# globally in the top-level CMakeLists. Searching the host for them would find
+# the native libraries and link them into a wasm32 target.
+if(NOT EMSCRIPTEN)
+  find_package(SDL2 REQUIRED)
 
-# Try finding libpng using pkg-config first, because find_package(PNG) finds a
-# mismatching header + library combination for me.
-include(FindPkgConfig)
-if(PKG_CONFIG_FOUND)
-  pkg_check_modules(PNG libpng)
-  set(PNG_LIBRARIES ${PNG_LDFLAGS})
-endif()
-if(NOT PNG_FOUND)
-  find_package(PNG REQUIRED)
-  add_definitions(${PNG_DEFINITIONS})
+  # Try finding libpng using pkg-config first, because find_package(PNG) finds a
+  # mismatching header + library combination for me.
+  include(FindPkgConfig)
+  if(PKG_CONFIG_FOUND)
+    pkg_check_modules(PNG libpng)
+    set(PNG_LIBRARIES ${PNG_LDFLAGS})
+  endif()
+  if(NOT PNG_FOUND)
+    find_package(PNG REQUIRED)
+    add_definitions(${PNG_DEFINITIONS})
+  endif()
 endif()
 
 if(MINGW)
