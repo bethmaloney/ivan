@@ -1,0 +1,172 @@
+# IVAN text log: every string drawn, in draw order
+# T <frame> <db|buf> <x> <y> <text>
+T 2 buf 349 156 1. Start Game
+T 2 buf 336 205 2. Continue Game
+T 2 buf 336 255 3. Configuration
+T 2 buf 348 305 4. Highscores
+T 2 buf 372 355 5. Quit
+T 2 buf 3 570 Released under the GNU
+T 2 buf 3 580 General Public License
+T 2 buf 3 590 More info: see COPYING
+T 2 buf 718 590 IVAN v0.59
+T 3 buf 30 46 What is your name? (1-20 letters)
+T 3 buf 30 56 Belyer Asu
+T 10 db  30 46 What is your name? (1-20 letters)
+T 10 db  30 56 Belyer Asu
+T 10 db  30 57           _
+T 11 buf 112 150 You couldn't possibly have guessed this day would differ from any other.
+T 11 buf 100 165 It began just as always. You woke up at dawn and drove off the giant spider
+T 11 buf 104 180 resting on your face. On your way to work you had serious trouble avoiding
+T 11 buf 100 195 the lions and pythons roaming wild around the village. After getting kicked
+T 11 buf 104 210 by colony masters for being late you performed your twelve-hour routine of
+T 11 buf 92 225 climbing trees, gathering bananas, climbing trees, gathering bananas, chasing
+T 11 buf 88 240 monkeys that stole the first gathered bananas, carrying bananas to the village
+T 11 buf 176 255 and trying to look happy when real food was distributed.
+T 11 buf 100 285 Finally you were about to enjoy your free time by taking a quick dip in the
+T 11 buf 112 300 nearby crocodile bay. However, at this point something unusual happened.
+T 11 buf 128 315 You were summoned to the mansion of Richel Decos, the viceroy of the
+T 11 buf 252 330 colony, and were led directly to him.
+T 18 buf 124 105 "I have a task for you, citizen", said the viceroy picking his golden
+T 18 buf 124 120 teeth, "The market price of bananas has taken a deep dive and yet the
+T 18 buf 116 135 central government is about to raise taxes. I have sent appeals to high
+T 18 buf 116 150 priest Petrus but received no response. I fear my enemies in Attnam are
+T 18 buf 112 165 plotting against me and intercepting my messages before they reach him!"
+T 18 buf 120 195 "That is why you must travel to Attnam with a letter I'll give you and
+T 18 buf 120 210 deliver it to Petrus directly. Alas, you somehow have to cross the sea
+T 18 buf 112 225 between. Because it's winter, all Attnamese ships are trapped by ice and
+T 18 buf 100 240 I have none. Therefore you must venture through the small underwater tunnel
+T 18 buf 112 255 connecting our islands. It is infested with monsters, but since you have
+T 18 buf 120 270 stayed alive here so long, the trip will surely cause you no trouble."
+T 18 buf 136 300 You have never been so happy! According to the mansion's traveling
+T 18 buf 120 315 brochures, Attnam is a peaceful but bustling world city on a beautiful
+T 18 buf 116 330 snowy fell surrounded by frozen lakes glittering in the arctic sun just
+T 18 buf 112 345 like the diamonds of the imperial treasury. Not that you would believe a
+T 18 buf 124 360 word. The point is that tomorrow you can finally forget your home and
+T 18 buf 268 375 face the untold adventures ahead.
+T 25 buf 328 225 Generating game...
+T 25 buf 252 255 This may take some time, please wait.
+T 152 db  704 150 AStr 11 
+T 152 db  704 160 LStr 11 
+T 152 db  704 170 Dex  11 
+T 152 db  704 180 Agi  10 
+T 152 db  704 190 End  10 
+T 152 db  704 200 Per  10 
+T 152 db  704 210 Int  10 
+T 152 db  704 220 Wis  10 
+T 152 db  704 230 Will 10 
+T 152 db  704 240 Cha  10 
+T 152 db  704 250 Mana 10 
+T 152 db  704 260 Ht   175 cm
+T 152 db  704 270 Wt   95 kg
+T 152 db  704 290 HP: 37/37
+T 152 db  704 310 Gold: 50
+T 152 db  704 330 Wilderness
+T 152 db  704 340 Day  1
+T 152 db  704 350 Time 12:00
+T 152 db  704 360 Turn 0
+T 152 buf 13 83       enter an area and '?' to view other commands.
+T 152 buf 13 73 12:00 You commence your journey to Attnam. Use direction keys to move, '>' to
+T 153 db  704 150 AStr 11 
+T 153 db  704 160 LStr 11 
+T 153 db  704 170 Dex  11 
+T 153 db  704 180 Agi  10 
+T 153 db  704 190 End  10 
+T 153 db  704 200 Per  10 
+T 153 db  704 210 Int  10 
+T 153 db  704 220 Wis  10 
+T 153 db  704 230 Will 10 
+T 153 db  704 240 Cha  10 
+T 153 db  704 250 Mana 10 
+T 153 db  704 260 Ht   175 cm
+T 153 db  704 270 Wt   95 kg
+T 153 db  704 290 HP: 37/37
+T 153 db  704 310 Gold: 50
+T 153 db  704 330 Wilderness
+T 153 db  704 340 Day  1
+T 153 db  704 350 Time 12:00
+T 153 db  704 360 Turn 0
+T 153 buf 13 83       enter an area and '?' to view other commands.
+T 153 buf 13 73 12:00 You commence your journey to Attnam. Use direction keys to move, '>' to
+T 153 db  704 150 AStr 11 
+T 153 db  704 160 LStr 11 
+T 153 db  704 170 Dex  11 
+T 153 db  704 180 Agi  10 
+T 153 db  704 190 End  10 
+T 153 db  704 200 Per  10 
+T 153 db  704 210 Int  10 
+T 153 db  704 220 Wis  10 
+T 153 db  704 230 Will 10 
+T 153 db  704 240 Cha  10 
+T 153 db  704 250 Mana 10 
+T 153 db  704 260 Ht   175 cm
+T 153 db  704 270 Wt   95 kg
+T 153 db  704 290 HP: 37/37
+T 153 db  704 310 Gold: 50
+T 153 db  704 330 Wilderness
+T 153 db  704 340 Day  1
+T 153 db  704 350 Time 12:03
+T 153 db  704 360 Turn 1
+T 154 db  704 150 AStr 11 
+T 154 db  704 160 LStr 11 
+T 154 db  704 170 Dex  11 
+T 154 db  704 180 Agi  10 
+T 154 db  704 190 End  10 
+T 154 db  704 200 Per  10 
+T 154 db  704 210 Int  10 
+T 154 db  704 220 Wis  10 
+T 154 db  704 230 Will 10 
+T 154 db  704 240 Cha  10 
+T 154 db  704 250 Mana 10 
+T 154 db  704 260 Ht   175 cm
+T 154 db  704 270 Wt   95 kg
+T 154 db  704 290 HP: 37/37
+T 154 db  704 310 Gold: 50
+T 154 db  704 330 Wilderness
+T 154 db  704 340 Day  1
+T 154 db  704 350 Time 12:03
+T 154 db  704 360 Turn 1
+T 154 db  704 150 AStr 11 
+T 154 db  704 160 LStr 11 
+T 154 db  704 170 Dex  11 
+T 154 db  704 180 Agi  10 
+T 154 db  704 190 End  10 
+T 154 db  704 200 Per  10 
+T 154 db  704 210 Int  10 
+T 154 db  704 220 Wis  10 
+T 154 db  704 230 Will 10 
+T 154 db  704 240 Cha  10 
+T 154 db  704 250 Mana 10 
+T 154 db  704 260 Ht   175 cm
+T 154 db  704 270 Wt   95 kg
+T 154 db  704 290 HP: 37/37
+T 154 db  704 310 Gold: 50
+T 154 db  704 330 Wilderness
+T 154 db  704 340 Day  1
+T 154 db  704 350 Time 12:06
+T 154 db  704 360 Turn 2
+T 155 buf 252 225 Entering Underwater Tunnel level 1...
+T 155 buf 252 255 This may take some time, please wait.
+T 442 db  16 461 Belyer Asu the neutral human
+T 442 db  704 150 AStr 11 
+T 442 db  704 160 LStr 11 
+T 442 db  704 170 Dex  11 
+T 442 db  704 180 Agi  10 
+T 442 db  704 190 End  10 
+T 442 db  704 200 Per  10 
+T 442 db  704 210 Int  10 
+T 442 db  704 220 Wis  10 
+T 442 db  704 230 Will 10 
+T 442 db  704 240 Cha  10 
+T 442 db  704 250 Mana 10 
+T 442 db  704 260 Ht   175 cm
+T 442 db  704 270 Wt   95 kg
+T 442 db  704 290 HP: 37/37
+T 442 db  704 310 Gold: 50
+T 442 db  704 330 UT lvl 1
+T 442 db  704 340 Day  1
+T 442 db  704 350 Time 12:06
+T 442 db  704 360 Turn 3
+T 442 buf 13 83 12:06 There is a granite stairway upwards here.
+T 442 buf 13 73       enter an area and '?' to view other commands.
+T 442 buf 13 63 12:00 You commence your journey to Attnam. Use direction keys to move, '>' to
+# end frames=442

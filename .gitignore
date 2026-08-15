@@ -19,6 +19,11 @@ __pycache__
 log/
 *.log
 
+# ...except the golden text logs, which are committed test data rather than
+# output. They keep the .log suffix so they match the artifact they are compared
+# against, which run-corpus.sh writes as text.log.
+!tools/corpora/*.text.log
+
 # Package files
 *.jar
 /*egg-info/
