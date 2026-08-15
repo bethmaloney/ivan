@@ -190,19 +190,36 @@ ITEM(bodypart, item)
   void AddDamageID(int, int);
   festring OwnerDescription;
   character* Master;
-  long CarriedWeight;
-  long BodyPartVolume;
-  packv2 BitmapPos;
-  packcol16 ColorB;
-  packcol16 ColorC;
-  packcol16 ColorD;
-  ushort SpecialFlags;
-  short HP;
-  short MaxHP;
-  short BloodMaterial;
-  short NormalMaterial;
-  uchar SpillBloodCounter;
-  uchar WobbleData;
+
+  /* bodypart() initialised Master and nothing else, so every scalar below was
+     indeterminate on a freshly Spawned part. Nine of them are written straight
+     to the level file by bodypart::Save, which is where the uninitialised heap
+     in HARNESS.md 6.4a comes from, and HP and MaxHP are read by CalculateMaxHP
+     before anything assigns them.
+
+     Zero is not filler for HP and MaxHP. CalculateMaxHP opens with
+     HPDelta = MaxHP - HP - the damage this part has already taken - and a part
+     that has taken none must give zero there. Zeroed, the first call produces
+     HP == MaxHP, which is exactly what RestoreHP() defines as undamaged.
+
+     The picture fields have no such argument. UpdateBodyPartPicture assigns
+     them and NO_PIC_UPDATE skips it (proto.cpp:661, script.cpp:412), so zero
+     is only a defined placeholder: a part drawn or saved without a picture
+     update was already wrong, and this makes it wrong repeatably instead of
+     randomly. */
+  long CarriedWeight = 0;
+  long BodyPartVolume = 0;
+  packv2 BitmapPos = packv2();
+  packcol16 ColorB = 0;
+  packcol16 ColorC = 0;
+  packcol16 ColorD = 0;
+  ushort SpecialFlags = 0;
+  short HP = 0;
+  short MaxHP = 0;
+  short BloodMaterial = 0;
+  short NormalMaterial = 0;
+  uchar SpillBloodCounter = 0;
+  uchar WobbleData = 0;
   std::vector<scar> Scar;
   std::deque<damageid> DamageID;
 };
@@ -246,11 +263,14 @@ ITEM(head, bodypart)
   void UpdateHeadArmorPictures(graphicdata&) const;
   gearslot HelmetSlot;
   gearslot AmuletSlot;
-  int BaseBiteStrength;
-  int BonusBiteStrength;
-  double BiteToHitValue;
-  double BiteDamage;
-  long BiteAPCost;
+  /* head::head() initialises the two slots only, and head::Save writes both of
+     these - same defect as the bodypart scalars above. */
+  int BaseBiteStrength = 0;
+  int BonusBiteStrength = 0;
+  /* Derived, recomputed by CalculateBattleInfo, as in arm and leg below. */
+  double BiteToHitValue = 0;
+  double BiteDamage = 0;
+  long BiteAPCost = 0;
 };
 
 ITEM(torso, bodypart)
@@ -378,14 +398,19 @@ ITEM(arm, bodypart)
   gearslot WieldedSlot;
   gearslot GauntletSlot;
   gearslot RingSlot;
-  double StrengthExperience;
-  double DexterityExperience;
-  int BaseUnarmedStrength;
-  double Damage;
-  double ToHitValue;
-  long APCost;
-  int StrengthBonus;
-  int DexterityBonus;
+  /* arm has no default constructor of its own - rightarm() and leftarm() only
+     Init the slots - so these three were indeterminate, and arm::Save writes
+     all three. Experience counters start at zero by definition. */
+  double StrengthExperience = 0;
+  double DexterityExperience = 0;
+  int BaseUnarmedStrength = 0;
+  /* Derived, recomputed by CalculateBattleInfo - but read before it runs, so
+     they need a defined starting value too. */
+  double Damage = 0;
+  double ToHitValue = 0;
+  long APCost = 0;
+  int StrengthBonus = 0;
+  int DexterityBonus = 0;
   graphicdata WieldedGraphicData;
 };
 
@@ -473,14 +498,16 @@ ITEM(leg, bodypart)
  protected:
   void UpdateLegArmorPictures(graphicdata&, graphicdata&, int) const;
   gearslot BootSlot;
-  double StrengthExperience;
-  double AgilityExperience;
-  int BaseKickStrength;
-  double KickDamage;
-  double KickToHitValue;
-  long KickAPCost;
-  int StrengthBonus;
-  int AgilityBonus;
+  /* As arm above: rightleg()/leftleg() Init BootSlot only, and leg::Save
+     writes the first three. */
+  double StrengthExperience = 0;
+  double AgilityExperience = 0;
+  int BaseKickStrength = 0;
+  double KickDamage = 0;
+  double KickToHitValue = 0;
+  long KickAPCost = 0;
+  int StrengthBonus = 0;
+  int AgilityBonus = 0;
 };
 
 ITEM(rightleg, leg)

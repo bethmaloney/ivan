@@ -1282,15 +1282,20 @@ class character : public entity, public id
   long Money;
   int MyVomitMaterial;
   std::list<character*>::iterator TeamIterator;
-  bodypartslot* BodyPartSlot;
+  /* ~character() frees this, OriginalBodyPartID and CWeaponSkill, and the
+     default constructor nulls every other pointer it frees - Action,
+     PolymorphBackup, SquareUnder - but missed these three. Nulling them
+     completes that pattern rather than inventing one. See BodyParts below:
+     the count and this array have to agree. */
+  bodypartslot* BodyPartSlot = 0;
   festring AssignedName;
   action* Action;
   const database* DataBase;
   double BaseExperience[BASE_ATTRIBUTES];
-  std::list<ulong>* OriginalBodyPartID;
+  std::list<ulong>* OriginalBodyPartID = 0;
   entity* MotherEntity;
   character* PolymorphBackup;
-  cweaponskill* CWeaponSkill;
+  cweaponskill* CWeaponSkill = 0;
   long EquipmentState;
   square** SquareUnder;
   long Volume;
@@ -1301,8 +1306,19 @@ class character : public entity, public id
   int MaxHP;
   int BurdenState;
   double DodgeValue;
-  int AllowedWeaponSkillCategories;
-  int BodyParts;
+  int AllowedWeaponSkillCategories = 0;
+  /* Zero, not the 1 that the virtual CalculateBodyParts() defaults to. The two
+     answer different questions: the virtual says how many parts this species
+     has, and is called in Initialize immediately before BodyPartSlot is
+     allocated to that size; here the field means how many slots exist, and
+     before Initialize runs none do.
+
+     The distinction is load-bearing because ~character() does
+       for(c = 0; c < BodyParts; ++c) delete GetBodyPart(c);
+     which indexes BodyPartSlot. Zero paired with a null BodyPartSlot makes
+     destroying an un-Initialized character a no-op followed by a well-defined
+     delete[] on null. A 1 here would dereference that null pointer instead. */
+  int BodyParts = 0;
   long RegenerationCounter;
   int AttributeBonus[BASE_ATTRIBUTES];
   int CarryingBonus;
