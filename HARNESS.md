@@ -1,6 +1,6 @@
 # IVAN Differential Test Harness — Progress & Handoff
 
-**Status:** working and verified. Fourteen commits on `master` of the fork (§8). Nothing has been
+**Status:** working and verified. Sixteen commits on `master` of the fork (§8). Nothing has been
 offered upstream.
 **Last updated:** 2026-08-15
 
@@ -57,13 +57,15 @@ validates the *rewrite*. You need both, in that order.
 | savediff on real saves from two identical replays | `.sav` SAME, `.wm` SAME, level file **DIFF** — see §6.4 |
 | Crashes across 78 runs of all corpora | **none**, every run exit 0 |
 | `valgrind` uninitialized reads, non-combat corpus, after §6.6c | **0 errors / 0 contexts**, from 137 / 13 |
-| `valgrind` uninitialized reads, auto-play corpus, after §6.6c | **283 / 3**, all `fluid::imagedata` — a new family, §7.6c |
+| `valgrind` uninitialized reads, auto-play corpus, after §6.6d | **0 / 0**, from 283 / 3 |
 | Player HP under three different `MALLOC_PERTURB_` values, after §6.6a | **identical**; was three different values |
-| Uninitialized bytes reaching a level file, after §6.6c | **0** on both non-combat and the descended-from auto-play level; was 1,860 |
+| Uninitialized bytes reaching a level file, after §6.6d | **0** on both corpora, every level file; was 1,860 then 400 |
+| Level file across 8 isolated **ordinary** runs (ASLR on, no fill), after §6.6d | **1 distinct**, from 8 — no `MALLOC_PERTURB_`, no `setarch` |
 
 Everything above was re-measured from a clean build on 2026-08-15 and still holds. The
-level-file divergence is now **closed for the `character` family** (§6.6c); what is left is a
-different family and a smaller one (§7.6c).
+level-file divergence is now **closed for both families the corpora reach** — `character`
+(§6.6c) and `fluid`/`trapdata` (§6.6d, which took §7.6a with it). The row above it, from §6.4,
+predates that and is what savediff reported before either fix.
 
 The CPU-load test is the meaningful one *for the risk it was designed to test* — wall-clock
 leaking into game state. Saturating the machine and still getting identical output is real
@@ -72,12 +74,16 @@ evidence about the clock.
 **Read the determinism rows narrowly.** Combat is reproducible — §6.5 is found and fixed — and
 as of §6.6c it no longer depends on the allocation pattern either: the trace and the whole
 string stream are byte-identical across three `MALLOC_PERTURB_` values and across both harness
-option sets, and valgrind reports no uninitialized read at all on the non-combat corpus. That
-was the specific thing blocking seam 1, and for the paths these two corpora reach it is gone.
+option sets. As of §6.6d **valgrind reports no uninitialized read on either corpus**, and the
+level file reproduces across ordinary runs with no fixed heap fill and no ASLR trick. That was
+the specific thing blocking seam 1, and for the paths these two corpora reach it is gone.
 
-It is **not** gone in general. The auto-play corpus still reports three contexts once blood is
-spilled (§7.6c), and neither corpus visits the whole world map. Treat native-vs-WASM as unblocked
-for the reached paths and unproven elsewhere, and keep widening the corpus before claiming more.
+It is **not** gone in general, and the reason is coverage rather than a known remaining defect:
+neither corpus visits the whole world map, `.wm` still has the §6.2/§7.6 residue, and every
+number here is a property of the levels these 210 keys generate. Treat native-vs-WASM as
+unblocked for the reached paths and unproven elsewhere, and keep widening the corpus before
+claiming more. The way §6.6d found a family that three prior passes had walked past is the
+argument for not trusting a clean valgrind as coverage.
 
 Two rules for anyone measuring determinism here, both learned by getting it wrong first:
 **give every run its own directory** (a portable build writes saves and question history into
@@ -89,8 +95,9 @@ layer can be a golden artifact in CI, not just a debugging aid.
 
 ### Not yet verified
 
-- **The remaining uninitialized reads of §6.6.** Located by memcheck, not yet fixed. This is
-  now the top priority, and it blocks seam 1 specifically.
+- **Uninitialized reads outside the two corpora.** Both corpora are clean under memcheck as of
+  §6.6d; nothing is known-broken and unfixed. What is unverified is everything they do not
+  reach — the rest of the world map, and the `.wm` residue of §6.2/§7.6.
 - **DJGPP / SDL1 branches.** Edited but no toolchain available to compile them.
 
 The auto-play AI **does** run now (§7.2) and generates thousands of turns of real play, and as
@@ -486,12 +493,15 @@ on a corpus that does before calling §7.6 closed.
 
 ---
 
-### 6.4 Level files diverge between two identical replays — FIXED for the `character` family
+### 6.4 Level files diverge between two identical replays — FIXED for both corpora
 
-**Mechanism one below is closed (§6.6c): the non-combat level file now leaks zero uninitialized
-bytes, down from 1,860.** Mechanism two (the raw pointers, §6.4b) is untouched and still open as
-§7.6a, and a third family turned up in the auto-play corpus once this one was out of the way
-(§7.6c). The rest of this section is kept because the measurement technique is the reusable part.
+**Both mechanisms below are closed.** Mechanism one by §6.6c (the `character` family, 1,860 bytes
+→ 0) and mechanism two by §6.6d, which found that the "raw pointers" of §6.4b were stale heap
+pointers inside uninitialized `trapdata` fields rather than a second mechanism at all. A third
+family turned up in the auto-play corpus once the first was out of the way, and §6.6d closed that
+too. Eight ordinary replays now produce one level file. The rest of this section is kept because
+the measurement technique is the reusable part, and because two of its three diagnoses were wrong
+in ways worth not repeating.
 
 
 Two replays of the same recording under the same seed, compared with `savediff`:
@@ -617,7 +627,16 @@ corpus they do not appear at all — 8 runs at a fixed fill give **1 distinct** 
 left on, on `4803f04` and on the tip alike. They do appear on the auto-play corpus's fought-over
 level: 480 bytes differ with ASLR on against 400 with it off, so 80 ASLR-dependent bytes there.
 So the count in this section is a property of what is on the level, and the corpus has to be named
-alongside it. The mechanism below is unchanged and still open as §7.6a.
+alongside it.
+
+**Closed by §6.6d, and the diagnosis below is where it went wrong.** The reasoning was sound right
+up to the last step: the fields really do read as heap pointers, and really do survive the fill and
+collapse under `setarch -R`. What does not follow is that someone saved a pointer. An uninitialized
+`ulong` in a chunk that previously held a pointer reads exactly like this — the fill only reaches
+bytes the allocator actually filled (see the tcache trap in §6.4a), and the stale value moves with
+the heap base. Initializing `trapdata` took these 4 distinct level files to 1 with ASLR left on.
+The lesson is the one §6.4a already states in a different key: **a value that looks like a pointer
+is evidence about the chunk's history, not about the writer's intent.**
 
 18 sites per level, 8 bytes each, every one reading as an x86-64 userspace heap pointer — and
 the difference between two runs is **one constant across all 18**:
@@ -897,7 +916,7 @@ The rest of §7.6b. Same mechanism as §6.6a — in-class initializers on the de
 | valgrind errors / contexts, non-combat corpus | 137 / 13 | **0 / 0** |
 | uninitialized bytes in the non-combat level file | 1,860 | **0** |
 | uninitialized bytes in the auto-play descended-from level | 1,860 | **0** |
-| uninitialized bytes in the auto-play fought-over level, ASLR off | 1,616 | **400** — a different family, §7.6c |
+| uninitialized bytes in the auto-play fought-over level, ASLR off | 1,616 | **400** — a different family, closed by §6.6d |
 | clean-build warnings | 133 | 129 |
 | trace and full string stream, both corpora | — | **byte-identical to before the change** |
 
@@ -962,24 +981,113 @@ assign (`char.cpp:556` and `:613`); the list was built from the mem-init lists a
 constructor bodies. And it missed `TemporaryStateCounter[]` and `BaseExperience[]` entirely — the
 first being the whole of the leak it was written to chase.
 
-Until §7.6c is done, `MALLOC_PERTURB_` remains a usable workaround for cross-configuration
-comparison on corpora that spill fluids, and it is a workaround, not a fix — it makes the reads
-return a constant instead of not happening.
+`MALLOC_PERTURB_` is no longer needed as a workaround on either corpus — §6.6d closed the fluid
+family. It remains useful as a *measurement* technique, which is what it was always better at.
+
+### 6.6d The fluid family, and the pointers that were not pointers — FIXED (new)
+
+All of §7.6c, and §7.6a fell out with it. Same mechanism again — in-class initializers on the
+declarations, this time in `Main/Include/fluid.h` and `Main/Include/trap.h`.
+
+The corpus is not committed, so regenerate it before re-measuring — `play.py new --seed 999
+--start`, then `send down left '>'`, then `auto 200`, which is 210 keys and lands at turn 202 on
+UT lvl 1 with HP 29/37. That HP is the §6.6a check value, so a corpus that reaches it is the same
+one. The measurement is §6.4a's, with `setarch -R` added per §6.4b.
+
+| auto-play corpus, 210 keys, seed 999 | before | after |
+|---|---|---|
+| level-file bytes leaked, fill 42 vs 99, ASLR off | 400 in 59 regions | **0** |
+| valgrind errors / contexts | 283 / 3 | **0 / 0** |
+| distinct level files, 8 isolated ordinary runs, ASLR **on** | 8 | **1** |
+| distinct level files, 4 runs at a fixed fill, ASLR **on** (§6.4b's test) | 4 | **1** |
+| trace, string stream, frame count (679), RNG count (1,670,383) | — | **byte-identical** |
+
+**The region histogram is what picked the fields**, exactly as the offset-layout check did in
+§6.4a. The 400 bytes were 26 regions of 4, 29 of 8 and 4 of 16 — and 26×4 + 29×8 + 4×16 = 400
+with nothing left over. Four bytes is `imagedata::SpecialFlags`, an `int`. Eight and sixteen are
+`ulong`s, which `imagedata` has none of. That is what said the section had the wrong family before
+any of it was changed.
+
+**`trapdata` was 296 of the 400, and §7.6c did not name it.** `trapdata() : Next(0) { }`
+(`trap.h:34`) initializes one member of four, and neither `fluid` constructor finishes the job:
+the ground one (`fluid.cpp:26`) assigns `TrapID` and `VictimID` and leaves `BodyParts`; the item
+one (`fluid.cpp:38`) assigns only `TrapID` and leaves `VictimID` and `BodyParts` adjacent.
+`fluid::Save` opens with `SaveFile << TrapData` and `operator<<` writes all three unconditionally
+(`trap.cpp:50`) — so a ground fluid leaks 8 bytes and an item fluid 16, which is the histogram.
+
+**§7.6a was the same bug seen through ASLR, not a separate one.** Its signature — 8-byte fields
+that survive `MALLOC_PERTURB_` and collapse under `setarch -R` — is what an uninitialized `ulong`
+looks like when the freed chunk it lands in happens to hold a stale heap pointer: the fill only
+reaches bytes the allocator actually filled, and the stale pointer moves with the heap base. The
+section's own diagnosis said exactly this ("a stale pointer, copied into a heap buffer that is
+then written, rather than a pointer someone meant to save") and then filed it as separate work.
+It is closed by this commit on this corpus, and `lsquare::Save` never needed touching.
+
+**Two corrections to §7.6c's list**, both found the same way §6.6c's were — by measuring:
+
+- **`DripPos` is not uninitialized.** `v2::v2()` is `: X(0), Y(0)` (`v2.h:41`, a fork change
+  carrying a `//was: v2() = default;`), so default-constructing the member zeroes it. Same shape
+  as §7.6b's `v2HoldPos`: read off the mem-init list without checking the member's own type.
+- **`SpecialFlags` reaches less than the section claimed.** It said which validity map a pool of
+  blood picks is decided by uninitialized memory. `AddLiquidToPicture` computes `ValidityMap` at
+  `fluid.cpp:543` unconditionally but only dereferences it inside `if(Shadow)` (`:551`) and behind
+  `!Shadow ||` (`:592`), and the blood path passes `Shadow == 0` (`:88`). Both valgrind contexts
+  are `Use of uninitialised value of size 8` **in `GetBodyBitmapValidityMap` itself** — the
+  pointer load, not a pixel decision. The map is computed from garbage and then not read.
+
+**What §7.6c missed in the other direction:** `fluid::IsStuckTo` (`fluid.cpp:778`) compares
+`TrapData.VictimID` directly, and for fluids on items and bodyparts nothing ever assigns it —
+only `StepOnEffect` does (`:753`), and that is the ground path. `bodypart.cpp:3250` and `:3291`
+turn that comparison into `IGNORE_TRAPS` on a death check. Garbage rarely equals a live character
+ID, so it read false almost always, which is why nothing visible broke — the same shape as
+§6.6c's `Talent`/`Weakness`.
+
+**Why zero, per field** — the §6.6a test, and here every one of them is provable rather than a
+placeholder, which is the first time that has been true in this series:
+
+- **`SpecialFlags` is `ST_NORMAL`, and `ST_NORMAL` is 0** (`ivandef.h:265`). `fluid::Draw:195`
+  already computes `MotherItem ? MotherItem->GetSpecialFlags() : 0` for this same object, and
+  `DrawBodyArmorPicture:452` passes 0. `BodyBitmapValidityMap[0]` is the one
+  `CreateBodyBitmapValidityMaps` fills with `memset(…, 0xFF, …)` (`igraph.cpp:444`) — every pixel
+  valid, no bodypart restriction, which is what a pool with no bodypart shape needs. §7.6c asked
+  for care here on the grounds that zero is a real value; it is, and it is the right one.
+- **`AlphaAverage`** — 0 is what `bitmap::Fade` itself computes for a picture with no
+  non-transparent pixels (`bitmap.cpp:1093`), and it pairs with the constructor's `AlphaSum(0)`.
+  Note `Fade()` is *not* a read of it: `bitmap::Fade` takes it by non-const reference and writes
+  it. The reachable read is `fluid.cpp:82`/`:84`, when `AddLiquidToPicture` returns early at
+  `:555` without having assigned it.
+- **`DripColor`/`DripAlpha`** — unobservable. `DripTimer(0)` forces `Animate`'s assignment branch
+  (`fluid.cpp:468`) before any read at `:490`, on every path. In for the §6.6b reason only.
+- **`TrapData`'s three** — `TrapID = 0` is what the item constructor already assigns and what
+  `PreProcessForBone` uses for "no trap" (`fluid.cpp:768`); `VictimID = 0` is what the ground
+  constructor assigns and what `UnStick()` and `Destroy()` reset it to (`fluid.h:63`,
+  `fluid.cpp:671`); `BodyParts = 0` is "stuck to nothing", the state `UnStick(int)` walks toward.
+
+**Nothing observable changed**, again — trace, string stream, frame count and RNG count all
+byte-identical to the previous commit, and 8 isolated runs give one distinct outcome. What went
+away is undefined behaviour and the last of the per-level heap residue.
+
+**The row that matters this time is the ordinary-run one.** Before, eight ordinary replays — ASLR
+on, no `MALLOC_PERTURB_`, nothing special — produced eight different level files. Now they produce
+one. Every previous section in this series needed a fixed heap fill or ASLR disabled before the
+level file would reproduce at all; this is the first measurement taken with neither.
 
 ## 7. Open items, roughly in priority order
 
 **§6.6 was what blocked seam 1** — a WASM build shares no allocation pattern with a native one, so
 every uninitialized read becomes a phantom diff that owes nothing to Emscripten. §6.5, §7.7, §6.6a
-and §7.6b are done, and the non-combat corpus now reports **no uninitialized read at all**.
+and §7.6b are done, and **both corpora now report no uninitialized read at all**.
 
 The `Spawn`/`MakeBodyPart` family took three passes and is closed: bodyparts (§6.6a, 22,632
 contexts → 137), `character`'s pointers (§6.6b), and `character`/`playerkind`'s saved and read
 scalars (§6.6c, 137 → 0, and the 1,860-byte level-file leak → 0). §6.4a is closed with it.
 
-**§7.6c is the direct continuation** — a third family, `fluid::imagedata`, which only appears once
-something bleeds and so was invisible until the character family stopped drowning it out. It is
-the last thing standing between the auto-play corpus and a clean valgrind. §7.6a (the pointers) is
-separate from both and survives them.
+The fluid family took one pass (§6.6d, 283 → 0, and 400 bytes → 0) and closed §7.6a with it —
+those were stale heap pointers sitting in uninitialized `trapdata` fields, not pointers anyone
+meant to save. **For the paths these two corpora reach, §6.4 and §6.6 are now closed entirely**:
+eight ordinary replays produce one level file, with no fixed heap fill and no ASLR trick. The
+qualifier that survives is coverage — neither corpus visits the whole world map, and §7.9's
+format work has not started.
 
 §7.7 also cleared the way for §7.9, the save-format work: both are deliberate format breaks, and
 `SAVE_FILE_VERSION` has now moved once already, so the second break is cheaper than the first.
@@ -1083,14 +1191,18 @@ scoped.
 Note this is the same family as §6.6, and `area::Save`'s `FlagMap` is *not* an instance of it —
 `area::area()` memsets it. Re-derive that inventory rather than trusting the 358-byte figure.
 
-### 7.6a Remove the raw pointers from level saves (§6.4b, new)
+### 7.6a ~~Remove the raw pointers from level saves (§6.4b)~~ — DONE, see §6.6d
 
-Eighteen 8-byte pointer-shaped fields per level file. Independent of §6.6 — holding the heap fill
-constant does not remove them, only ASLR does — so fixing `Spawn` will not close it. That
-signature (survives `MALLOC_PERTURB_`, collapses under `setarch -R`) points at **uninitialized
-stack** holding a stale pointer, copied into a heap buffer that is then written, rather than at a
-pointer someone meant to save. Localise via the `lsquare::Save` chain, then decide whether the
-field should be an index, a role tag, or simply not saved.
+Not a separate defect. The signature this section named — 8-byte fields that survive
+`MALLOC_PERTURB_` and collapse under `setarch -R` — is what an uninitialized `ulong` looks like
+when it lands in a freed chunk holding a stale heap pointer, and the section's own reading of it
+was right. What it got wrong was filing it as independent of §6.6: initializing `trapdata` closed
+it, `lsquare::Save` was never involved, and the choice it posed (index, role tag, or not saved)
+did not need making. On the auto-play corpus, 4 runs at a fixed fill with ASLR **on** went from
+4 distinct level files to 1.
+
+Do not read it as closed everywhere. §6.4b already established the count is a property of what is
+on the level, and neither corpus visits the whole map.
 
 ### 7.6b ~~Initialize `character`'s saved members (§6.4a)~~ — DONE, see §6.6c
 
@@ -1100,32 +1212,18 @@ in 13 contexts to zero. Two things this section got wrong are recorded in §6.6c
 which turned out to be the entire leak. The list was read off the constructors; the answer came
 from grouping the differing save offsets into contiguous runs and looking at the shape.
 
-### 7.6c Initialize `fluid::imagedata` (new) — do this next
+### 7.6c ~~Initialize `fluid::imagedata`~~ — DONE, see §6.6d
 
-The last family the two corpora reach, and the only reason the auto-play corpus is not also at
-zero. It appears only once something bleeds, which is why it stayed hidden behind §6.4a.
+Took the auto-play corpus from 283 errors in 3 contexts to zero and its 400-byte level-file leak
+to zero, and closed §7.6a on the way. Three things this section got wrong are recorded in §6.6d:
+it named `DripPos`, which `v2`'s own constructor zeroes; it overstated `SpecialFlags` as deciding
+which validity map a pool of blood picks, when the map is computed and then not read on that
+path; and it missed `trapdata` entirely — 296 of the 400 bytes, and a live read in
+`fluid::IsStuckTo` that decides `IGNORE_TRAPS` on a death.
 
-`fluid::imagedata::imagedata` (`fluid.cpp:504`) initializes `Picture`, `DripTimer`, `AlphaSum` and
-`ShadowPos`, and leaves `DripPos`, `DripColor`, `DripAlpha`, `AlphaAverage` and `SpecialFlags`
-indeterminate. Two consequences, both live:
-
-- **`SpecialFlags` indexes an array.** `igraph::GetBodyBitmapValidityMap` is
-  `return BodyBitmapValidityMap[(SpecialFlags & 0x38) >> 3];`, reached from
-  `imagedata::AddLiquidToPicture` ← `fluid::AddLiquidAndVolume` ← `lsquare::AddFluid` ←
-  `bodypart::SpillBlood` ← `corpse::Be`. The mask bounds the index, so it is not a wild read, but
-  which validity map a pool of blood picks is decided by uninitialized memory.
-- **`SpecialFlags` is saved.** `imagedata::Save` writes `Picture << AlphaSum << ShadowPos <<
-  SpecialFlags`. The ground-fluid constructor `fluid::fluid(liquid*, lsquare*)` — the one
-  `AddFluid` uses — never assigns it; only the item constructor does, and only under `UseImage()`.
-
-Measured on the auto-play corpus with ASLR off, fill 42 against 99: **400 bytes** in 59 regions
-of 4, 8 and 16 bytes, every one exactly the glibc fill byte. valgrind reports 283 errors in 3
-contexts, all in this family. Sizes and the `Picture` pointer being serialized as a bitmap suggest
-the leak is not only `SpecialFlags`; re-derive it after fixing that one rather than assuming.
-
-Apply the §6.6a test per field. `SpecialFlags` deserves care — it is a flags word read through a
-mask, so zero is a real value (`BodyBitmapValidityMap[0]`) and not obviously the right one; check
-what the item path would have set before deciding it is provable rather than a placeholder.
+The one instruction it got right is the one that found the answer: *re-derive the leak rather
+than assuming*. The region histogram (26×4 + 29×8 + 4×16 = 400) named `ulong` fields that
+`imagedata` does not have, before any code was changed.
 
 ### 7.7 ~~Decide what to do about `-DGCC`~~ — DONE, unpacked
 
@@ -1259,7 +1357,7 @@ savediff to prove the change did not alter semantics.
 
 ## 8. Change inventory
 
-Committed on **`master` of the fork `bethmaloney/ivan`**, fourteen commits on top of upstream
+Committed on **`master` of the fork `bethmaloney/ivan`**, sixteen commits on top of upstream
 `de528ac`. `origin` still points at `Attnam/ivan` and is untouched; the fork is the remote
 named `fork`. **Nothing has been offered upstream.**
 
@@ -1278,9 +1376,11 @@ named `fork`. **Nothing has been offered upstream.**
 | 11 | `4803f04` Initialise bodypart members that logic and saves read | §6.6a, §6.6b |
 | 12 | `3589916` HARNESS.md: re-verify from a clean build, and record what is left | §6.4a, §6.4b, §6.6a, §6.6b |
 | 13 | `ebec9e7` Initialise character and playerkind members that logic and saves read | §6.6c, §7.6b |
-| 14 | HARNESS.md: record the character fix and what it uncovered | §6.4a, §6.4b, §6.6, §6.6c, §7.6c |
+| 14 | `7d36be0` HARNESS.md: record the character fix and what it uncovered | §6.4a, §6.4b, §6.6, §6.6c, §7.6c |
+| 15 | `a1ce777` Initialise fluid and trapdata members that logic and saves read | §6.6d, §7.6a, §7.6c |
+| 16 | HARNESS.md: record the fluid fix and the pointers that were not | §2, §6.4, §6.4b, §6.6d, §7.6a, §7.6c |
 
-**Commits 1–3, 11 and 13 depend on nothing the harness adds and are separately upstreamable.**
+**Commits 1–3, 11, 13 and 15 depend on nothing the harness adds and are separately upstreamable.**
 They are pre-existing bugs that determinism testing merely made visible — the MIDI one fixes a
 launch failure on any machine without an ALSA sequencer, harness or no harness. That is why they
 are ordered first, and why `audio.cpp` and `graphics.cpp` were split by hunk rather than letting a
