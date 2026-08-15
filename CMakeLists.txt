@@ -72,9 +72,37 @@ endif()
 
 if(EMSCRIPTEN)
   # Declared in here rather than beside the other options so a native cmake -LH
-  # does not offer two knobs that do nothing on its target.
-  option(WASM_NODERAWFS "Use the real filesystem instead of MEMFS (node only, not browsers)" ON)
+  # does not offer knobs that do nothing on its target.
+  #
+  # WASM_BROWSER picks the host, and the two hosts are genuinely different builds
+  # rather than one build with a flag: node gets the real filesystem and no page,
+  # a browser gets MEMFS, the data directories baked into a .data file, and an
+  # HTML shell holding the canvas SDL2 binds to. Default OFF because the thing
+  # that runs unattended is the differential harness, and that one is node.
+  option(WASM_BROWSER "Build for a browser: MEMFS, preloaded data and an HTML shell, rather than node" OFF)
+
+  if(WASM_BROWSER)
+    set(IVAN_WASM_NODERAWFS_DEFAULT OFF)
+  else()
+    set(IVAN_WASM_NODERAWFS_DEFAULT ON)
+  endif()
+  option(WASM_NODERAWFS "Use the real filesystem instead of MEMFS (node only, not browsers)" ${IVAN_WASM_NODERAWFS_DEFAULT})
   option(WASM_ASYNCIFY "Unwind the stack around blocking input so interactive play works" ON)
+
+  # Music/ and Sound/ are ~28MB against Graphics/ and Script/'s ~3.5MB, and the
+  # game runs without either: a missing Sound/SoundEffects.cfg leaves initSound
+  # at SoundState = -1 (sfx.cpp:131 -- the ABORT beside it is commented out) and
+  # the wavs load lazily per effect, while audio::LoadMIDIFile only pushes a
+  # filename onto a vector (audio.cpp:449) and RtMidi is a dummy on this target
+  # regardless (§9.3). So the audio data is opt-in: preloading it blocks the
+  # first frame on the whole download for something that may not make a sound.
+  option(WASM_PRELOAD_AUDIO "Preload Music/ and Sound/ too (adds ~28MB to the browser first load)" OFF)
+
+  if(WASM_BROWSER AND WASM_NODERAWFS)
+    message(FATAL_ERROR
+            "WASM_BROWSER needs WASM_NODERAWFS=OFF -- NODERAWFS binds to node's fs "
+            "module and there is no such thing in a browser.")
+  endif()
 
   # SDL2, SDL2_mixer and libpng come from Emscripten's own ports rather than
   # from the system, so the find_package(SDL2/PNG REQUIRED) calls in FeLib,
@@ -145,6 +173,26 @@ if(EMSCRIPTEN)
   # runs do not need this and are faster without it. Interactive play does.
   if(WASM_ASYNCIFY)
     set(IVAN_WASM_LINK_FLAGS "${IVAN_WASM_LINK_FLAGS} -sASYNCIFY=1")
+  endif()
+
+  # A browser build has no filesystem to read Graphics/ and Script/ from, so they
+  # are baked into ivan.data and mounted at the MEMFS root. The mapping target is
+  # absolute because PORTABLE_BUILD makes both game::GetDataDir() and
+  # GetUserDataDir() return "./" (game.cpp:5426, save.cpp:814) while Emscripten
+  # starts the module with the working directory at "/", so the "./Graphics/..."
+  # every call site builds resolves to exactly the /Graphics below.
+  #
+  # Saves, screenshots and ivan.cfg land in MEMFS and do not survive a reload.
+  # Making them persist is IDBFS, §9 step 5, and it is not done.
+  if(WASM_BROWSER)
+    set(IVAN_WASM_PRELOAD Graphics Script)
+    if(WASM_PRELOAD_AUDIO)
+      list(APPEND IVAN_WASM_PRELOAD Music Sound)
+    endif()
+    foreach(PreloadDir ${IVAN_WASM_PRELOAD})
+      set(IVAN_WASM_LINK_FLAGS
+          "${IVAN_WASM_LINK_FLAGS} --preload-file ${CMAKE_CURRENT_SOURCE_DIR}/${PreloadDir}@/${PreloadDir}")
+    endforeach()
   endif()
 endif()
 

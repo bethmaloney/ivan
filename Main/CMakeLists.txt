@@ -31,6 +31,15 @@ if(EMSCRIPTEN)
   # LINK_FLAGS rather than target_link_options because the floor is CMake 3.10
   # and target_link_options arrived in 3.13.
   set_target_properties(ivan PROPERTIES LINK_FLAGS "${IVAN_WASM_LINK_FLAGS}")
+
+  # Emitting .html rather than .js is what makes emcc generate the page and the
+  # canvas with it: Emscripten's SDL2 port looks up "#canvas" at video init and
+  # has nothing to bind to otherwise. Set as a target property rather than
+  # through CMAKE_EXECUTABLE_SUFFIX so igor, mihail and savediff keep building
+  # as plain programs.
+  if(WASM_BROWSER)
+    set_target_properties(ivan PROPERTIES SUFFIX ".html")
+  endif()
 endif()
 
 if(UNIX)
