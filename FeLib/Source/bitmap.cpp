@@ -26,6 +26,7 @@
 
 //#define DBGMSG_V2
 #include "dbgmsgproj.h"
+#include "portmath.h"
 
 /*
  * Blitting must be as fast as possible, even if no optimizations are used;
@@ -1014,8 +1015,10 @@ void bitmap::DrawPolygon(int CenterX, int CenterY, int Radius, int NumberOfSides
 
   for(c = 0; c < NumberOfSides; ++c)
   {
-    Point[c].X = CenterX + int(sin(AngleDelta * c + Rotation) * Radius);
-    Point[c].Y = CenterY + int(cos(AngleDelta * c + Rotation) * Radius);
+    double Sin, Cos;
+    portmath::SinCos(AngleDelta * c + Rotation, &Sin, &Cos);
+    Point[c].X = CenterX + int(Sin * Radius);
+    Point[c].Y = CenterY + int(Cos * Radius);
   }
 
   if(DrawDiameters)
@@ -1656,8 +1659,8 @@ void bitmap::CreateFlies(ulong Seed, int Frame, int FlyAmount)
       Temp = -Temp;
 
     v2 Where;
-    Where.X = int(StartPos.X + sin(Constant + Temp) * 3);
-    Where.Y = int(StartPos.Y + sin(2 * (Constant + Temp)) * 3);
+    Where.X = int(StartPos.X + portmath::Sin(Constant + Temp) * 3);
+    Where.Y = int(StartPos.Y + portmath::Sin(2 * (Constant + Temp)) * 3);
     PowerPutPixel(Where.X, Where.Y, MakeRGB16(40, 40, 60), 255, FLY_PRIORITY);
   }
 

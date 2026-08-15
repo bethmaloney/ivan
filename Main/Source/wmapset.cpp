@@ -48,6 +48,11 @@ cint JungleType = jungle::ProtoType.GetIndex();
 #include "bitmap.h"
 #include "save.h"
 
+/* wsquare.cpp / gear.cpp / miscitem.cpp are compiled through here and
+   call portmath. Declared at the top of the translation unit so they do not
+   depend on which sibling happens to be included first. */
+#include "portmath.h"
+
 #include "cont.cpp"
 #include "worldmap.cpp"
 #include "wsquare.cpp"

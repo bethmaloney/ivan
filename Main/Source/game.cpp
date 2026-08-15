@@ -72,6 +72,7 @@
 #include "specialkeys.h"
 
 #include "dbgmsgproj.h"
+#include "portmath.h"
 
 #define SAVE_FILE_VERSION 137 // Increment this if changes make savefiles incompatible
 #define BONE_FILE_VERSION 121 // Increment this if changes make bonefiles incompatible
@@ -1022,7 +1023,7 @@ void game::Run()
          && CurrentLevelIndex == 0)
       {
         long OldVolume = GlobalRainLiquid->GetVolume();
-        long NewVolume = Max(long(sin((Tick + GlobalRainTimeModifier) * 0.0003) * 300 - 150), 0L);
+        long NewVolume = Max(long(portmath::Sin((Tick + GlobalRainTimeModifier) * 0.0003) * 300 - 150), 0L);
 
         if(NewVolume && !OldVolume)
           CurrentLevel->EnableGlobalRain();
@@ -2911,7 +2912,7 @@ void game::UpdateAltSilhouette(bool AnimationDraw){
           iDegreesStep=30+clock()%60;
           iWaveLength=iMaxWaveLength/(1 + clock()%3);
         }
-        iHeightFinal = iHeight + iWaveLength*sin(iDegrees*3.14159/180);
+        iHeightFinal = iHeight + iWaveLength*portmath::Sin(iDegrees*3.14159/180);
         iDestDisplY = v2StretchedBorder.Y - iHeightFinal;
         v2Dest = v2StretchedPos+v2(0,iDestDisplY);
         iWaveStepPrevious=iWaveStep;

@@ -23,6 +23,7 @@
 #include "object.h"
 #include "allocate.h"
 #include "whandler.h"
+#include "portmath.h"
 
 rawbitmap* igraph::RawGraphic[RAW_TYPES];
 bitmap* igraph::Graphic[GRAPHIC_TYPES];
@@ -663,8 +664,10 @@ bitmap* igraph::GenerateScarBitmap(int BodyPart, int Severity, int Color)
   while(true)
   {
     double Angle = 2 * FPI * RAND_256 / 256;
-    EndPos.X = int(StartPos.X + cos(Angle) * (Severity + 1));
-    EndPos.Y = int(StartPos.Y + sin(Angle) * (Severity + 1));
+    double Sin, Cos;
+    portmath::SinCos(Angle, &Sin, &Cos);
+    EndPos.X = int(StartPos.X + Cos * (Severity + 1));
+    EndPos.Y = int(StartPos.Y + Sin * (Severity + 1));
     if(CacheBitmap->IsValidPos(EndPos) && CacheBitmap->GetPixel(EndPos) != 0)
       break;
   }

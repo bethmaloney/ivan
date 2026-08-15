@@ -13,6 +13,7 @@
 /* Compiled through levelset.cpp */
 
 #include "dbgmsgproj.h"
+#include "portmath.h"
 
 #define FORBIDDEN 1
 #define ON_POSSIBLE_ROUTE 2
@@ -2572,7 +2573,7 @@ void level::CheckSunLight()
 {
   if(Index == 0 && GetDungeon()->GetIndex() == NEW_ATTNAM)
   {
-    double Cos = cos(FPI * (game::GetTick() % 48000) / 24000.);
+    double Cos = portmath::Cos(FPI * (game::GetTick() % 48000) / 24000.);
 
     if(Cos > 0.01)
     {
@@ -2588,7 +2589,7 @@ void level::CheckSunLight()
   }
   else if(Index == 0 && GetDungeon()->GetIndex() == ATTNAM)
   {
-    double Cos = cos(FPI * (game::GetTick() % 48000) / 24000.);
+    double Cos = portmath::Cos(FPI * (game::GetTick() % 48000) / 24000.);
 
     if(Cos > 0.41)
     {
@@ -2604,7 +2605,7 @@ void level::CheckSunLight()
   }
   else if(Index == 0 && GetDungeon()->GetIndex() == XINROCH_TOMB)
   {
-    double Cos = cos(FPI * (game::GetTick() % 48000) / 24000.);
+    double Cos = portmath::Cos(FPI * (game::GetTick() % 48000) / 24000.);
 
     if(Cos > 0.51)
     {
@@ -2620,7 +2621,7 @@ void level::CheckSunLight()
   }
   else if(IsOnGround())
   {
-    double Cos = cos(FPI * (game::GetTick() % 48000) / 24000.);
+    double Cos = portmath::Cos(FPI * (game::GetTick() % 48000) / 24000.);
 
     if(Cos > 0.31)
     {

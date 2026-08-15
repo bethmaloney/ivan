@@ -16,6 +16,7 @@
 #include "error.h"
 #include "harness.h"
 #include "save.h"
+#include "portmath.h"
 
 cint basequadricontroller::OrigoDeltaX[4] = { 0, 1, 0, 1 };
 cint basequadricontroller::OrigoDeltaY[4] = { 0, 0, 1, 1 };
@@ -138,10 +139,14 @@ double femath::NormalDistributedRand(double StandardDeviation)
 
   if((Generate = !Generate))
   {
-    double u1 = sqrt(-2 * log(RandReal()));
+    /* This is the Box-Muller transform behind character::MoveRandomly, so it
+       decides which way monsters wander. It draws from the pinned generator
+       and must therefore land on the same number everywhere. */
+    double u1 = sqrt(-2 * portmath::Log(RandReal()));
     double u2 = 2 * FPI * RandReal();
-    z0 = u1 * cos(u2);
-    z1 = u1 * sin(u2);
+    portmath::SinCos(u2, &z1, &z0);
+    z0 *= u1;
+    z1 *= u1;
     return z0 * StandardDeviation;
   }
   else
@@ -177,14 +182,17 @@ int femath::WeightedRand(const std::vector<long>& Possibility,
 
 double femath::CalculateAngle(v2 Direction)
 {
+  /* game::CalculateRoughDirection compares the result against FPI/8 and its
+     multiples to pick a compass direction, so a last-ulp difference here can
+     turn into a different direction. */
   if(Direction.X < 0)
-    return atan(double(Direction.Y) / Direction.X) + FPI;
+    return portmath::Atan(double(Direction.Y) / Direction.X) + FPI;
   else if(Direction.X > 0)
   {
     if(Direction.Y < 0)
-      return atan(double(Direction.Y) / Direction.X) + 2 * FPI;
+      return portmath::Atan(double(Direction.Y) / Direction.X) + 2 * FPI;
     else
-      return atan(double(Direction.Y) / Direction.X);
+      return portmath::Atan(double(Direction.Y) / Direction.X);
   }
   else
   {

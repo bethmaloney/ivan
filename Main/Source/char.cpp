@@ -986,6 +986,7 @@ int character::ChooseBodyPartToReceiveHit(double ToHitValue,
 }
 
 #include "audio.h"
+#include "portmath.h"
 
 void character::Be()
 {
@@ -11954,7 +11955,7 @@ void character::LycanthropySituationDangerModifier(double& Danger) const
 {
   character* Wolf = werewolfwolf::Spawn();
   double DangerToWolf = GetRelativeDanger(Wolf);
-  Danger *= pow(DangerToWolf, 0.1);
+  Danger *= portmath::Pow(DangerToWolf, 0.1);
   delete Wolf;
 }
 
@@ -13308,7 +13309,7 @@ int character::GetAdjustedStaminaCost(int BaseCost, int Attribute)
 {
   if(Attribute > 1)
   {
-    return BaseCost / log10(Attribute);
+    return BaseCost / portmath::Log10(Attribute);
   }
 
   return BaseCost / 0.20;
@@ -13326,8 +13327,8 @@ truth character::TryToStealFromShop(character* Shopkeeper, item* ToSteal)
     perception_check = 0;
 
   double base_chance = 100 - (100000 / (2000 + game::GetGod(CLEPTIA)->GetRelation()));
-  double size_mod = std::pow(0.99999, ((ToSteal->GetWeight() * ToSteal->GetSize()) / GetAttribute(ARM_STRENGTH)));
-  double stat_mod = std::pow(1.01, ((100 - (1000 / (10 + GetAttribute(DEXTERITY)))) - perception_check));
+  double size_mod = portmath::Pow(0.99999, ((ToSteal->GetWeight() * ToSteal->GetSize()) / GetAttribute(ARM_STRENGTH)));
+  double stat_mod = portmath::Pow(1.01, ((100 - (1000 / (10 + GetAttribute(DEXTERITY)))) - perception_check));
   int normalized_chance = Max(5, Min(95, int(base_chance * size_mod * stat_mod)));
 
   game::DoEvilDeed(25);

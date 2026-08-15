@@ -13,6 +13,7 @@
 /* Compiled through wmapset.cpp */
 
 #include "FastNoise.h"
+#include "portmath.h"
 
 #define MAX_TEMPERATURE   27            // increase for a warmer world
 #define LATITUDE_EFFECT   40            // increase for more effect
@@ -754,10 +755,21 @@ void worldmap::PeriodicSimplexNoiseAltitude(int InitialSeed)
       float s = x / (float)XSize;
       float t = y / (float)YSize;
       
-      float nx = (float)cos(s * 2.0 * FPI) * multiplier;
-      float ny = (float)cos(t * 2.0 * FPI) * multiplier;
-      float nz = (float)sin(s * 2.0 * FPI) * multiplier;
-      float nw = (float)sin(t * 2.0 * FPI) * multiplier;
+      /* portmath, not <cmath>: this is the most divergence-sensitive
+         arithmetic in the game. One ulp here goes through GetNoise, gets
+         multiplied by 1000 and truncated to short, and becomes a different
+         tile -- so the host libm deciding it would make a WASM build generate
+         a different world. Paired deliberately: GCC rewrites sin(x)/cos(x) on
+         one argument into a single sincos() anyway, and naming it keeps the
+         two builds computing the same thing for the same reason. */
+      double SinS, CosS, SinT, CosT;
+      portmath::SinCos(s * 2.0 * FPI, &SinS, &CosS);
+      portmath::SinCos(t * 2.0 * FPI, &SinT, &CosT);
+
+      float nx = (float)CosS * multiplier;
+      float ny = (float)CosT * multiplier;
+      float nz = (float)SinS * multiplier;
+      float nw = (float)SinT * multiplier;
       
       AltitudeBuffer[x][y] = (short)(1000 * WorldNoise.GetNoise(nx, ny, nz, nw)) + 600;
       // Could add frog shape in here and blend to get Valpuri-shaped continent
@@ -1256,9 +1268,14 @@ void worldmap::AllocateGlobalPossibleLocations(int XSize, int YSize, int Radius,
     for(int YIdx = 0; YIdx < TestPoints; YIdx++)
     {
       double Angle = 2 * FPI * (RAND() % 100) / 100.0;
+      /* sqrt stays on the host: IEEE-754 mandates correct rounding for it, so
+         every platform already agrees. sin and cos do not, and int() below
+         truncates, so they go through portmath. */
       double Hypotenuse = sqrt( A * (RAND() % 100) / 100.0 + RadiusSquared);
-      XPos = int(Sample.X + Hypotenuse*cos(Angle));
-      YPos = int(Sample.Y + Hypotenuse*sin(Angle));
+      double SinAngle, CosAngle;
+      portmath::SinCos(Angle, &SinAngle, &CosAngle);
+      XPos = int(Sample.X + Hypotenuse*CosAngle);
+      YPos = int(Sample.Y + Hypotenuse*SinAngle);
       if((XPos >= 0) && (XPos < XSize))
       {
         if((YPos >= 0) && (YPos < YSize))

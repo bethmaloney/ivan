@@ -2827,7 +2827,7 @@ int magicalinstrument::GetCooldown(int BaseCooldown, character* User)
 
   if(Attribute > 1)
   {
-    return BaseCooldown / log10(Attribute);
+    return BaseCooldown / portmath::Log10(Attribute);
   }
 
   return BaseCooldown / 0.20;

@@ -1640,7 +1640,7 @@ int unpick::GetCooldown(int BaseCooldown, character* User)
 
   if(Attribute > 1)
   {
-    return BaseCooldown / log10(Attribute);
+    return BaseCooldown / portmath::Log10(Attribute);
   }
 
   return BaseCooldown / 0.20;
@@ -1836,7 +1836,7 @@ int magestaff::GetCooldown(int BaseCooldown, character* User)
 
   if(Attribute > 1)
   {
-    return BaseCooldown / log10(Attribute);
+    return BaseCooldown / portmath::Log10(Attribute);
   }
 
   return BaseCooldown / 0.20;
@@ -1951,7 +1951,7 @@ int pica::GetCooldown(int BaseCooldown, character* User)
   int Attribute = User->GetAttribute(MANA);
 
   if(Attribute > 1)
-    return BaseCooldown / log10(Attribute);
+    return BaseCooldown / portmath::Log10(Attribute);
 
   return BaseCooldown / 0.20;
 }

@@ -53,6 +53,11 @@ EXTENDED_SYSTEM_SPECIALIZATIONS(item)(0, 0, 0, "item");
 #include "worldmap.h"
 #include "wterras.h"
 
+/* wsquare.cpp / gear.cpp / miscitem.cpp are compiled through here and
+   call portmath. Declared at the top of the translation unit so they do not
+   depend on which sibling happens to be included first. */
+#include "portmath.h"
+
 #include "item.cpp"
 #include "bodypart.cpp"
 #include "gear.cpp"

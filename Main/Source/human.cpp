@@ -15,6 +15,7 @@
 #include "dbgmsgproj.h"
 #include "whandler.h"
 #include "devcons.h"
+#include "portmath.h"
 
 cint humanoid::DrawOrder[] =
 { TORSO_INDEX, GROIN_INDEX, RIGHT_LEG_INDEX, LEFT_LEG_INDEX, RIGHT_ARM_INDEX, LEFT_ARM_INDEX, HEAD_INDEX };
@@ -89,7 +90,7 @@ truth ennerbeast::Hit(character* Enemy, v2, int, int)
   for(int x = Rect.X1; x <= Rect.X2; ++x)
     for(int y = Rect.Y1; y <= Rect.Y2; ++y)
     {
-      int ScreamStrength = int(70 / (hypot(GetPos().X - x, GetPos().Y - y) + 1));
+      int ScreamStrength = int(70 / (portmath::Hypot(GetPos().X - x, GetPos().Y - y) + 1));
 
       if(ScreamStrength)
       {
@@ -141,7 +142,7 @@ truth ennerchild::Hit(character* Enemy, v2, int, int)
   for(int x = Rect.X1; x <= Rect.X2; ++x)
     for(int y = Rect.Y1; y <= Rect.Y2; ++y)
     {
-      int ScreamStrength = int(BaseScreamStrength / (hypot(GetPos().X - x, GetPos().Y - y) + 1));
+      int ScreamStrength = int(BaseScreamStrength / (portmath::Hypot(GetPos().X - x, GetPos().Y - y) + 1));
 
       if(ScreamStrength)
       {

@@ -34,7 +34,7 @@ set_source_files_properties(
 
 add_executable(ivan ${IVAN_SOURCES} Resource/Ivan.rc)
 target_include_directories(ivan PUBLIC Include ../Felib/Include ../audio ../fantasyname ../FastNoise ${PCRE_INCLUDE_DIRS} ${SDL2_mixer_INCLUDE_DIR})
-target_link_libraries(ivan FeLib FeAudio xbrzscale fantasyname fastnoise ${PCRE_LIBRARIES} ${SDL2_mixer_LIBRARY})
+target_link_libraries(ivan FeLib FeAudio xbrzscale fantasyname fastnoise portmath ${PCRE_LIBRARIES} ${SDL2_mixer_LIBRARY})
 
 if(MSVC AND _VCPKG_INSTALLED_DIR)
   # Gum solution. Manually copy pcre.dll to where ivan.exe will end up.
