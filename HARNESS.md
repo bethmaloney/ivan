@@ -1,6 +1,7 @@
 # IVAN Differential Test Harness — Progress & Handoff
 
-**Status:** working and verified. Not committed. Nothing here is on a branch yet.
+**Status:** working and verified. Fourteen commits on `master` of the fork (§8). Nothing has been
+offered upstream.
 **Last updated:** 2026-08-15
 
 ---
@@ -40,7 +41,7 @@ validates the *rewrite*. You need both, in that order.
 
 | Test | Result |
 |---|---|
-| Clean build from scratch | exit 0, **133 warnings** — 84 pre-existing `-Wstringop-overflow=`, plus 49 format warnings §7.7 made visible |
+| Clean build from scratch | exit 0, **129 warnings** — 80 pre-existing `-Wstringop-overflow=`, plus 49 format warnings §7.7 made visible |
 | `sizeof(graphicid)` under every combination of `-DGCC` / `-DVC` | **48 everywhere** — layout no longer depends on a build flag |
 | Headless boot (no display, no ALSA) | reaches main menu |
 | Replay end-to-end | exit 0 |
@@ -50,26 +51,33 @@ validates the *rewrite*. You need both, in that order.
 | Non-combat corpus, **8** isolated runs (trace, PNG, text) | **1 distinct outcome**, 441 frames every time |
 | Combat corpus, 200 auto-play turns, 8 isolated runs | **1 distinct outcome** — was 5, see §6.5 |
 | Combat corpus, **2,825** auto-play turns, 16 concurrent runs on a saturated machine | **1 distinct outcome**, 3,880 frames, 9,687,815 RNG draws |
-| Same binary, harness options varied (`--text` on/off) | **2 distinct outcomes** — see §6.6 |
+| Same binary, harness options varied (`--text` on/off) | **1 distinct outcome** on both corpora — the old 2 predates §6.6a, see §6.6 |
 | savediff exit codes (0 same / 1 differ / 2 error) | correct, with side-by-side hexdump |
 | Two replays → screen PNG, text sidecar and text log | **byte-identical** |
 | savediff on real saves from two identical replays | `.sav` SAME, `.wm` SAME, level file **DIFF** — see §6.4 |
 | Crashes across 78 runs of all corpora | **none**, every run exit 0 |
-| `valgrind` uninitialized reads, non-combat corpus, after §6.6a | **137 errors / 13 contexts**, from 22,632 / 57 |
+| `valgrind` uninitialized reads, non-combat corpus, after §6.6c | **0 errors / 0 contexts**, from 137 / 13 |
+| `valgrind` uninitialized reads, auto-play corpus, after §6.6c | **283 / 3**, all `fluid::imagedata` — a new family, §7.6c |
 | Player HP under three different `MALLOC_PERTURB_` values, after §6.6a | **identical**; was three different values |
+| Uninitialized bytes reaching a level file, after §6.6c | **0** on both non-combat and the descended-from auto-play level; was 1,860 |
 
-Everything above was re-measured from a clean build on 2026-08-15 and still holds, with one
-change: the level-file divergence shrank but did not close (§6.4).
+Everything above was re-measured from a clean build on 2026-08-15 and still holds. The
+level-file divergence is now **closed for the `character` family** (§6.6c); what is left is a
+different family and a smaller one (§7.6c).
 
 The CPU-load test is the meaningful one *for the risk it was designed to test* — wall-clock
 leaking into game state. Saturating the machine and still getting identical output is real
 evidence about the clock.
 
-**Read the determinism rows narrowly.** Combat is now reproducible — §6.5 is found and fixed —
-but only *for a fixed binary and a fixed set of harness options*. Change what else the process
-allocates and the run changes with it, because game logic still reads uninitialized memory
-(§6.6). So the harness is usable as a native-vs-native regression oracle today, and is **not
-yet** usable for native-vs-WASM, where nothing about the allocation pattern is held constant.
+**Read the determinism rows narrowly.** Combat is reproducible — §6.5 is found and fixed — and
+as of §6.6c it no longer depends on the allocation pattern either: the trace and the whole
+string stream are byte-identical across three `MALLOC_PERTURB_` values and across both harness
+option sets, and valgrind reports no uninitialized read at all on the non-combat corpus. That
+was the specific thing blocking seam 1, and for the paths these two corpora reach it is gone.
+
+It is **not** gone in general. The auto-play corpus still reports three contexts once blood is
+spilled (§7.6c), and neither corpus visits the whole world map. Treat native-vs-WASM as unblocked
+for the reached paths and unproven elsewhere, and keep widening the corpus before claiming more.
 
 Two rules for anyone measuring determinism here, both learned by getting it wrong first:
 **give every run its own directory** (a portable build writes saves and question history into
@@ -347,6 +355,17 @@ testing but cannot validate the WASM port as things stand. Frame hashing carries
   both produce `.110`/`.111`/`.112`. Keep it opaque; decompose only for display.
 - Run `savediff --known-nondeterminism` for the full inventory of legitimate divergences
   (`GetTimeSpent`, timestamped filenames, the reseed at `game.cpp:3458`, bone files).
+- **Use savediff rather than hand-rolled `cmp` loops, and the auto-play corpus is why.** It
+  produces two files whose extension is `.40` — `<stem>.40` and `<stem>.AutoSave.40` — so pairing
+  by extension silently compares a 892KB file against a 1,067KB one and reports six figures of
+  difference. savediff pairs by role and gets it right. Same reason the `.bkp` files need
+  `--include-backups` rather than being globbed in by accident.
+- **`GetTimeSpent` is one byte of the `.sav`, and it is flaky, not fill-dependent.** On the
+  non-combat corpus it sits at offset 164071 as the low byte of an 8-byte little-endian long that
+  reads 0 or 1 — whether the replay crossed a wall-clock second. 8 runs at a *fixed*
+  `MALLOC_PERTURB_` give two distinct `.sav` files because of it, on the tip and on `4803f04`
+  alike. Expect it; it is what `--ignore-timespent` is for. It also means a two-run `.sav`
+  comparison agreeing proves nothing — the §6.5a eight-run rule applies here too.
 
 ---
 
@@ -467,7 +486,13 @@ on a corpus that does before calling §7.6 closed.
 
 ---
 
-### 6.4 Level files diverge between two identical replays — ATTRIBUTED, unfixed
+### 6.4 Level files diverge between two identical replays — FIXED for the `character` family
+
+**Mechanism one below is closed (§6.6c): the non-combat level file now leaks zero uninitialized
+bytes, down from 1,860.** Mechanism two (the raw pointers, §6.4b) is untouched and still open as
+§7.6a, and a third family turned up in the auto-play corpus once this one was out of the way
+(§7.6c). The rest of this section is kept because the measurement technique is the reusable part.
+
 
 Two replays of the same recording under the same seed, compared with `savediff`:
 
@@ -497,7 +522,7 @@ PNG and text layer are byte-identical across all 8 runs. Neither mechanism reach
 which is precisely the class of bug the state-digest layer of §7.5 is meant to catch and neither
 pixel comparison nor gameplay ever will.
 
-### 6.4a Mechanism one: uninitialized heap, 1,860 bytes per level
+### 6.4a Mechanism one: uninitialized heap, 1,860 bytes per level — FIXED (§6.6c)
 
 **The 40 bytes above understate the exposure by 46x.** 40 is only what two runs happen to
 differ by; the allocator usually hands back similar garbage. The real figure comes from holding
@@ -515,8 +540,31 @@ cmp -l a/Save/*.40 b/Save/*.40 | wc -l          # 1,860
 value are byte-identical, including the level file. So uninitialized heap is the *only*
 remaining content source here, and 1,860 bytes of it reach every level file.
 
-Now **1,787** after §6.6a. Re-derive the number rather than quoting it; the point of the technique
-is that it measures the real exposure instead of the fraction two runs happen to disagree on.
+**Now 0** after §6.6c — the whole 1,860 was one array, `character::TemporaryStateCounter`. Note
+the 1,787 this section used to quote for the post-§6.6a state did **not** reproduce: a clean
+rebuild of `4803f04` measures 1,860, unchanged. Re-derive the number rather than quoting it. It
+is corpus-dependent, and the point of the technique is that it measures the real exposure instead
+of the fraction two runs happen to disagree on.
+
+**Pair the byte count with a layout check** — that is what turned this from a family into a
+field. Group the differing offsets into contiguous runs and look at the shape before theorising:
+
+```bash
+cmp -l a/Save/*.40 b/Save/*.40 | awk '{print $1-1}' > offs.txt   # 0-based offsets
+```
+
+All 1,860 bytes sat inside **sixteen disjoint 128-byte windows**, one per character on the level,
+4-byte aligned. `TemporaryStateCounter[STATES]` is `int[32]` — 128 bytes — and it was the only
+field of that shape in the write path. The confirmation was better than the arithmetic: within
+each window the slots holding *defined* data were exactly the ones whose `TemporaryState` bit was
+set, because `Initialize` assigns a counter only where the bit is set while `character::Save`
+writes all 32 unconditionally. Windows with no state bits set leaked all 128 bytes; the one
+belonging to a heavily-flagged monster leaked 44.
+
+Slots 7, 16, 17 and 19 came back defined most often, which decodes to INFRA_VISION, SEARCHING,
+GAS_IMMUNITY and LEPROSY — ordinary monster class-states, exactly what you would expect. That
+cross-check is worth doing: a shape that matches by accident will not also decode to something
+that makes sense.
 
 **One trap in this technique.** `MALLOC_PERTURB_=255` looks like it should give a zeroed heap
 (`255 ^ 0xff == 0`) and so simulate a complete zero-init fix without touching code. It does not:
@@ -543,7 +591,14 @@ Uninitialised value was created by a heap allocation
 partially-uninitialized members, and the descend-autosave serializes them. That is the `Spawn`
 family §6.6 lists as not fixed; fixing it should close both sections at once. Same class as the
 `fastscriptmember` bug in §6.1 — heap content leaking into a file users share — and about the
-same size (1,860 bytes against 1,975).
+same size (1,860 bytes against 1,975). All of that held, and §6.6c closed both as predicted.
+
+**But do not use these stacks to pick the field.** The `write`/`writev` frames name whichever
+call happened to *flush* the 8KB `filebuf`, not the call that put the bad bytes in it, so they
+localise to a write path and no further. Both contexts here pointed at `lsquare::Save` and one at
+`operator<<(outputfile&, graphicdata const&)`, and the actual carrier was neither — it was a
+`character` array serialized further up the same buffer. The origin half of the report is sound;
+the read half is not, for buffered output. The offset-layout check above is what discriminates.
 
 ### 6.4b Mechanism two: raw heap pointers in level saves (new)
 
@@ -556,6 +611,13 @@ outcome across 4 runs while the `.sav` files keep varying:
 | `AutoSave.40` | 4 distinct | **1 distinct** |
 | `AutoSave.sav` / `.sav` | 2–3 distinct | 3 distinct (this is `GetTimeSpent`, §5) |
 | `.wm` | 1 distinct | 1 distinct |
+
+**Re-measured 2026-08-15: the pointers are level-dependent, not universal.** On the non-combat
+corpus they do not appear at all — 8 runs at a fixed fill give **1 distinct** level file with ASLR
+left on, on `4803f04` and on the tip alike. They do appear on the auto-play corpus's fought-over
+level: 480 bytes differ with ASLR on against 400 with it off, so 80 ASLR-dependent bytes there.
+So the count in this section is a property of what is on the level, and the corpus has to be named
+alongside it. The mechanism below is unchanged and still open as §7.6a.
 
 18 sites per level, 8 bytes each, every one reading as an x86-64 userspace heap pointer — and
 the difference between two runs is **one constant across all 18**:
@@ -674,7 +736,7 @@ Also give every run its own directory: IVAN is a portable build that writes `Sav
 activation calls `game::Save()`, so runs sharing a directory contaminate each other — that
 artifact alone produced a spurious 440-frame outcome cluster.
 
-### 6.6 Game logic reads uninitialized memory — proven, partly fixed (new)
+### 6.6 Game logic reads uninitialized memory — proven, fixed for both corpora (§6.6a–c)
 
 Once §6.5 was fixed a second, weaker source became visible. It does not show up by running the
 same command twice; it shows up when you **change what else the process allocates**:
@@ -688,6 +750,13 @@ A fixed heap fill collapsing the difference is the proof: the divergent input is
 uninitialized heap, and `--text` shifts the allocation history that decides what that content is.
 Each option set is internally reproducible, which is why 16 concurrent runs of one command line
 agree perfectly and this stayed hidden.
+
+**That table no longer reproduces, and it stopped reproducing before §6.6c.** Rebuilt clean at
+`4803f04` and re-run — 3 runs per option set, on the non-combat corpus and on the 200-turn
+auto-play corpus, with no `MALLOC_PERTURB_` — every one gives **1 distinct trace**. So §6.6a
+closed the option-set sensitivity and this row was simply never re-measured. Kept as written
+because the *technique* is the durable part: varying the harness options is a cheap proxy for
+varying the allocation history, and it found something twice-running a command never would.
 
 `valgrind --tool=memcheck --track-origins=yes` over the 200-turn corpus reports 248 uninitialized
 reads. The ones in game logic, with origins:
@@ -818,22 +887,99 @@ because the destructor does `for(c = 0; c < BodyParts; ++c) delete GetBodyPart(c
 destructor's assumption enforced rather than assumed, which is the same protection `Action` and
 `SquareUnder` already had.
 
-Until this is done, `MALLOC_PERTURB_` is a usable workaround for cross-configuration comparison,
-and it is a workaround, not a fix — it makes the reads return a constant instead of not happening.
+### 6.6c `character` and `playerkind`'s saved and read members — FIXED (new)
+
+The rest of §7.6b. Same mechanism as §6.6a — in-class initializers on the declarations in
+`Main/Include/char.h` and `Main/Include/human.h` — and it closes §6.4a outright.
+
+| | before | after |
+|---|---|---|
+| valgrind errors / contexts, non-combat corpus | 137 / 13 | **0 / 0** |
+| uninitialized bytes in the non-combat level file | 1,860 | **0** |
+| uninitialized bytes in the auto-play descended-from level | 1,860 | **0** |
+| uninitialized bytes in the auto-play fought-over level, ASLR off | 1,616 | **400** — a different family, §7.6c |
+| clean-build warnings | 133 | 129 |
+| trace and full string stream, both corpora | — | **byte-identical to before the change** |
+
+**Nothing observable changed, and that is the expected result** rather than a disappointment.
+The trace, the frame count, the cumulative RNG count and the whole `--text` stream match the
+previous commit byte for byte on both corpora, and 8 isolated runs of the auto-play corpus give
+one distinct outcome. What went away is undefined behaviour and 1,860 bytes of heap per level
+file, not a gameplay difference.
+
+**Four defects, and only one of them was on §7.6b's list.** The list was derived by reading the
+constructor; these were found by measuring.
+
+- **`TemporaryStateCounter[STATES]` — the entire save leak**, and not named in §7.6b at all.
+  `Initialize` assigns a counter only where the matching state bit is set; `character::Save`
+  writes all 32 regardless. Attribution and the layout evidence are in §6.4a. Zero is
+  unobservable: every in-memory read is behind a check on the state's own bit, so the serializer
+  was the only consumer that did not check.
+- **`CarriedWeight`** — `CalculateAll` runs `CalculateAttributeBonuses` before
+  `CalculateVolumeAndWeight`, and `leg::CalculateAttributeBonuses` reaches `CalculateBurdenState`,
+  so the first burden calculation of every character's life reads the weight before the function
+  that sets it has run. This was the one `character::` context valgrind still reported.
+- **`AttributeBonus[]` and `CarryingBonus`** — `Initialize` calls `UpdatePictures()` before
+  `CalculateAll()`, and `GetAttribute` returns `BaseExperience` plus `AttributeBonus`. So the
+  lookups that choose the player's head and arm sprites by attribute read it first. This one
+  reached pixels.
+- **`playerkind::Talent` and `Weakness`** — 8 of the 13 contexts, the largest group.
+  `Initialize` runs `CreateBodyParts` before `PostConstruct`, and `CreateBodyParts` reaches
+  `GetNaturalExperience` via `InitSpecialAttributes`, which compares both against
+  `TalentOfAttribute` to decide whether to scale a limb's natural experience. Every arm and leg
+  the player was built with had its attributes settled by indeterminate memory.
+
+**All four are ordering bugs, and initializing the member does not fix the ordering.** It makes
+the early read return a defined value; whether that read should be happening at all is a separate
+question, left open deliberately. `CarriedWeight` and `AttributeBonus` self-correct, because
+`CalculateAll` recomputes both a few lines later and `IsInitializing()` suppresses the side
+effect in between. `Talent` and `Weakness` do not self-correct — the limb attributes persist.
+
+**Why zero, per field** — as in §6.6a the argument is not uniform, and two fields are worth
+singling out because the obvious answer is wrong:
+
+- **`BurdenState` is not zeroed.** `OVER_LOADED` is 0 and `UNBURDENED` is 3, so zeroing it would
+  name the *worst* burden state while looking like a neutral default. It gets `UNBURDENED`, which
+  is also what `CalculateBurdenState` computes from the zeroed `CarriedWeight`.
+- **`Talent`/`Weakness` zero is provable, not a placeholder.** `ivandef.h` says
+  `/* 0 reserved for no talent */` and the four real talents start at 1, so a zeroed pair matches
+  neither branch and the limb gets its unscaled natural experience. That is what the ordering
+  already produced almost always — indeterminate memory rarely equals one of four small values —
+  so this makes it the answer every time rather than most of the time.
+- `AttributeBonus[]` is provable: `CalculateAttributeBonuses` opens by setting every entry to 0
+  and adding each equipped item's enchantment, so 0 is exactly what it computes for a character
+  with nothing equipped.
+- `SquaresUnder` gets 0 for the reason `BodyParts` does in §6.6b — the count has to agree with the
+  array, and `SquareUnder` is null until `Initialize` allocates it.
+- The rest (`ID`, `Stamina`, `MaxStamina`, `MyVomitMaterial`, `CommandFlags`, `BaseExperience[]`,
+  `Volume`, `Weight`, `BodyVolume`, `HP`, `MaxHP`, `DodgeValue`) are unobservable: each is
+  assigned unconditionally before any read or save, on both the spawn and the load path. They are
+  in for the §6.6b reason — a member that reaches a file should not depend on that staying true —
+  and measurement confirms none of them was leaking.
+
+**Two corrections to §7.6b's list.** It named `v2HoldPos`, which *both* constructors already
+assign (`char.cpp:556` and `:613`); the list was built from the mem-init lists and missed the
+constructor bodies. And it missed `TemporaryStateCounter[]` and `BaseExperience[]` entirely — the
+first being the whole of the leak it was written to chase.
+
+Until §7.6c is done, `MALLOC_PERTURB_` remains a usable workaround for cross-configuration
+comparison on corpora that spill fluids, and it is a workaround, not a fix — it makes the reads
+return a constant instead of not happening.
 
 ## 7. Open items, roughly in priority order
 
-**§6.6 now sits above all of these**, and it is specifically what blocks seam 1: a WASM build
-shares no allocation pattern with a native one, so every uninitialized read becomes a phantom
-diff that owes nothing to Emscripten. §6.5 and §7.7 are done.
+**§6.6 was what blocked seam 1** — a WASM build shares no allocation pattern with a native one, so
+every uninitialized read becomes a phantom diff that owes nothing to Emscripten. §6.5, §7.7, §6.6a
+and §7.6b are done, and the non-combat corpus now reports **no uninitialized read at all**.
 
-Since §6.4a proved §6.4 and §6.6 are one defect, fixing the `Spawn`/`MakeBodyPart` family is now
-worth two sections at once — it is the single highest-value piece of work on this list. §7.6a
-(the pointers) is separate and will survive that fix.
+The `Spawn`/`MakeBodyPart` family took three passes and is closed: bodyparts (§6.6a, 22,632
+contexts → 137), `character`'s pointers (§6.6b), and `character`/`playerkind`'s saved and read
+scalars (§6.6c, 137 → 0, and the 1,860-byte level-file leak → 0). §6.4a is closed with it.
 
-The bodypart half of that family is done (§6.6a) and took the valgrind count from 22,632 to 137.
-It did **not** move the save leak, so §7.6b — `character`'s own saved members — is what remains
-of §6.4a and is the next thing to do.
+**§7.6c is the direct continuation** — a third family, `fluid::imagedata`, which only appears once
+something bleeds and so was invisible until the character family stopped drowning it out. It is
+the last thing standing between the auto-play corpus and a clean valgrind. §7.6a (the pointers) is
+separate from both and survives them.
 
 §7.7 also cleared the way for §7.9, the save-format work: both are deliberate format breaks, and
 `SAVE_FILE_VERSION` has now moved once already, so the second break is cheaper than the first.
@@ -946,21 +1092,40 @@ stack** holding a stale pointer, copied into a heap buffer that is then written,
 pointer someone meant to save. Localise via the `lsquare::Save` chain, then decide whether the
 field should be an index, a role tag, or simply not saved.
 
-### 7.6b Initialize `character`'s saved members (§6.4a) — do this next
+### 7.6b ~~Initialize `character`'s saved members (§6.4a)~~ — DONE, see §6.6c
 
-What is left of the 1,787 bytes after §6.6a, and where valgrind's remaining `write`/`writev`
-contexts point. `class character` has 31 scalar members and the default constructor initializes
-12. The ones that matter:
+Closed the 1,860-byte level-file leak and took valgrind on the non-combat corpus from 137 errors
+in 13 contexts to zero. Two things this section got wrong are recorded in §6.6c: it named
+`v2HoldPos`, which both constructors already assign, and it missed `TemporaryStateCounter[]`,
+which turned out to be the entire leak. The list was read off the constructors; the answer came
+from grouping the differing save offsets into contiguous runs and looking at the shape.
 
-- **Written by `character::Save`:** `ID`, `Stamina`, `MyVomitMaterial`, `CommandFlags`.
-- **Read before assignment:** `CarriedWeight`, `CarryingBonus`, `BurdenState` — exactly the
-  `character::CalculateBurdenState` context valgrind still reports.
-- Also uninitialized: `MaxStamina`, `Volume`, `Weight`, `BodyVolume`, `DodgeValue`, `SquaresUnder`,
-  `HP`, `MaxHP`, `v2HoldPos`.
+### 7.6c Initialize `fluid::imagedata` (new) — do this next
 
-`BodyParts`, `AllowedWeaponSkillCategories` and the three owned pointers are already done — §6.6b.
-Apply the §6.6a test to each field rather than zeroing the list wholesale: ask whether the value is
-provable, merely unobservable, or only a placeholder, and say which in the comment.
+The last family the two corpora reach, and the only reason the auto-play corpus is not also at
+zero. It appears only once something bleeds, which is why it stayed hidden behind §6.4a.
+
+`fluid::imagedata::imagedata` (`fluid.cpp:504`) initializes `Picture`, `DripTimer`, `AlphaSum` and
+`ShadowPos`, and leaves `DripPos`, `DripColor`, `DripAlpha`, `AlphaAverage` and `SpecialFlags`
+indeterminate. Two consequences, both live:
+
+- **`SpecialFlags` indexes an array.** `igraph::GetBodyBitmapValidityMap` is
+  `return BodyBitmapValidityMap[(SpecialFlags & 0x38) >> 3];`, reached from
+  `imagedata::AddLiquidToPicture` ← `fluid::AddLiquidAndVolume` ← `lsquare::AddFluid` ←
+  `bodypart::SpillBlood` ← `corpse::Be`. The mask bounds the index, so it is not a wild read, but
+  which validity map a pool of blood picks is decided by uninitialized memory.
+- **`SpecialFlags` is saved.** `imagedata::Save` writes `Picture << AlphaSum << ShadowPos <<
+  SpecialFlags`. The ground-fluid constructor `fluid::fluid(liquid*, lsquare*)` — the one
+  `AddFluid` uses — never assigns it; only the item constructor does, and only under `UseImage()`.
+
+Measured on the auto-play corpus with ASLR off, fill 42 against 99: **400 bytes** in 59 regions
+of 4, 8 and 16 bytes, every one exactly the glibc fill byte. valgrind reports 283 errors in 3
+contexts, all in this family. Sizes and the `Picture` pointer being serialized as a bitmap suggest
+the leak is not only `SpecialFlags`; re-derive it after fixing that one rather than assuming.
+
+Apply the §6.6a test per field. `SpecialFlags` deserves care — it is a flags word read through a
+mask, so zero is a real value (`BodyBitmapValidityMap[0]`) and not obviously the right one; check
+what the item path would have set before deciding it is provable rather than a placeholder.
 
 ### 7.7 ~~Decide what to do about `-DGCC`~~ — DONE, unpacked
 
@@ -1094,7 +1259,7 @@ savediff to prove the change did not alter semantics.
 
 ## 8. Change inventory
 
-Committed on **`master` of the fork `bethmaloney/ivan`**, twelve commits on top of upstream
+Committed on **`master` of the fork `bethmaloney/ivan`**, fourteen commits on top of upstream
 `de528ac`. `origin` still points at `Attnam/ivan` and is untouched; the fork is the remote
 named `fork`. **Nothing has been offered upstream.**
 
@@ -1111,22 +1276,28 @@ named `fork`. **Nothing has been offered upstream.**
 | 9 | `1f23c0a` Give graphicid and configid one layout, and unpack them | §6.6, §7.7 |
 | 10 | `52259cc` Strip trailing whitespace from game.cpp | — |
 | 11 | `4803f04` Initialise bodypart members that logic and saves read | §6.6a, §6.6b |
-| 12 | HARNESS.md: re-verify from a clean build, and record what is left | §6.4a, §6.4b, §6.6a, §6.6b |
+| 12 | `3589916` HARNESS.md: re-verify from a clean build, and record what is left | §6.4a, §6.4b, §6.6a, §6.6b |
+| 13 | `ebec9e7` Initialise character and playerkind members that logic and saves read | §6.6c, §7.6b |
+| 14 | HARNESS.md: record the character fix and what it uncovered | §6.4a, §6.4b, §6.6, §6.6c, §7.6c |
 
-**Commits 1–3 and 11 depend on nothing the harness adds and are separately upstreamable.** They are
-pre-existing bugs that determinism testing merely made visible — the MIDI one fixes a launch
-failure on any machine without an ALSA sequencer, harness or no harness. That is why they are
-ordered first, and why `audio.cpp` and `graphics.cpp` were split by hunk rather than letting a
+**Commits 1–3, 11 and 13 depend on nothing the harness adds and are separately upstreamable.**
+They are pre-existing bugs that determinism testing merely made visible — the MIDI one fixes a
+launch failure on any machine without an ALSA sequencer, harness or no harness. That is why they
+are ordered first, and why `audio.cpp` and `graphics.cpp` were split by hunk rather than letting a
 bug fix ride along inside the harness commit.
 
 **Commits 1–7 each build independently**, verified by checking each one out into an isolated
 worktree and building it. Note `cmake` must be re-run per commit, not just `make`, because
 `FeLib/CMakeLists.txt` globs its sources.
 
-A clean build at the tip is exit 0 with **133 warnings**: the 84 pre-existing
-`-Wstringop-overflow=` that were the old baseline, plus the 49 format warnings commit 9 made
-visible (§7.8). Commit 9 introduced **no** warnings of its own — the layout change is clean, and
-the 49 are pre-existing bugs that `LIKE_PRINTF` had never been able to report in `Main`.
+A clean build at the tip is exit 0 with **129 warnings**: 80 pre-existing `-Wstringop-overflow=`
+plus the 49 format warnings commit 9 made visible (§7.8). Commit 9 introduced **no** warnings of
+its own — the layout change is clean, and the 49 are pre-existing bugs that `LIKE_PRINTF` had
+never been able to report in `Main`. Commit 13 introduced none either and removed four: the
+`-Wstringop-overflow=` baseline drops 84 → 80. All 84 were the same line, `festring.h:172`
+(`++REFS(Data)` in the copy constructor), reported once per inlining context, and adding
+initializers to `char.h`/`human.h` changes what GCC inlines. Nothing was fixed and nothing was
+hidden — expect that count to wobble whenever a widely-included header changes.
 
 Files touched, by area:
 
@@ -1143,6 +1314,7 @@ RNG unification   FeLib/Include/femath.h       FeLib/Source/sfx.cpp
 uninitialised     Main/Include/script.h        Main/Include/igraph.h
                   Main/Source/database.cpp     FeLib/Source/graphics.cpp
                   Main/Include/bodypart.h      Main/Include/char.h
+                  Main/Include/human.h
 struct layout     FeLib/Include/felibdef.h     FeLib/Include/graphics.h
                   Main/Include/igraph.h        Main/Include/game.h
 tools             tools/savediff/              tools/play/
