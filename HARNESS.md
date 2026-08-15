@@ -67,6 +67,9 @@ validates the *rewrite*. You need both, in that order.
 | musl vs glibc on those 27,496 calls | **473 differ**, all 1 ulp — and no observable state moves (§6.7) |
 | Saves before vs after §6.7 and §6.8 | **byte-identical**, except the one `GetTimeSpent` byte |
 | `long long` (Emscripten's `time_t`) against `save.h` | **compiles**, was a hard overload failure (§6.8) |
+| Configure under {CMake 3.28.3, 4.0.3} x {`IGNORE_EXTRA_WHITESPACES` OFF, ON} after §9.2 | **0 warnings, 0 errors** in all 4; was 1 deprecation + 1 hard error |
+| Corpora replayed against goldens using a **CMake 4-built** binary | **8/8 match** on both corpora |
+| PCRE vs `std::regex` on all 154 shipped patterns (§9.2) | **0 mismatches** in 111,342 comparisons |
 
 Everything above was re-measured from a clean build on 2026-08-15 and still holds. The
 level-file divergence is now **closed for both families the corpora reach** — `character`
@@ -1610,8 +1613,28 @@ Recommended approach, for context on why the harness is shaped this way:
    `verify-corpora.sh` passing is evidence of no regression elsewhere, not evidence the
    swap works. The differential run above is what covers that.
 
-   Still outstanding from this item: bump `cmake_minimum_required` from 3.5 (CMake 4.x
-   refuses it). `-std=c++11` is sufficient for `std::regex` and needs no bump for this.
+   **CMake 4 — DONE, and this item's premise was wrong.** "CMake 4.x refuses `VERSION 3.5`"
+   is not true: 4.0.3 configures and builds the tree unchanged, emitting only a deprecation
+   warning ("Compatibility with CMake < 3.10 will be removed from a *future* version"). The
+   removal threshold in CMake 4.0 is below 3.5, and 3.5 sits just above it. Worth stating
+   plainly because it was the stated reason to touch the build at all.
+
+   The thing that *did* hard-error under CMake 4 was somewhere else entirely, and was found
+   only by running 4.0.3 rather than reasoning about it: `IGNORE_EXTRA_WHITESPACES=ON` ran
+   `cmake_policy(SET CMP0004 OLD)`, and **CMake 4 removed that OLD behaviour outright**, so
+   setting it is a hard error rather than a warning. The option defaults to OFF, which is why
+   an ordinary build looked fine. Whitespace in library names now gets stripped instead of
+   tolerated — that is what CMP0004 NEW wants, and it works on every CMake version, where the
+   policy escape hatch works on none from 4.0 on.
+
+   `cmake_minimum_required` is now `VERSION 3.10...4.0`: the floor clears the deprecation
+   warning, the ceiling declares the project tested against 4.0. Verified as a matrix —
+   {CMake 3.28.3, CMake 4.0.3} x {whitespace option OFF, ON} all configure with **zero
+   warnings and zero errors**, against a baseline where two of those four cells failed. The
+   raised floor moves policy defaults from 3.5 to the running version, so the build was
+   re-verified rather than assumed: 128 warnings either way, and the **CMake 4-built binary
+   replays both corpora 8/8 against the committed goldens**. `-std=c++11` is sufficient for
+   `std::regex` and needed no bump.
 3. **Emscripten build with Asyncify**, audio stubbed — get it rendering in a browser.
    The blocking `SDL_WaitEvent` inside `GetKey` is the core obstacle; Asyncify first,
    JSPI or `-sPROXY_TO_PTHREAD` later. `audio/audio.cpp` and `audio/RtMidi.cpp` hold the
