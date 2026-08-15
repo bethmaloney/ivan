@@ -1,8 +1,10 @@
 # IVAN Differential Test Harness — Progress & Handoff
 
-**Status:** working and verified. Twenty commits on `master` of the fork (§8). Nothing has been
-offered upstream. The corpora are committed (§5b), the host libm is no longer an input (§6.7),
-and the one known Emscripten build error is fixed (§6.8).
+**Status:** working and verified. Twenty-four commits on `master` of the fork (§8). Nothing has
+been offered upstream. The corpora are committed (§5b), the host libm is no longer an input
+(§6.7), and the one known Emscripten build error is fixed (§6.8). **The tree now compiles and
+links under Emscripten** — the remaining blocker is that the SDL2 port needs a DOM, which is
+§9.3, not a build problem.
 **Last updated:** 2026-08-15
 
 ---
@@ -70,6 +72,11 @@ validates the *rewrite*. You need both, in that order.
 | Configure under {CMake 3.28.3, 4.0.3} x {`IGNORE_EXTRA_WHITESPACES` OFF, ON} after §9.2 | **0 warnings, 0 errors** in all 4; was 1 deprecation + 1 hard error |
 | Corpora replayed against goldens using a **CMake 4-built** binary | **8/8 match** on both corpora |
 | PCRE vs `std::regex` on all 154 shipped patterns (§9.2) | **0 mismatches** in 111,342 comparisons |
+| `emcmake cmake` over the whole tree after §9.3 | **0 warnings, 0 errors** |
+| Emscripten build of the whole tree | exit 0 — `ivan.js` + a 6.2MB `ivan.wasm` |
+| `sizeof(long)` under `wasm32-unknown-emscripten` | **4** — measured, not assumed; the premise of §6.8 |
+| Native build and both corpora after the §9.3 CMake change | unchanged, **8/8 against goldens** |
+| WASM binary run under node | reaches `main`, reads the recording off the real FS, **aborts in SDL video init** (§9.3) |
 
 Everything above was re-measured from a clean build on 2026-08-15 and still holds. The
 level-file divergence is now **closed for both families the corpora reach** — `character`
@@ -144,6 +151,25 @@ Two gotchas that will waste your time:
 
 `savediff` is deliberately `EXCLUDE_FROM_ALL` and links nothing — it is the differential
 oracle and must build even when the game build is broken.
+
+### Build for WASM
+
+```bash
+source ~/emsdk/emsdk_env.sh
+emcmake cmake -S . -B build-wasm -DCMAKE_BUILD_TYPE=Release -DWIZARD=ON -DPORTABLE_BUILD=ON
+cmake --build build-wasm -j$(nproc)      # produces build-wasm/Main/ivan.{js,wasm}
+```
+
+**The toolchain is pinned to emsdk 6.0.6** (`./emsdk install 6.0.6 && ./emsdk activate 6.0.6`),
+and pinning it is the same argument as pinning musl in §6.7: a different LLVM can change float
+codegen or struct layout, and the first symptom would be an unexplained frame-hash divergence
+thousands of frames from the cause. `latest` is not a toolchain, it is a moving target.
+
+SDL2, SDL2_mixer and libpng come from Emscripten's own ports rather than the host — see §9.3
+for what that changed in the CMake files and why the flags are global. Two build options exist
+only on this target: `WASM_NODERAWFS` (ON, real filesystem under node — the harness needs to
+write its trace somewhere) and `WASM_ASYNCIFY` (ON, for interactive input; a replay never
+reaches the blocking path, so seam-1 runs do not need it).
 
 ### Run headless
 
@@ -518,6 +544,14 @@ on a corpus that does before calling §7.6 closed.
 - RNG is Mersenne Twister; `femath::Rand()` is the funnel, `femath::SetSeed` at
   `femath.cpp:78`. The seed is already persisted into saves (`game.cpp:3458-3460`, restored
   at `:3540`) — the game was designed to be reproducible across save/load.
+- **The MT stream does not depend on the width of `ulong`, which is the single most
+  load-bearing assumption in the port.** The state array is `ulong[624]`, so it is 64-bit
+  natively and 32-bit under Emscripten — but `SetSeed` masks both the seed and every
+  subsequent word with `& 0xffffffff` (`femath.cpp:87`, `:90`), the twist only ever combines
+  words that are already 32-bit, the tempering masks are 32-bit constants, and `Rand()`
+  returns `y & 0x7FFFFFFF`. Nothing can escape into the high half at either width. Checked by
+  reading every line of the generator, because if this were wrong every determinism number in
+  this document would be native-only and the harness would be measuring nothing.
 - Rendering is entirely software into a `bitmap` RGB565 double-buffer. The **only** GPU
   contact is one streaming texture blit in `BlitDBToScreen`. This is why the WASM port is
   tractable and why the TS-frontend seam is clean.
@@ -1202,9 +1236,14 @@ scalars (§6.6c, 137 → 0, and the 1,860-byte level-file leak → 0). §6.4a is
 **The pre-port gates are now closed too.** The corpora are committed artifacts rather than
 instructions (§5b), game math runs on a vendored libm so native and WASM compute the same
 numbers (§6.7), and the `time_t` overload that would have failed the Emscripten build outright
-is fixed along with the container-length width behind it (§6.8). What remains before an
-Emscripten build is ordinary build work — §9's steps 1 and 2 — plus CI (§7.3), which is now
-cheap because `verify-corpora.sh` is nine seconds.
+is fixed along with the container-length width behind it (§6.8). **The Emscripten build itself
+now compiles and links** (§9.3), so the port is past the build-system stage entirely.
+
+What stands between here and a native-vs-WASM frame comparison is one thing: the SDL2 port wants
+a DOM, and the game needs a no-video path to run headless under node (§9.3). That is the work to
+do next, and it is worth getting right locally before any of it is automated. CI (§7.3) and the
+format warnings (§7.8) follow from that rather than gate it, and §9's step 1 (native scaling) is
+independent of all of it.
 
 The fluid family took one pass (§6.6d, 283 → 0, and 400 bytes → 0) and closed §7.6a with it —
 those were stale heap pointers sitting in uninitialized `trapdata` fields, not pointers anyone
@@ -1292,6 +1331,11 @@ That is why the MIDI abort was never caught. Add a job that:
 - diffs the trace against a committed golden trace
 
 Commit golden traces (they're just hashes, tiny). Upload PNGs as artifacts on failure only.
+
+The five workflows are inherited from upstream and are due to be replaced wholesale rather than
+extended, so treat the notes here and in §7.8 as input to that rewrite, not as constraints on
+it. The sequencing that matters is the other way round: get the WASM run working locally first
+(§9.3), then automate what is already known to pass.
 
 ### 7.4 Add PNG dump on mismatch — half done
 
@@ -1420,6 +1464,14 @@ directory-scoped flag, which is the mechanism that caused this bug.
 
 `FeLib` has been format-checked all along and is clean, so the whole list is `Main`.
 
+**Worth knowing when the workflows get rewritten:** `-Wno-format-security`, which the five
+existing workflows pass alongside `-Werror`, covers only 20 of the 49 — the 25 `-Wformat=` and 4
+`-Wformat-extra-args` are not suppressed by it. Measured with the workflows' own flags rather
+than inferred. Two consequences for whatever replaces them: the suppression list needs widening
+if the format bugs are not fixed first, and blanket `-Werror` is fragile against a compiler
+bump — at GCC 13.3 the 80 pre-existing `-Wstringop-overflow=` become errors too and `FeLib`
+fails before `Main` is even reached.
+
 ### 7.9 Make the save format host-independent (new, scoped)
 
 §5 says savediff cannot be a native-vs-WASM oracle. That is true of the *current format* and it is
@@ -1480,7 +1532,7 @@ savediff to prove the change did not alter semantics.
 
 ## 8. Change inventory
 
-Committed on **`master` of the fork `bethmaloney/ivan`**, twenty commits on top of upstream
+Committed on **`master` of the fork `bethmaloney/ivan`**, twenty-four commits on top of upstream
 `de528ac`. `origin` still points at `Attnam/ivan` and is untouched; the fork is the remote
 named `fork`. **Nothing has been offered upstream.**
 
@@ -1505,12 +1557,18 @@ named `fork`. **Nothing has been offered upstream.**
 | 17 | `270e756` Commit the differential corpora as artifacts, not instructions | §5b |
 | 18 | `ab63c72` Route game math through a vendored libm so platforms agree | §6.3, §6.7 |
 | 19 | `de6c19b` Serialize long and ulong as explicit little-endian bytes | §6.8, §7.9 |
-| 20 | HARNESS.md: record the corpora, the libm pin and the time_t fix | §2, §5b, §6.3, §6.7, §6.8, §7.9 |
+| 20 | `8b91eb4` HARNESS.md: record the corpora, the libm pin and the time_t fix | §2, §5b, §6.3, §6.7, §6.8, §7.9 |
+| 21 | `74980f1` Replace PCRE with std::regex and drop the dependency | §3, §9.2 |
+| 22 | `93119af` Make the build CMake 4 clean | §2, §9.2 |
+| 23 | `37cdb01` Build for Emscripten with SDL2, SDL2_mixer and libpng from ports | §3, §9.3 |
+| 24 | HARNESS.md: record the Emscripten build and the emsdk pin | §2, §3, §6.3, §7.3, §7.8, §8, §9.3 |
 
-**Commits 1–3, 11, 13, 15, 18 and 19 depend on nothing the harness adds and are separately
-upstreamable.** 18 and 19 are portability fixes rather than bug fixes — 19 in particular
-turns an accidental overload binding into a defined one and costs upstream nothing, since
-the save format does not move on any platform that currently builds.
+**Commits 1–3, 11, 13, 15, 18, 19, 21 and 22 depend on nothing the harness adds and are
+separately upstreamable.** 18 and 19 are portability fixes rather than bug fixes — 19 in
+particular turns an accidental overload binding into a defined one and costs upstream nothing,
+since the save format does not move on any platform that currently builds. 21 removes a
+dependency and 22 fixes a hard error under CMake 4; both are wins for upstream regardless of
+the port.
 
 **Commits 1–3, 11, 13 and 15 are pre-existing bug fixes.**
 They are pre-existing bugs that determinism testing merely made visible — the MIDI one fixes a
@@ -1561,6 +1619,7 @@ struct layout     FeLib/Include/felibdef.h     FeLib/Include/graphics.h
                   Main/Include/igraph.h        Main/Include/game.h
 tools             tools/savediff/              tools/play/
 build             CMakeLists.txt               FeLib/CMakeLists.txt
+                  Main/CMakeLists.txt          audio/CMakeLists.txt
                   .gitignore
 ```
 
@@ -1635,13 +1694,68 @@ Recommended approach, for context on why the harness is shaped this way:
    re-verified rather than assumed: 128 warnings either way, and the **CMake 4-built binary
    replays both corpora 8/8 against the committed goldens**. `-std=c++11` is sufficient for
    `std::regex` and needed no bump.
-3. **Emscripten build with Asyncify**, audio stubbed — get it rendering in a browser.
-   The blocking `SDL_WaitEvent` inside `GetKey` is the core obstacle; Asyncify first,
-   JSPI or `-sPROXY_TO_PTHREAD` later. `audio/audio.cpp` and `audio/RtMidi.cpp` hold the
-   only threads in the tree and RtMidi cannot work in WASM at all, so stub audio first and
-   lean on the non-fatal MIDI path from §6.1.
+3. **Emscripten build — COMPILES AND LINKS. The remaining blocker is the DOM, not the build.**
 
-   Two pre-port hazards are already dealt with: the host libm (§6.7) and the `time_t`
-   overload that would have failed this step outright (§6.8).
+   `emcmake cmake` configures the tree with zero warnings and zero errors, the build exits 0,
+   and it produces `ivan.js` plus a 6.2MB `ivan.wasm`. Build commands and the emsdk pin are
+   in §3. The native build and both corpora are unaffected — re-measured, 8/8 against goldens.
+
+   **What the CMake change is.** SDL2, SDL2_mixer and libpng come from Emscripten's ports, so
+   the three `find_package(SDL2 REQUIRED)` calls (FeLib, Main, audio) and FeLib's libpng
+   lookup are wrapped in `if(NOT EMSCRIPTEN)` and their result variables left empty —
+   everything downstream interpolates them into `target_link_libraries`, where an empty
+   variable expands to nothing, so no other line had to move.
+
+   **The port flags are global, and that is the §7.7 lesson applied rather than ignored.**
+   `-sUSE_SDL=2` is a compile flag as much as a link flag — it is what puts the port's headers
+   on the include path — so a target that misses it cannot find `SDL.h`, and a target that
+   gets a different set from its neighbours is exactly how `-DGCC` gave `graphicid` two
+   layouts in one binary. Hence `add_compile_options` at the top level, not `add_definitions`
+   per directory.
+
+   **Three hazards this step was braced for turned out not to exist:**
+
+   - **RtMidi needs no stubbing.** It auto-defines `__RTMIDI_DUMMY__` when no API macro is
+     set (`RtMidi.h:571`), and the ALSA branch in `audio/CMakeLists.txt` is gated on
+     `CMAKE_SYSTEM_NAME MATCHES "Linux"`, which is `Emscripten` here. It compiles to no-ops
+     and prints "MidiOutDummy: This class provides no functionality." The `pthread_create`
+     calls at `RtMidi.cpp:1555`/`:1617` are inside the ALSA path and are never compiled.
+   - **SDL2_mixer is available as a port** (`embuilder build sdl2_mixer` succeeds), so the
+     audio problem is narrower than "stub audio" — only MIDI is genuinely impossible.
+   - **`audio.cpp`'s `SDL_CreateThread` is harmless.** Its return value is never checked
+     (`audio.cpp:146`), so a failed thread creation just means the audio loop never runs.
+
+   **The actual blocker: Emscripten's SDL2 port is DOM-bound at video init.** Run under node
+   the binary reaches `main`, parses its harness arguments, reads the recording off the real
+   filesystem via `NODERAWFS` and creates the trace file — then aborts in
+   `emscripten_get_screen_size` with `ReferenceError: screen is not defined`. Shimming
+   `globalThis.screen` moves it exactly one step, to `document is not defined` in
+   `emscripten_set_pointerlockchange_callback_on_thread`. Piecemeal shimming is a losing game;
+   the port registers browser event callbacks and wants a canvas.
+
+   That matters more than it looks, because **seam 1 is a headless comparison**. Three ways
+   out, and the third is the one this codebase is unusually well shaped for:
+
+   - Run the differential comparison in a real browser (headless Chrome/Playwright). Works
+     with the port as designed, but it makes CI heavy and puts a browser between the harness
+     and its trace file.
+   - Provide a DOM under node (jsdom). SDL2 also wants canvas and WebGL contexts, so this is
+     more surface than it sounds.
+   - **Give the game a no-video path.** §6.3 already establishes that rendering is entirely
+     software into a `bitmap` double buffer and that the *only* GPU contact in the tree is one
+     streaming texture blit in `BlitDBToScreen`. So a mode that skips `SDL_Init(SDL_INIT_VIDEO)`,
+     `SDL_CreateWindow` and that single blit — while still calling `TraceFrame()`, which
+     already hashes `DOUBLE_BUFFER` *before* `PrepareBuffer()` and therefore never touches the
+     texture — would let the identical game code run under bare node with no DOM at all. It
+     would also speed up native CI, and it is the smaller change. Start here.
+
+   Asyncify is wired up behind `WASM_ASYNCIFY` (default ON) for the blocking `SDL_WaitEvent`
+   in `GetKey`, but note a replay never reaches it — the harness returns the recorded key
+   first (§4) — so seam-1 runs do not need it and are faster without it. JSPI or
+   `-sPROXY_TO_PTHREAD` later.
+
+   Three pre-port hazards were already dealt with: the host libm (§6.7), the `time_t` overload
+   that would have failed this step outright (§6.8), and the MT width question now recorded in
+   §6.3.
 4. **TinySoundFont** for MIDI (RtMidi cannot work in WASM), IDBFS for saves, touch input.
 5. **SDL3 / JSPI / threads** as optional performance and quality passes.
