@@ -1,6 +1,6 @@
 # IVAN Differential Test Harness — Progress & Handoff
 
-**Status:** working and verified. Thirty-four commits on `master` of the fork (§8). Nothing has
+**Status:** working and verified. Thirty-six commits on `master` of the fork (§8). Nothing has
 been offered upstream. The corpora are committed (§5b), the host libm is no longer an input
 (§6.7), and the one known Emscripten build error is fixed (§6.8).
 
@@ -14,6 +14,11 @@ combat; what is found and fixed, what is left, and how to hunt the rest is §9.4
 the main menu, generates a world and takes keystrokes — §9.5. That is a second host for the
 same WASM core, not progress on seam 1, and the two should not be conflated: the browser build
 is unmeasured against the goldens and is not an oracle.
+
+**Every browser session records itself and keeps its function names**, so a crash yields a
+report carrying a deterministic reproduction — replay it on the native build and the whole
+native toolchain applies. Neither is opt-in, because neither can be arranged after the crash
+it is for (§9.6). One reported `memory access out of bounds` remains unreproduced.
 **Last updated:** 2026-08-16
 
 ---
@@ -96,7 +101,11 @@ validates the *rewrite*. You need both, in that order.
 | Same, driven 8x ENTER over CDP | **intro, world gen, character, world map**, "Turn 0", side panel populated |
 | Page console for that whole run | one line, `MidiOutDummy: This class provides no functionality.` — no abort, no exception |
 | Release WASM inspected for symbols | **no `name` section, no DWARF** — a trap's offsets are unrecoverable (§9.6) |
-| Same build with `WASM_DEBUG=ON` | `name` section present, 0x8b9f4 bytes; 8.3MB against 7.5MB |
+| Default browser build, symbols | `name` section present, 0x8b9f4 bytes; 8.3MB against 7.5MB |
+| `llvm-nm` over that build | demangled C++ — `character::CanMove() const` and 1,835 more |
+| Plain `ivan.html`, no query string, no flags | argv is `--record /session.rec` — **recording present unasked** |
+| Crash report after a page reload | **survives** in localStorage, recording intact |
+| Recording taken from inside a report, replayed natively | exit 0, **346 frames** |
 | Browser recording pulled from MEMFS, replayed natively | exit 0 — **358 frames** (8 keys) and **752 frames** (403 keys) |
 | 400 turns of auto-play in a browser under `WASM_DEBUG` | **no trap, no assertion** — does not reproduce the reported crash (§9.6) |
 | Level file across 4 ordinary runs, after §6.6e | **1 distinct** on both corpora; was 4 |
@@ -246,9 +255,16 @@ directories' 3.5MB and the game runs without either — a missing `Sound/SoundEf
 wavs load lazily per effect, while `audio::LoadMIDIFile` only pushes a filename onto a vector
 (`audio.cpp:449`) and RtMidi is a dummy on this target regardless. Untested with it ON.
 
+A browser build also records every session and keeps its function names, both unconditionally,
+because neither can be arranged after the crash they are for — §9.6 has the argument and
+`tools/web/README.md` the workflow. `WASM_DEBUG` (assertions, stack checking) therefore defaults
+ON here and OFF for node; `WASM_SAFE_HEAP` and `WASM_CRASH_ENDPOINT` stay opt-in.
+
 `emrun` rather than `python3 -m http.server` because it serves `.wasm` as `application/wasm`
 without argument. It has to be HTTP either way — `file://` will not fetch the wasm. No
-COOP/COEP headers are needed, there being no pthreads and no `SharedArrayBuffer`.
+COOP/COEP headers are needed, there being no pthreads and no `SharedArrayBuffer`. Note `emrun`
+is single-threaded, so one browser keepalive connection wedges it for every other client — fine
+for playing, not fine for a script driving it repeatedly, which wants a threading server.
 
 **`-fexceptions` is not optional on this target and is not a tuning knob.** Emscripten disables
 exception *throwing* by default, so `__cxa_throw` lowers to `abort()`, and IVAN throws as
@@ -1715,7 +1731,7 @@ savediff to prove the change did not alter semantics.
 
 ## 8. Change inventory
 
-Committed on **`master` of the fork `bethmaloney/ivan`**, thirty-four commits on top of upstream
+Committed on **`master` of the fork `bethmaloney/ivan`**, thirty-six commits on top of upstream
 `de528ac`. `origin` still points at `Attnam/ivan` and is untouched; the fork is the remote
 named `fork`. **Nothing has been offered upstream.**
 
@@ -1754,7 +1770,9 @@ named `fork`. **Nothing has been offered upstream.**
 | 31 | `4ec9fe1` Build for the browser as well as for node | §2, §3, §9.3, §9.5 |
 | 32 | `f92c257` HARNESS.md: record the browser host | §1, §2, §3, §8, §9.3, §9.5 |
 | 33 | `459721d` Make a browser crash collectable and legible | §3, §9.5, §9.6 |
-| 34 | HARNESS.md: record the crash-collection path | §2, §8, §9.5, §9.6 |
+| 34 | `f7d61e1` HARNESS.md: record the crash-collection path | §2, §8, §9.5, §9.6 |
+| 35 | `260c22b` Report a browser crash without having predicted it | §2, §3, §9.6 |
+| 36 | HARNESS.md: record what always-on reporting changed | §2, §3, §8, §9.6 |
 
 **Commits 27 and 28 are the ones worth upstream's attention.** 27 is two more of the
 uninitialized-member family. 28 is eleven defects that have been in the game for years and that
@@ -2187,40 +2205,74 @@ shape is a prompt to rebuild, not a lead, and time spent staring at it is wasted
 That splits into two independent problems: make the next trap legible, and make the crash
 reproducible somewhere with a debugger.
 
-**Legible: `WASM_DEBUG`.** `--profiling-funcs` keeps the name section at no codegen cost, so
-frames print as `character::Move`. Measured: the debug wasm carries an 0x8b9f4-byte `name`
-section against the release build's none, for 8.3MB against 7.5MB. `ASSERTIONS=2` and
-`STACK_OVERFLOW_CHECK=2` come with it, the second because the 8MB stack (§3) is generous but the
-level generator recurses, and an overflow is otherwise indistinguishable from the out-of-bounds
-access it gets mistaken for. `WASM_SAFE_HEAP` is a separate option because it instruments every
-load and store: it names the access and the address outright, at a slowdown that makes the game
-hard to steer by hand. Turn it on once a recording reproduces the crash, not while hunting one.
+**Neither can be arranged after the fact, so neither is optional.** This was the design mistake
+worth recording: the first version of both was opt-in — build with `WASM_DEBUG`, play with
+`?record=`. That is useless against the only crash that matters, the one a player hits once in
+an ordinary session. By the time you know you want a recording, the session that would have
+produced one is over, and by the time you know you want names, the binary that would have
+carried them has already printed its offsets. An option that has to be set *before* the thing it
+captures is not an option, it is a trap. Both are now unconditional in a `WASM_BROWSER` build.
 
-**Reproducible: `tools/web/harness-pre.js`.** The point is not to debug in the browser but to
-get the crash onto the native build, where gdb, valgrind and ASan all apply and where the
-harness already replays a session deterministically. The node host reads argv and writes through
-NODERAWFS; a browser has neither, so the pre-js turns the query string into argv and reads the
-recording back out of MEMFS:
+**Names, always.** `--profiling-funcs` keeps the name section, changes no codegen, and costs
+about 800KB — 8.3MB against 7.5MB, measured. The asymmetry is what settles it: that cost is paid
+once at build time where nobody notices, against a report from a crash that by definition cannot
+be re-taken to order. Verified in the default browser build with `llvm-nm`, which reads back
+demangled C++ — `character::CanMove() const` and 1,835 others matching character/level/square.
 
-```
-http://localhost:8112/ivan.html?record=/session.rec&seed=999
-```
+**Assertions, by default on the browser and off on node.** `WASM_DEBUG` (`ASSERTIONS=2`,
+`STACK_OVERFLOW_CHECK=2`) is the half with a runtime cost, so it splits by host: the node host
+runs the differential corpora, where the measurement is the point and the cost is a tax on every
+run; the browser host is played by a human who would rather be told what went wrong than have it
+inferred from a trap afterwards. The stack check earns its place separately — the 8MB stack (§3)
+is generous but the level generator recurses, and an overflow is otherwise indistinguishable
+from the out-of-bounds access it gets mistaken for, which is exactly the reported symptom.
+`WASM_SAFE_HEAP` stays opt-in: it instruments every load and store, naming the access and the
+address outright, at a slowdown that makes the game hard to steer. Turn it on once a recording
+reproduces the crash, not while hunting one.
 
-**What makes this work was already in the harness.** `RecordKey` flushes every key as it writes
-it (`harness.cpp:545`), and the comment above `ReadTrailer` says a killed recorder "loses nothing
-but the trailer". A trap therefore leaves the recording complete but for its `# end keys=` line —
-the keys that led to the crash survive the crash, and the seed rides along in the header, so the
-file is self-contained. Nothing in the harness had to change; it had no way to be *reached* from
-a browser, which is all the pre-js supplies.
+**Recording, always, and it changes nothing.** This had to be checked rather than assumed, since
+turning a harness mode on for every player is exactly the kind of change that quietly alters the
+game. It does not: `main.cpp:154` seeds from `harness::GetSeedOverride()` when there is one and
+`time(0)` when there is not, and a recording with no `--seed` sets the override to `time(0)`
+anyway (`harness.cpp:442`). Same seed, same game — the recording only writes it down. The cost
+is a flushed line per keystroke. `?record=off` opts out.
 
-**Measured 2026-08-16, end to end.** A session driven with `?record=/session.rec&seed=999`,
-extracted from MEMFS with `ivanHarness.text()`, replayed on the native binary:
+**What makes the recording worth having was already in the harness.** `RecordKey` flushes every
+key as it writes it (`harness.cpp:545`), and the comment above `ReadTrailer` says a killed
+recorder "loses nothing but the trailer". A trap therefore leaves the recording complete but for
+its `# end keys=` line — the keys that led to the crash survive the crash, and the seed rides
+along in the header, so the file is a deterministic reproduction rather than a description of
+one. Nothing in the harness had to change. It had no way to be *reached* from a browser, which
+is all `tools/web/harness-pre.js` supplies: query string to argv on the way in, MEMFS to a report
+on the way out.
+
+**The report outlives the tab.** A crash is usually followed by a reload or a close, either of
+which takes MEMFS with it, so reports are kept in `localStorage` and retrieved with
+`ivanHarness.save()` / `.saveRecording()`. Each carries the failure text, the recording, the
+seed, the key count and a build id from `git describe --always --dirty --tags` — the last
+because a stack trace symbolized against the wrong binary gives confident, wrong answers, and a
+dirty tree is precisely the build nobody else can reproduce. A POST hook exists behind
+`WASM_CRASH_ENDPOINT` (or `?crashlog=`) and is inert unless one is set; local-only is the
+default.
+
+**Measured 2026-08-16, end to end.** The last three rows are the ones that matter, because they
+were taken on a session opened at a bare `ivan.html` — no query string, no flags, nothing a
+player would have had to know in advance:
 
 | Run | Result |
 |---|---|
 | 8-key browser recording, replayed natively | exit 0, **358 frames** |
 | 403-key auto-play browser recording, replayed natively | exit 0, **752 frames** |
 | Either, on the native harness's reading of the missing trailer | correctly reported as "cut short" |
+| Plain `ivan.html`, no query string | argv is `--record /session.rec`, **recording present unasked** |
+| Report after a failure, then a page reload | **survives** — build id, seed, key count and recording all intact |
+| The recording carried *inside* that report, replayed natively | exit 0, **346 frames** |
+
+The failure in that third row was injected as a rejected `WebAssembly.RuntimeError`, which is
+the shape a real trap takes here: ASYNCIFY means `main` runs inside a promise, so a trap arrives
+as an unhandled rejection rather than a synchronous throw. It exercises the real handler, but it
+is not a real trap, and the distinction is worth keeping — what is proven is the collection
+path, not that a genuine out-of-bounds is caught and reported.
 
 **A WASM-only crash is a finding, not a dead end.** wasm32 traps on accesses x86-64 absorbs
 silently: a read past a buffer is still inside a mapped page natively and returns garbage, where
@@ -2231,7 +2283,16 @@ testing structurally cannot see — the class §6.6 and §9.4 were about, and an
 keeping the second host rather than a reason to distrust it.
 
 **One crash is reported and unreproduced.** A `memory access out of bounds` during ordinary
-interactive play, reported against a release build, so its trace is unsymbolizable per the above
-and nothing can be recovered from it. **400 turns of auto-play under `WASM_DEBUG` did not
-reproduce it** — clean run, no trap, no assertion — which rules out the auto-play path and means
-the next attempt needs the steps that produced it, recorded with `?record=`.
+interactive play, against a build with no name section, so its trace is unsymbolizable per the
+above and nothing can be recovered from it. **400 turns of auto-play under `WASM_DEBUG` did not
+reproduce it** — clean run, no trap, no assertion — which rules out the auto-play path. It is the
+crash that prompted all of the above, and the reason none of it is opt-in: the next occurrence
+needs no preparation from whoever hits it, only that they still have the tab or the
+`localStorage` behind it.
+
+**What is still missing from a report.** Nothing carries game state — dungeon, level, turn,
+character — so a report says where the program stopped and how to get back there, but not what
+the game thought was happening. The recording makes that recoverable rather than lost, since
+replaying it reconstructs the state exactly, so this is a convenience rather than a gap. Worth
+adding only if a crash turns up that the recording cannot reproduce, which would be a more
+interesting problem than the one it solves.
