@@ -91,10 +91,26 @@ if(EMSCRIPTEN)
   # two layouts inside one binary. Uniform beats scoped here, which is why this
   # is add_compile_options at the top level and not add_definitions per
   # directory.
-  set(IVAN_WASM_PORTS -sUSE_SDL=2 -sUSE_SDL_MIXER=2 -sUSE_LIBPNG=1)
-  add_compile_options(${IVAN_WASM_PORTS})
-  string(REPLACE ";" " " IVAN_WASM_PORTS_LINK "${IVAN_WASM_PORTS}")
-  set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${IVAN_WASM_PORTS_LINK}")
+  #
+  # -fexceptions sits in the same list for the same reason, and it is not
+  # optional. Emscripten compiles with exception *throwing* disabled by default:
+  # __cxa_throw lowers to abort(), so the first throw kills the process with a
+  # bare "Aborted(undefined)" and no clue as to where. IVAN throws as ordinary
+  # control flow rather than only on error -- areachangerequest every time the
+  # player enters or leaves a level (game.cpp:6429), quitrequest on quit
+  # (game.cpp:4750), and genericException out of the prototype database
+  # (database.cpp:966, caught in dungeon.cpp) -- so without this the WASM build
+  # dies drawing the main menu and never reaches a dungeon at all. The compile
+  # flag is the load-bearing half: it is what emits the landing pads, and a
+  # translation unit built without it cannot catch what another one throws.
+  #
+  # -fexceptions (the JS-based lowering) rather than -fwasm-exceptions, because
+  # ASYNCIFY below does not support native Wasm EH. Revisit the pair together if
+  # asyncify is ever replaced by JSPI.
+  set(IVAN_WASM_GLOBAL_FLAGS -sUSE_SDL=2 -sUSE_SDL_MIXER=2 -sUSE_LIBPNG=1 -fexceptions)
+  add_compile_options(${IVAN_WASM_GLOBAL_FLAGS})
+  string(REPLACE ";" " " IVAN_WASM_GLOBAL_FLAGS_LINK "${IVAN_WASM_GLOBAL_FLAGS}")
+  set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${IVAN_WASM_GLOBAL_FLAGS_LINK}")
 
   # Runtime shape of the ivan binary. Applied to the executable in
   # Main/CMakeLists.txt; assembled here so every knob is in one place.
