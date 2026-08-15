@@ -133,15 +133,21 @@ navigation after 10 idle turns, and after 50 spawns and reads a scroll of
 earthquake to dig itself out. 3000 turns at seed 999 reaches tunnel level 2 with
 a levelled-up character, having died 20 times.
 
-**It is not a differential corpus.** Replaying the same auto-play recording gives
-5 distinct outcomes in 8 runs — different turn counts, and different maximum HP,
-so different level-ups. See HARNESS.md §6.5. It is not auto-play's fault: any
-corpus diverges once monsters act, and auto-play was just the first thing to get
-that far. Until it is fixed, treat auto-play as a crash fuzzer, not an oracle.
+**It is a differential corpus now.** Replaying the same auto-play recording used
+to give 5 distinct outcomes in 8 runs — different turn counts, different maximum
+HP, so different level-ups. That was HARNESS.md §6.5, `clock()` acting as the
+AI's random number generator, and it is fixed. A 3,000-turn recording now replays
+identically across 16 concurrent runs on a saturated machine: same frame count,
+same frame hashes, same string stream.
+
+Two caveats survive. Hold the **harness options** constant, because changing them
+changes the allocation pattern and the game still reads uninitialized memory
+(HARNESS.md §6.6). And the **save files still differ** even when every pixel
+matches (§6.4) — so compare traces, not saves, until that lands.
 
 If you measure this yourself: **give every run its own directory** and **use at
-least 8 runs**. The divergence is flaky, and pairs agree by chance often enough
-to produce confident wrong answers.
+least 8 runs**. The old divergence was flaky, and pairs agree by chance often
+enough to produce confident wrong answers — which they did, twice.
 
 ## Session directory
 

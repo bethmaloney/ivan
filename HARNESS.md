@@ -1,7 +1,7 @@
 # IVAN Differential Test Harness — Progress & Handoff
 
 **Status:** working and verified. Not committed. Nothing here is on a branch yet.
-**Last updated:** 2026-08-14
+**Last updated:** 2026-08-15
 
 ---
 
@@ -49,11 +49,17 @@ validates the *rewrite*. You need both, in that order.
 | Same, under 100% CPU load on all cores | **byte-identical** |
 | Non-combat corpus, **8** isolated runs (trace, PNG, text) | **1 distinct outcome**, 441 frames every time |
 | Combat corpus, 200 auto-play turns, 8 isolated runs | **1 distinct outcome** — was 5, see §6.5 |
-| Combat corpus, **2,800** auto-play turns, 36 deaths, 16 concurrent runs on a saturated machine | **1 distinct outcome** (trace and text) |
+| Combat corpus, **2,825** auto-play turns, 16 concurrent runs on a saturated machine | **1 distinct outcome**, 3,880 frames, 9,687,815 RNG draws |
 | Same binary, harness options varied (`--text` on/off) | **2 distinct outcomes** — see §6.6 |
-| savediff exit codes (0 same / 1 differ) | correct, with side-by-side hexdump |
+| savediff exit codes (0 same / 1 differ / 2 error) | correct, with side-by-side hexdump |
 | Two replays → screen PNG, text sidecar and text log | **byte-identical** |
 | savediff on real saves from two identical replays | `.sav` SAME, `.wm` SAME, level file **DIFF** — see §6.4 |
+| Crashes across 78 runs of all corpora | **none**, every run exit 0 |
+| `valgrind` uninitialized reads, non-combat corpus, after §6.6a | **137 errors / 13 contexts**, from 22,632 / 57 |
+| Player HP under three different `MALLOC_PERTURB_` values, after §6.6a | **identical**; was three different values |
+
+Everything above was re-measured from a clean build on 2026-08-15 and still holds, with one
+change: the level-file divergence shrank but did not close (§6.4).
 
 The CPU-load test is the meaningful one *for the risk it was designed to test* — wall-clock
 leaking into game state. Saturating the machine and still getting identical output is real
@@ -428,6 +434,14 @@ Qualification added since: in the real-save comparison of §6.4 the `.wm` files 
 That is what uninitialized heap looks like — it matches whenever the allocator happens to hand
 back the same bytes — and it means a passing `.wm` comparison is not evidence the bug is gone.
 
+Stronger qualification (2026-08-15): under the `MALLOC_PERTURB_` differencing of §6.4a — which
+exposes *every* uninitialized byte that reaches a file, not just the ones that happen to differ
+— `.wm` and `.sav` leak **zero** bytes on both the non-combat and the 200-turn auto-play corpus.
+That is much better evidence than a plain comparison, because it does not depend on the
+allocator handing back different garbage. It is still not proof: `MALLOC_PERTURB_` only covers
+the heap, and neither corpus visits enough of the world map to write the whole `.wm`. Re-run it
+on a corpus that does before calling §7.6 closed.
+
 ### 6.3 Architecture facts (established, don't re-derive)
 
 - RNG is Mersenne Twister; `femath::Rand()` is the funnel, `femath::SetSeed` at
@@ -453,7 +467,7 @@ back the same bytes — and it means a passing `.wm` comparison is not evidence 
 
 ---
 
-### 6.4 Level files diverge between two identical replays (new, unfixed)
+### 6.4 Level files diverge between two identical replays — ATTRIBUTED, unfixed
 
 Two replays of the same recording under the same seed, compared with `savediff`:
 
@@ -463,20 +477,103 @@ Two replays of the same recording under the same seed, compared with `savediff`:
 | `.wm` | SAME |
 | `AutoSave.40` (UNDER_WATER_TUNNEL level 0) | **DIFF** |
 
-179 bytes of 892,168 differ (0.02%), scattered across 61 of 218 4KiB blocks. First difference
-at offset 1961, past savediff's decodable prefix (which ends at 1640), so the fields cannot be
-named. The differing values are small and close — `0x84` vs `0x87` at the first site — which
-looks like a counter rather than a pointer or a heap smear, and the pair of runs did take
-different wall-clock times.
+**The §7.7 padding fix shrank this by roughly 4x but did not close it.** Re-measured at
+`52259cc`, non-combat corpus, 8 isolated runs — all 8 level files distinct:
 
-Not yet attributed. Candidates worth checking first, in order: the `GetTimeSpent` family
-already listed in `savediff --known-nondeterminism`, then the same raw
-`SaveFile.Write()`-over-`Alloc2D` pattern as §6.2 but in the level and `Room` region.
+| | before §7.7 | after §7.7 |
+|---|---|---|
+| differing blocks | 61 of 218 | **2 of 218** |
+| differing bytes | 179 | **40** |
+| first difference | offset 1961 | **offset 691807** |
 
-Note this is a *save-content* divergence with **no frame-hash divergence at all** — the trace,
-the PNG and the text layer were byte-identical across the same two runs. Whatever this is, it
-does not reach the screen, which is precisely the class of bug the state-digest layer of §7.5
-is meant to catch and neither pixel comparison nor gameplay ever will.
+The first difference moving from 1961 to 691807 is the informative part: the early region, where
+the `graphicid` padding byte was serialized once per cached tile, is now clean. The fix did what
+it was for. What is left is underneath it, and it is **two separate mechanisms**, neither of
+which is the `GetTimeSpent` or `Alloc2D` candidate this section used to name. Both of those
+guesses were wrong.
+
+Note this remains a *save-content* divergence with **no frame-hash divergence at all** — trace,
+PNG and text layer are byte-identical across all 8 runs. Neither mechanism reaches the screen,
+which is precisely the class of bug the state-digest layer of §7.5 is meant to catch and neither
+pixel comparison nor gameplay ever will.
+
+### 6.4a Mechanism one: uninitialized heap, 1,860 bytes per level
+
+**The 40 bytes above understate the exposure by 46x.** 40 is only what two runs happen to
+differ by; the allocator usually hands back similar garbage. The real figure comes from holding
+the heap fill constant and varying it:
+
+```bash
+# same corpus, two fill values, own directory each
+MALLOC_PERTURB_=42 ./ivan --replay noncombat.rec ...
+MALLOC_PERTURB_=99 ./ivan --replay noncombat.rec ...
+cmp -l a/Save/*.40 b/Save/*.40 | wc -l          # 1,860
+```
+
+1,860 bytes differ across 44 regions, and **every one is exactly the glibc fill byte** —
+`0xd5` (= `42 ^ 0xff`) against `0x9c` (= `99 ^ 0xff`), zero exceptions. Runs sharing a fill
+value are byte-identical, including the level file. So uninitialized heap is the *only*
+remaining content source here, and 1,860 bytes of it reach every level file.
+
+Now **1,787** after §6.6a. Re-derive the number rather than quoting it; the point of the technique
+is that it measures the real exposure instead of the fraction two runs happen to disagree on.
+
+**One trap in this technique.** `MALLOC_PERTURB_=255` looks like it should give a zeroed heap
+(`255 ^ 0xff == 0`) and so simulate a complete zero-init fix without touching code. It does not:
+glibc fills on free with the raw byte and on malloc with the complement, but chunks served from
+**tcache bypass the malloc-time fill**, so recycled memory comes back as `0xff`. A run under
+`=255` is therefore a mix of `0x00` and `0xff`, not a zero heap, and it cannot be used as an
+equivalence oracle for "does this fix do exactly what zeroing would". Differencing two *arbitrary*
+fill values is still sound — that only relies on the two runs differing, not on the fill being
+uniform.
+
+`valgrind --track-origins=yes` catches it at the I/O boundary and names the origin:
+
+```
+Syscall param write(buf) points to uninitialised byte(s)
+  ... lsquare::Save → level::Save → operator<<(outputfile&, level const*)
+      → dungeon::SaveLevel → game::Save → game::EnterArea → commandsystem::GoDown
+Uninitialised value was created by a heap allocation
+  ... sysbase<zombie, humanoid, characterprototype>::Spawn
+      → protosystem::BalancedCreateMonster → level::GenerateNewMonsters
+      → dungeon::PrepareLevel → game::EnterArea
+```
+
+**So §6.4 and §6.6 are the same bug.** Monsters generated into a level by `sysbase::Spawn` carry
+partially-uninitialized members, and the descend-autosave serializes them. That is the `Spawn`
+family §6.6 lists as not fixed; fixing it should close both sections at once. Same class as the
+`fastscriptmember` bug in §6.1 — heap content leaking into a file users share — and about the
+same size (1,860 bytes against 1,975).
+
+### 6.4b Mechanism two: raw heap pointers in level saves (new)
+
+The residue left after the heap fill is held constant is **not** uninitialized memory and not
+wall-clock. It is pointers. `setarch -R` (ASLR off) collapses the level file to one distinct
+outcome across 4 runs while the `.sav` files keep varying:
+
+| 4 runs, `MALLOC_PERTURB_=42` | ASLR on | ASLR off |
+|---|---|---|
+| `AutoSave.40` | 4 distinct | **1 distinct** |
+| `AutoSave.sav` / `.sav` | 2–3 distinct | 3 distinct (this is `GetTimeSpent`, §5) |
+| `.wm` | 1 distinct | 1 distinct |
+
+18 sites per level, 8 bytes each, every one reading as an x86-64 userspace heap pointer — and
+the difference between two runs is **one constant across all 18**:
+
+```
+0x5dc30cbec2a0 → 0x62ca8e0b02a0    delta 0x507814c4000
+0x5dc30cbe9340 → 0x62ca8e0ad340    delta 0x507814c4000
+0x5dc30ce35b40 → 0x62ca8e2f9b40    delta 0x507814c4000
+...  18 sites, 1 distinct delta
+```
+
+A single shared delta *is* the ASLR slide. Eighteen live pointers are being written into every
+level file verbatim. Not yet localised to a field — the sites sit past savediff's decodable
+prefix, and the deliberate rule of §5 is not to extend decoding past the cliffs. The write path
+is the `lsquare::Save` chain above; start there.
+
+This matters beyond determinism: a pointer in a save file is a heap-address disclosure in a file
+players share, and it cannot survive a reload on any platform, let alone a WASM one.
 
 ### 6.5 Replays diverge once monsters act — FOUND AND FIXED
 
@@ -606,6 +703,25 @@ reads. The ones in game logic, with origins:
 | `item::GetBaseDamage` (`item.cpp:48`) — via `DataBase->DamageBonus` | heap, `databasecreator<item>::ReadFrom` (`database.cpp:111`) |
 | `LimitRef<double>` (`felibdef.h:75`) | heap, `databasecreator<character>::ReadFrom` |
 
+Re-run 2026-08-15 on the **non-combat** corpus (22,632 errors, 57 contexts). Different corpus,
+so read it as a complement rather than a contradiction — but three things changed:
+
+| Read site | Origin | Note |
+|---|---|---|
+| `bodypart::UpdateFlags`, 12× | heap, `humanoid::MakeBodyPart` / `playerkind::MakeBodyPart` | more precise than "`sysbase::Spawn`" |
+| `arm` / `leg` / `head::SignalPossibleUsabilityChange`, 32× | same | **not previously listed** |
+| `playerkind::GetNaturalExperience`, 8× | heap, `game::Init` | origin is `game::Init`, not `Spawn` |
+| `character::CalculateBurdenState` | heap, `sysbase<guard, humanoid, ...>::Spawn` | as documented |
+| `object::UpdatePictures`, 2× | heap, `game::Init` | the *stack* instance was fixed; this heap one is live |
+| **`write` / `writev` (the save file itself)** | heap, `sysbase<zombie…>::Spawn`, `sysbase<hedgehog…>::Spawn` | **this is §6.4a** |
+
+The `write`/`writev` rows are the important addition: they are the same defect reaching a *file*
+rather than a branch, which is what makes §6.4 and §6.6 one bug and not two. `item::GetBaseDamage`
+and `LimitRef<double>` did not appear in this corpus — it never throws an item.
+
+`MakeBodyPart` rather than `Spawn` as the origin is worth acting on: it says the uninitialized
+members are on the **bodypart** objects a character builds, not only on the character.
+
 **Fixed: `graphicid`.** `graphicid() = default` left the struct uninitialized while `operator<`
 memcmps *every byte* of it (it is the `std::map<graphicid, tile>` key) and the serializer writes
 every byte with a raw `Write`. So padding was a live input to both the graphics cache ordering and
@@ -633,6 +749,75 @@ in-class initializers or fuller constructors, class by class. `database.cpp:111`
 `new database()` so the prototype table is value-initialized — correct in itself, but it made **no
 measured difference** to this corpus, so the live carrier is elsewhere in that list.
 
+Note `new type()` is **not** available as a shortcut for the rest of this family. It worked for
+`database` because that class has no user-provided default constructor; `bodypart`, `item` and
+`character` all do, so value-initialization just calls the constructor and changes nothing. And
+`memset` is out — these are polymorphic. It has to be per-member initialization, class by class.
+
+### 6.6a The bodypart family — FIXED (new)
+
+First slice of the `Spawn` family. `bodypart() : Master(0) { }` initialized one member of ten;
+nine of the rest are written straight to the level file by `bodypart::Save`. `head`, `arm` and
+`leg` are worse — `arm` and `leg` have no default constructor at all, only `rightarm()` etc. which
+`Init` their gear slots, so their saved scalars were indeterminate too.
+
+Fixed with in-class initializers on the declarations (`Main/Include/bodypart.h`), which is the
+mechanism that reaches every constructor including the ones that do not exist.
+
+| | before | after |
+|---|---|---|
+| valgrind errors / contexts, non-combat corpus | 22,632 / 57 | **137 / 13** |
+| `bodypart::UpdateFlags` + `arm`/`leg`/`head::SignalPossibleUsabilityChange` reads | 44 contexts | **0** |
+| player HP under `MALLOC_PERTURB_` 255 / 42 / 99 | 35/37, 23/36 | **29/37 in all three** |
+| uninitialized bytes in the level file | 1,860 | 1,787 |
+
+**The HP row is the result that matters.** Character stats used to depend on which garbage the
+allocator returned; they no longer do. That is the §6.6 defect proper — game logic reading
+uninitialized memory — and it is closed for this family.
+
+**The save-leak row is the one that did not move**, and it corrects an expectation recorded here
+earlier: bodypart was not the carrier of §6.4a. 73 bytes of 1,860. Valgrind's remaining
+`write`/`writev` contexts still name `sysbase<zombie…>::Spawn` and `sysbase<hedgehog…>::Spawn`,
+so the bytes come from `character`'s own members, not from its bodyparts. §7.6b is that work.
+
+**Why zero, per field** — the argument is not uniform and it is worth not pretending it is:
+
+- `HP`/`MaxHP` — provable. `CalculateMaxHP` opens with `HPDelta = MaxHP - HP`, the damage already
+  taken, which is zero for a fresh part. Zeroed, the first call yields `HP == MaxHP`, and
+  `RestoreHP()`/`FastRestoreHP()` are literally that assignment. Zero reproduces an invariant the
+  code states elsewhere in its own words.
+- `BloodMaterial`, `NormalMaterial`, `BodyPartVolume` — unobservable. `character::CreateBodyPart`
+  assigns all of them unconditionally (`char.cpp:5845`) before anything reads or saves them.
+- The six picture fields — **zero is only a defined placeholder**, not a correct sprite.
+  `UpdateBodyPartPicture` assigns them and `NO_PIC_UPDATE` skips it (`proto.cpp:661`,
+  `script.cpp:412`). A part drawn or saved without a picture update was already wrong; this makes
+  it wrong repeatably instead of randomly. Do not read the fix as having corrected that.
+
+### 6.6b `character`'s owned pointers and `BodyParts` — FIXED (new)
+
+`~character()` frees `Action`, `PolymorphBackup`, `SquareUnder`, `BodyPartSlot`,
+`OriginalBodyPartID` and `CWeaponSkill`. The default constructor nulled the first three and missed
+the last three, so nulling them completes an existing pattern rather than introducing one.
+
+`BodyParts` is the interesting one, because the codebase names a competing default:
+`virtual void CalculateBodyParts() { BodyParts = 1; }` (`char.h:809`). **One is wrong here.** The
+two answer different questions — the virtual says how many parts the *species* has and runs in
+`Initialize` immediately before `BodyPartSlot = new bodypartslot[BodyParts]`, while the
+constructor's value has to say how many slots *exist*, and before `Initialize` none do. It matters
+because the destructor does `for(c = 0; c < BodyParts; ++c) delete GetBodyPart(c);`, which indexes
+`BodyPartSlot`:
+
+| `BodyParts` | `BodyPartSlot` | destroying an un-Initialized character |
+|---|---|---|
+| garbage | garbage | unbounded loop over a wild pointer — the old behaviour |
+| 1 | null | dereferences null |
+| **0** | **null** | no-op loop, then a well-defined `delete[]` on null |
+
+**This changes nothing observable today** — the trace is byte-identical before and after, because
+`Initialize` always assigns `BodyParts` before anything reads it. It is a guard that makes the
+destructor's assumption enforced rather than assumed, which is the same protection `Action` and
+`SquareUnder` already had.
+
 Until this is done, `MALLOC_PERTURB_` is a usable workaround for cross-configuration comparison,
 and it is a workaround, not a fix — it makes the reads return a constant instead of not happening.
 
@@ -641,6 +826,14 @@ and it is a workaround, not a fix — it makes the reads return a constant inste
 **§6.6 now sits above all of these**, and it is specifically what blocks seam 1: a WASM build
 shares no allocation pattern with a native one, so every uninitialized read becomes a phantom
 diff that owes nothing to Emscripten. §6.5 and §7.7 are done.
+
+Since §6.4a proved §6.4 and §6.6 are one defect, fixing the `Spawn`/`MakeBodyPart` family is now
+worth two sections at once — it is the single highest-value piece of work on this list. §7.6a
+(the pointers) is separate and will survive that fix.
+
+The bodypart half of that family is done (§6.6a) and took the valgrind count from 22,632 to 137.
+It did **not** move the save leak, so §7.6b — `character`'s own saved members — is what remains
+of §6.4a and is the next thing to do.
 
 §7.7 also cleared the way for §7.9, the save-format work: both are deliberate format breaks, and
 `SAVE_FILE_VERSION` has now moved once already, so the second break is cheaper than the first.
@@ -743,6 +936,31 @@ scoped.
 
 Note this is the same family as §6.6, and `area::Save`'s `FlagMap` is *not* an instance of it —
 `area::area()` memsets it. Re-derive that inventory rather than trusting the 358-byte figure.
+
+### 7.6a Remove the raw pointers from level saves (§6.4b, new)
+
+Eighteen 8-byte pointer-shaped fields per level file. Independent of §6.6 — holding the heap fill
+constant does not remove them, only ASLR does — so fixing `Spawn` will not close it. That
+signature (survives `MALLOC_PERTURB_`, collapses under `setarch -R`) points at **uninitialized
+stack** holding a stale pointer, copied into a heap buffer that is then written, rather than at a
+pointer someone meant to save. Localise via the `lsquare::Save` chain, then decide whether the
+field should be an index, a role tag, or simply not saved.
+
+### 7.6b Initialize `character`'s saved members (§6.4a) — do this next
+
+What is left of the 1,787 bytes after §6.6a, and where valgrind's remaining `write`/`writev`
+contexts point. `class character` has 31 scalar members and the default constructor initializes
+12. The ones that matter:
+
+- **Written by `character::Save`:** `ID`, `Stamina`, `MyVomitMaterial`, `CommandFlags`.
+- **Read before assignment:** `CarriedWeight`, `CarryingBonus`, `BurdenState` — exactly the
+  `character::CalculateBurdenState` context valgrind still reports.
+- Also uninitialized: `MaxStamina`, `Volume`, `Weight`, `BodyVolume`, `DodgeValue`, `SquaresUnder`,
+  `HP`, `MaxHP`, `v2HoldPos`.
+
+`BodyParts`, `AllowedWeaponSkillCategories` and the three owned pointers are already done — §6.6b.
+Apply the §6.6a test to each field rather than zeroing the list wholesale: ask whether the value is
+provable, merely unobservable, or only a placeholder, and say which in the comment.
 
 ### 7.7 ~~Decide what to do about `-DGCC`~~ — DONE, unpacked
 
@@ -876,7 +1094,7 @@ savediff to prove the change did not alter semantics.
 
 ## 8. Change inventory
 
-Committed on **`master` of the fork `bethmaloney/ivan`**, seven commits on top of upstream
+Committed on **`master` of the fork `bethmaloney/ivan`**, twelve commits on top of upstream
 `de528ac`. `origin` still points at `Attnam/ivan` and is untouched; the fork is the remote
 named `fork`. **Nothing has been offered upstream.**
 
@@ -890,9 +1108,12 @@ named `fork`. **Nothing has been offered upstream.**
 | 6 | `9a19bf2` Add play.py, a driver for steering the game | §5a |
 | 7 | `21a050b` Add HARNESS.md | this file |
 | 8 | `dfb8294` HARNESS.md: record the commit inventory | §8 |
-| 9 | Unpack `graphicid` and `configid`, fix the `-DGCC` split | §6.6, §7.7 |
+| 9 | `1f23c0a` Give graphicid and configid one layout, and unpack them | §6.6, §7.7 |
+| 10 | `52259cc` Strip trailing whitespace from game.cpp | — |
+| 11 | `4803f04` Initialise bodypart members that logic and saves read | §6.6a, §6.6b |
+| 12 | HARNESS.md: re-verify from a clean build, and record what is left | §6.4a, §6.4b, §6.6a, §6.6b |
 
-**Commits 1–3 depend on nothing the harness adds and are separately upstreamable.** They are
+**Commits 1–3 and 11 depend on nothing the harness adds and are separately upstreamable.** They are
 pre-existing bugs that determinism testing merely made visible — the MIDI one fixes a launch
 failure on any machine without an ALSA sequencer, harness or no harness. That is why they are
 ordered first, and why `audio.cpp` and `graphics.cpp` were split by hunk rather than letting a
@@ -921,6 +1142,7 @@ RNG unification   FeLib/Include/femath.h       FeLib/Source/sfx.cpp
                   Main/Source/worldmap.cpp
 uninitialised     Main/Include/script.h        Main/Include/igraph.h
                   Main/Source/database.cpp     FeLib/Source/graphics.cpp
+                  Main/Include/bodypart.h      Main/Include/char.h
 struct layout     FeLib/Include/felibdef.h     FeLib/Include/graphics.h
                   Main/Include/igraph.h        Main/Include/game.h
 tools             tools/savediff/              tools/play/
