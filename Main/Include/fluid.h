@@ -86,15 +86,15 @@ class fluid : public entity
     /* Used by Animate() */
     mutable int DripTimer;
     mutable v2 DripPos;
-    mutable col16 DripColor;
-    mutable alpha DripAlpha;
+    mutable col16 DripColor = 0;
+    mutable alpha DripAlpha = 0;
     /* Sum of all alphas of Picture. The volume of the liquid is currently
        proportional to AlphaSum of the fluid's Image, limiting it
        considerably. */
     long AlphaSum;
     /* AlphaSum / (non-transparent pixels in Picture), used to synchronise
        gear pictures with the main image */
-    packalpha AlphaAverage;
+    packalpha AlphaAverage = 0;
     /* The position of a gear picture in Humanoid.png which binds the fluid;
        remembered so that it can be easily determined whether the fluid needs
        to be redistributed due to a major graphics change */
@@ -102,7 +102,7 @@ class fluid : public entity
     /* Animation of gear items needs to know whether the raw picture is
        rotated somehow. Currently this is the case only for an item
        in the left hand of a character. */
-    int SpecialFlags;
+    int SpecialFlags = ST_NORMAL;
   };
   liquid* Liquid;
   lsquare* LSquareUnder;

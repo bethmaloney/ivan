@@ -33,9 +33,9 @@ struct trapdata
   trapdata(ulong TrapID, ulong VictimID, ulong BodyParts) : Next(0), TrapID(TrapID), VictimID(VictimID), BodyParts(BodyParts) { }
   trapdata() : Next(0) { }
   trapdata* Next;
-  ulong TrapID;
-  ulong VictimID;
-  ulong BodyParts;
+  ulong TrapID = 0;
+  ulong VictimID = 0;
+  ulong BodyParts = 0;
 };
 
 outputfile& operator<<(outputfile&, const trapdata*);
