@@ -1,7 +1,8 @@
 # IVAN Differential Test Harness — Progress & Handoff
 
-**Status:** working and verified. Sixteen commits on `master` of the fork (§8). Nothing has been
-offered upstream.
+**Status:** working and verified. Twenty commits on `master` of the fork (§8). Nothing has been
+offered upstream. The corpora are committed (§5b), the host libm is no longer an input (§6.7),
+and the one known Emscripten build error is fixed (§6.8).
 **Last updated:** 2026-08-15
 
 ---
@@ -61,6 +62,11 @@ validates the *rewrite*. You need both, in that order.
 | Player HP under three different `MALLOC_PERTURB_` values, after §6.6a | **identical**; was three different values |
 | Uninitialized bytes reaching a level file, after §6.6d | **0** on both corpora, every level file; was 1,860 then 400 |
 | Level file across 8 isolated **ordinary** runs (ASLR on, no fill), after §6.6d | **1 distinct**, from 8 — no `MALLOC_PERTURB_`, no `setarch` |
+| Both corpora committed, replayed 8× each against committed goldens | trace, text log and PNG **1 distinct** and matching golden, ~9s total |
+| Host-libm calls made by the game after §6.7 | **0** on both corpora, from 27,496 |
+| musl vs glibc on those 27,496 calls | **473 differ**, all 1 ulp — and no observable state moves (§6.7) |
+| Saves before vs after §6.7 and §6.8 | **byte-identical**, except the one `GetTimeSpent` byte |
+| `long long` (Emscripten's `time_t`) against `save.h` | **compiles**, was a hard overload failure (§6.8) |
 
 Everything above was re-measured from a clean build on 2026-08-15 and still holds. The
 level-file divergence is now **closed for both families the corpora reach** — `character`
@@ -409,6 +415,41 @@ Two things learned the hard way, both now enforced in the tool:
 
 ---
 
+## 5b. The committed corpora — `tools/corpora/`
+
+Two recordings, their golden traces and golden text logs, and the scripts that replay and
+check them. Full notes in `tools/corpora/README.md`.
+
+```bash
+tools/corpora/verify-corpora.sh          # 8 runs each: self-consistency, then golden
+tools/corpora/verify-corpora.sh --update # regenerate the goldens deliberately
+```
+
+About nine seconds for both corpora at eight runs each, which is cheap enough for CI (§7.3).
+
+| | keys | lands on | frames | RNG draws |
+|---|---|---|---|---|
+| `noncombat.rec` | 7 | UT lvl 1, turn 3, HP 37/37 | 441 | — |
+| `autoplay-200.rec` | 210 | UT lvl 1, turn 202, **HP 29/37** | 679 | 1,670,383 |
+
+Both are seed 999; `autoplay-200` extends `noncombat` with wizard mode and 200 AI actions.
+The HP and frame counts are the check values §6.6a–d were measured against, so a regenerated
+corpus can be confirmed to be the same corpus rather than assumed to be.
+
+**Why this needed committing at all.** Every determinism number in this document is relative
+to these two key sequences, and until now they existed only as a paragraph describing how to
+recreate them. A differential oracle whose input has to be reconstructed from prose is not an
+oracle — and the port work depends on this one.
+
+Two things the scripts enforce, both learned by getting them wrong (§6.5a): every run gets its
+own directory, and the default is 8 runs rather than 2. `run-corpus.sh` also **pins the harness
+options**, because §6.6 records that changing them changes the allocation history; a golden
+trace only means something if the command line that produced it is fixed.
+
+Saves are deliberately not compared — see `tools/corpora/README.md`. Level files and `.wm` do
+reproduce (§6.6d), but `.sav` carries the `GetTimeSpent` byte of §5, which is a wall-clock
+flake and gives 2 distinct `.sav` files in 8 runs on the longer corpus.
+
 ## 6. Findings
 
 ### 6.1 Pre-existing bugs found and fixed
@@ -484,12 +525,12 @@ on a corpus that does before calling §7.6 closed.
   room/material/action). Deep virtual hierarchy, 263 virtuals in `char.h` alone.
 - `-ffast-math` appears in the legacy DJGPP `.mak` files but **not** in `CMakeLists.txt`.
   Keep it that way.
-- **libm is a real portability risk.** `sin`/`cos` are called in world generation
-  (`worldmap.cpp:757-760`, `:1260-1261`) and are not correctly-rounded by any standard;
-  glibc and Emscripten's musl-derived libm will differ in the last ulp, which through
-  `int(...)` truncation becomes a different tile. Vendor a fixed `sin`/`cos` **before**
-  comparing native against WASM, or you will chase phantom diffs. `sqrt` is safe (IEEE-754
-  mandates correct rounding; WASM has a native `f64.sqrt`).
+- **libm was a real portability risk, and is now pinned — see §6.7.** Game code calls
+  `portmath::` rather than `<cmath>`, and `portmath/check-callers.py` fails on a direct
+  call. The original text of this bullet named `sin`/`cos` in world generation as the
+  exposure; measurement says the mechanism and the location were both wrong, which §6.7
+  records. `sqrt` is safe and stays on the host (IEEE-754 mandates correct rounding;
+  WASM has a native `f64.sqrt`), as do `fmod`, `floor`, `ceil` and `abs`.
 
 ---
 
@@ -989,10 +1030,10 @@ family. It remains useful as a *measurement* technique, which is what it was alw
 All of §7.6c, and §7.6a fell out with it. Same mechanism again — in-class initializers on the
 declarations, this time in `Main/Include/fluid.h` and `Main/Include/trap.h`.
 
-The corpus is not committed, so regenerate it before re-measuring — `play.py new --seed 999
---start`, then `send down left '>'`, then `auto 200`, which is 210 keys and lands at turn 202 on
-UT lvl 1 with HP 29/37. That HP is the §6.6a check value, so a corpus that reaches it is the same
-one. The measurement is §6.4a's, with `setarch -R` added per §6.4b.
+The corpus **is** committed now, as `tools/corpora/autoplay-200.rec` (§5b) — it was not when
+this section was written, and regenerating it from prose was the gap that closed. It is 210 keys
+and lands at turn 202 on UT lvl 1 with HP 29/37; that HP is the §6.6a check value, so a corpus
+reaching it is the same one. The measurement is §6.4a's, with `setarch -R` added per §6.4b.
 
 | auto-play corpus, 210 keys, seed 999 | before | after |
 |---|---|---|
@@ -1072,6 +1113,78 @@ on, no `MALLOC_PERTURB_`, nothing special — produced eight different level fil
 one. Every previous section in this series needed a fixed heap fill or ASLR disabled before the
 level file would reproduce at all; this is the first measurement taken with neither.
 
+### 6.7 The host libm is no longer an input — FIXED (new)
+
+`sin`, `cos`, `atan`, `log10` and `pow` are not correctly rounded by any standard, so every
+libm is entitled to its own answer in the last ulp, and IVAN feeds those answers through
+`int()` and `(short)` truncation. Game code now calls `portmath::` — musl vendored at a
+pinned commit, used by native and WASM alike — so both platforms run the same algorithm.
+Full notes in `portmath/README.md`; the parts worth having here are the two corrections and
+the one number.
+
+**The symbol is `sincos`, not `sin`/`cos`.** GCC rewrites `sin(x)` and `cos(x)` on the same
+argument into a single `sincos(x)`, and glibc's `sincos` is not obliged to agree with its own
+`sin` and `cos` — so whether two builds match can depend on whether the compiler chose to
+fuse, with no visible call site either way. The first inventory taken here interposed `sin`
+and `cos` and reported **zero calls** from a binary making 18,368 of them. Anything that
+greps for `sin(` will miss this.
+
+**World generation is where the two libms agree.** §6.3 named `worldmap.cpp:757-760` as the
+exposure. Replaying every recorded call through musl and comparing bit-for-bit against glibc:
+
+| site | function | calls | differ |
+|---|---|---|---|
+| `bitmap::DrawPolygon` | `sincos` | 3,600 | 216 |
+| `worldmap::Generate` (Poisson sampler) | `sincos` | 3,400 | 132 |
+| `femath::NormalDistributedRand` | `sincos` | 1,764 | 106 |
+| `character::GetAdjustedStaminaCost` | `log10` | 73 | 18 |
+| `character::CheckForBlockWithArm` | `log10` | 1 | 1 |
+| `worldmap::PeriodicSimplexNoiseAltitude` | `sincos` | 9,604 | **0** |
+| every `log` site | `log` | 8,967 | **0** |
+
+473 of 27,496, all by exactly one ulp. World gen's arguments are `x/XSize * 2π` for integer
+`x` and both implementations round those identically; the disagreements are elsewhere,
+including 106 in the Box-Muller transform that decides which way monsters wander.
+
+**Nothing observable changed, and that is luck rather than structure.** Traces, text logs,
+screenshots, `.wm` and level files are byte-identical to the previous binary — checked
+against saves kept from it, not only against the goldens. So 473 calls in live game logic
+returned a different number and no state moved, because none of them truncated across a
+boundary in these runs. That holds for this seed and these two corpora and nothing more,
+which is the argument *for* pinning: without it the first symptom would be an unexplained
+frame-hash divergence in a WASM build, thousands of frames from the cause.
+
+**The instrument was `LD_PRELOAD`, and it is worth reusing.** Interposing libm and recording
+`__builtin_return_address(0)` gives every call with its caller, which is how the site table
+above was built — a source grep would have found the wrong sites and missed `sincos`
+entirely. `dladdr` turns the return address into a module offset that `addr2line` resolves.
+
+### 6.8 `time_t` would not have compiled under Emscripten — FIXED (new)
+
+`game.cpp:3594` does `SaveFile >> TimePlayedBeforeLastLoad` on a `time_t`. It compiles today
+only because `time_t` *is* `long` on x86-64, so it binds that overload by accident. Under
+Emscripten, where musl uses a 64-bit `time_t` on 32-bit targets, `time_t` is `long long`,
+nothing binds, and the build fails — confirmed by compiling the real header against a
+`long long` rather than by reading it. Three sites: `game.cpp:3496`, `:3594`, and
+`hscore.h`'s `std::vector<time_t>`, whose element operator the container serializer
+instantiates.
+
+Fixed by fixing the width, because `time_t` was the symptom: `long` is 8 bytes here and 4
+under Emscripten, and **every container writes its length as a `ulong`**, so at native width
+a WASM save diverges at the first container and never resynchronises. Both now go out as 8
+explicit little-endian bytes, the idiom `short`/`ushort` already use. `long long` gets its
+own overload — C++ keeps it distinct from `long` even at equal width — and that is what
+makes `time_t` bind on both targets.
+
+**The save format did not change and `SAVE_FILE_VERSION` did not move.** On a little-endian
+host of the same width, explicit bytes are what the raw write already produced. Verified:
+both corpora give `.wm`, level and `.sav` files identical to saves kept from before the
+change, the single exception being one byte of autoplay's `.sav` at offset 172799 — the
+`GetTimeSpent` second-boundary flake of §5.
+
+This replaced the `SAVE_COMPATIBILITY` block, which was written for this same problem on
+mingw and was dead code: the macro is defined nowhere, so its `#if` was always false.
+
 ## 7. Open items, roughly in priority order
 
 **§6.6 was what blocked seam 1** — a WASM build shares no allocation pattern with a native one, so
@@ -1081,6 +1194,13 @@ and §7.6b are done, and **both corpora now report no uninitialized read at all*
 The `Spawn`/`MakeBodyPart` family took three passes and is closed: bodyparts (§6.6a, 22,632
 contexts → 137), `character`'s pointers (§6.6b), and `character`/`playerkind`'s saved and read
 scalars (§6.6c, 137 → 0, and the 1,860-byte level-file leak → 0). §6.4a is closed with it.
+
+**The pre-port gates are now closed too.** The corpora are committed artifacts rather than
+instructions (§5b), game math runs on a vendored libm so native and WASM compute the same
+numbers (§6.7), and the `time_t` overload that would have failed the Emscripten build outright
+is fixed along with the container-length width behind it (§6.8). What remains before an
+Emscripten build is ordinary build work — §9's steps 1 and 2 — plus CI (§7.3), which is now
+cheap because `verify-corpora.sh` is nine seconds.
 
 The fluid family took one pass (§6.6d, 283 → 0, and 400 bytes → 0) and closed §7.6a with it —
 those were stale heap pointers sitting in uninitialized `trapdata` fields, not pointers anyone
@@ -1324,18 +1444,17 @@ resynchronise. The flip side is that fixing `long`/`ulong` fixes the containers 
 
 **The work:**
 
-1. **Make `long`/`ulong` fixed width.** `save.h:238` already has a `SAVE_COMPATIBILITY` path that
-   routes them through `int64_t` — written for x86_64-mingw vs Linux, the same problem — but the
-   macro is **defined nowhere**, so `#if SAVE_COMPATIBILITY` is always false. Enabling it works,
-   but on wasm32 `long` is 4 bytes so loading a 64-bit value truncates; that needs an audit.
-   Better: follow the file's own `short`/`ushort` idiom and write 8 explicit little-endian bytes.
-   Endian-independent, no `int64_t` dependency, consistent with the existing style.
-2. **Containers** — falls out of (1). Worth deciding separately whether 8 bytes per container
-   length is worth it; `uint` would halve it and is equally portable.
-3. **`time_t` may not even compile.** `game.cpp:3594` does `SaveFile >> TimePlayedBeforeLastLoad`
-   on a `time_t`. On x86-64 Linux `time_t` *is* `long`, so it binds the `long` overload by
-   accident. Under Emscripten, if `time_t` is `long long` there is **no matching overload** and it
-   is a build error. Check this early; it is cheap now and annoying later.
+1. ~~**Make `long`/`ulong` fixed width.**~~ **DONE — §6.8.** Both write 8 explicit
+   little-endian bytes, following the file's own `short`/`ushort` idiom. The
+   `SAVE_COMPATIBILITY` path this section pointed at was dead code and has been replaced.
+   Note the truncation caveat it raised is real and now explicit rather than accidental: on
+   wasm32 `long` is 4 bytes, so a saved value above 32 bits narrows on load. Nothing in the
+   tree is known to store one, but it has not been audited.
+2. **Containers** — the width question is settled by (1); what is still open is whether 8
+   bytes per container length is worth it. `uint` would halve it and is equally portable.
+3. ~~**`time_t` may not even compile.**~~ **DONE — §6.8.** It was a hard build error, not a
+   maybe: confirmed by compiling `save.h` against a `long long`. Three sites, including
+   `hscore.h`'s `std::vector<time_t>`, which this section did not name.
 4. **Raw struct writes.** `graphicid` (`igraph.cpp:364`) and `configid` (`game.cpp:5393`) are
    written with `sizeof`. §7.7 made their layouts flag-independent, which is necessary but not
    sufficient — they still carry host layout. Converting them to field-by-field, the way
@@ -1357,7 +1476,7 @@ savediff to prove the change did not alter semantics.
 
 ## 8. Change inventory
 
-Committed on **`master` of the fork `bethmaloney/ivan`**, sixteen commits on top of upstream
+Committed on **`master` of the fork `bethmaloney/ivan`**, twenty commits on top of upstream
 `de528ac`. `origin` still points at `Attnam/ivan` and is untouched; the fork is the remote
 named `fork`. **Nothing has been offered upstream.**
 
@@ -1378,9 +1497,18 @@ named `fork`. **Nothing has been offered upstream.**
 | 13 | `ebec9e7` Initialise character and playerkind members that logic and saves read | §6.6c, §7.6b |
 | 14 | `7d36be0` HARNESS.md: record the character fix and what it uncovered | §6.4a, §6.4b, §6.6, §6.6c, §7.6c |
 | 15 | `a1ce777` Initialise fluid and trapdata members that logic and saves read | §6.6d, §7.6a, §7.6c |
-| 16 | HARNESS.md: record the fluid fix and the pointers that were not | §2, §6.4, §6.4b, §6.6d, §7.6a, §7.6c |
+| 16 | `22b84c5` HARNESS.md: record the fluid fix and the pointers that were not | §2, §6.4, §6.4b, §6.6d, §7.6a, §7.6c |
+| 17 | `270e756` Commit the differential corpora as artifacts, not instructions | §5b |
+| 18 | `ab63c72` Route game math through a vendored libm so platforms agree | §6.3, §6.7 |
+| 19 | `de6c19b` Serialize long and ulong as explicit little-endian bytes | §6.8, §7.9 |
+| 20 | HARNESS.md: record the corpora, the libm pin and the time_t fix | §2, §5b, §6.3, §6.7, §6.8, §7.9 |
 
-**Commits 1–3, 11, 13 and 15 depend on nothing the harness adds and are separately upstreamable.**
+**Commits 1–3, 11, 13, 15, 18 and 19 depend on nothing the harness adds and are separately
+upstreamable.** 18 and 19 are portability fixes rather than bug fixes — 19 in particular
+turns an accidental overload binding into a defined one and costs upstream nothing, since
+the save format does not move on any platform that currently builds.
+
+**Commits 1–3, 11, 13 and 15 are pre-existing bug fixes.**
 They are pre-existing bugs that determinism testing merely made visible — the MIDI one fixes a
 launch failure on any machine without an ALSA sequencer, harness or no harness. That is why they
 are ordered first, and why `audio.cpp` and `graphics.cpp` were split by hunk rather than letting a
@@ -1402,6 +1530,16 @@ hidden — expect that count to wobble whenever a widely-included header changes
 Files touched, by area:
 
 ```
+portable math     portmath/                    (vendored musl + facade + checker)
+                  Main/Source/worldmap.cpp     Main/Source/wsquare.cpp
+                  Main/Source/char.cpp         Main/Source/human.cpp
+                  Main/Source/gear.cpp         Main/Source/miscitem.cpp
+                  Main/Source/level.cpp        Main/Source/game.cpp
+                  Main/Source/igraph.cpp       Main/Source/itemset.cpp
+                  Main/Source/wmapset.cpp      FeLib/Source/femath.cpp
+                  FeLib/Source/bitmap.cpp
+save format       FeLib/Include/save.h
+corpora           tools/corpora/
 harness core      FeLib/Include/harness.h      FeLib/Source/harness.cpp
 integration       FeLib/Source/whandler.cpp    FeLib/Include/whandler.h
                   FeLib/Source/graphics.cpp    FeLib/Source/femath.cpp
@@ -1440,10 +1578,16 @@ Recommended approach, for context on why the harness is shaped this way:
    `game.cpp:287` ("no way to fit as scaler is integer and not float"). SDL3's
    `SDL_SetRenderLogicalPresentation` has explicit LETTERBOX/STRETCH/INTEGER_SCALE modes and
    is worth considering; the SDL surface area is only ~1,800 lines.
-2. **Drop PCRE** (used in 4 files, never uses capture groups — `std::regex` covers it),
-   bump `cmake_minimum_required` from 3.5 (CMake 4.x refuses it) and `-std=c++11`.
+2. **Drop PCRE** — used in 3 files (`Main/Source/message.cpp`, `Main/Source/game.cpp`,
+   `FeLib/Source/sfx.cpp`), never uses capture groups, so `std::regex` covers it. Bump
+   `cmake_minimum_required` from 3.5 (CMake 4.x refuses it) and `-std=c++11`.
 3. **Emscripten build with Asyncify**, audio stubbed — get it rendering in a browser.
    The blocking `SDL_WaitEvent` inside `GetKey` is the core obstacle; Asyncify first,
-   JSPI or `-sPROXY_TO_PTHREAD` later.
+   JSPI or `-sPROXY_TO_PTHREAD` later. `audio/audio.cpp` and `audio/RtMidi.cpp` hold the
+   only threads in the tree and RtMidi cannot work in WASM at all, so stub audio first and
+   lean on the non-fatal MIDI path from §6.1.
+
+   Two pre-port hazards are already dealt with: the host libm (§6.7) and the `time_t`
+   overload that would have failed this step outright (§6.8).
 4. **TinySoundFont** for MIDI (RtMidi cannot work in WASM), IDBFS for saves, touch input.
 5. **SDL3 / JSPI / threads** as optional performance and quality passes.
