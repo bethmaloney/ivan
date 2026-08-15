@@ -14,10 +14,6 @@ endif()
 
 file(GLOB FELIB_SOURCES Include/*.h Source/*.cpp)
 
-if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
-  add_definitions(-DGCC) # TODO: Use __GNUC__ in the code instead.
-endif()
-
 option(IGNORE_EXTRA_WHITESPACES "Sets CMP0004 to OLD" OFF)
 
 if(IGNORE_EXTRA_WHITESPACES)

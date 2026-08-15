@@ -37,13 +37,20 @@ culong SquarePartTickMask[4] = { 0xFF, 0xFF00, 0xFF0000, 0xFF000000 };
 
 /* Btw, both __attribute__ ((regparm(3))) and __fastcall SUCK! */
 
-#ifdef GCC
-#define NO_ALIGNMENT __attribute__ ((packed))
+#if defined(__GNUC__)
+#define HARDWARE_LAYOUT __attribute__ ((packed))
 #define LIKE_PRINTF(p1, p2) __attribute__ ((format(printf, p1, p2)))
 #else
-#define NO_ALIGNMENT
+#define HARDWARE_LAYOUT
 #define LIKE_PRINTF(p1, p2)
 #endif
+
+/* HARDWARE_LAYOUT, and deliberately not a general purpose NO_ALIGNMENT. The
+   only structures that must be packed are the ones whose layout is defined by
+   something outside this program: graphics.h's vesainfo and modeinfo are VESA
+   BIOS blocks, filled by a real mode interrupt at spec-defined byte offsets,
+   where padding would simply read the wrong fields.
+ */
 
 template <class type>
 inline type Sign(type X) { return X > 0 ? 1 : X < 0 ? -1 : 0; }

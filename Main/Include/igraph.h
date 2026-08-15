@@ -26,12 +26,6 @@ class outputfile;
 class inputfile;
 class festring;
 
-/* memcmp doesn't like alignment of structure members */
-
-#ifdef VC
-#pragma pack(1)
-#endif
-
 struct graphicid
 {
   /* Every byte of this object is significant: operator< below memcmps the
@@ -41,39 +35,34 @@ struct graphicid
      uninitialized - object::UpdatePictures builds its key on the stack, so the
      padding carried whatever the last call left there.
 
-     There is padding to carry, in Main only: NO_ALIGNMENT is
-     __attribute__((packed)) only where -DGCC is defined, and
-     FeLib/CMakeLists.txt defines it for FeLib alone, so this struct is 47
-     bytes in FeLib and 48 - one tail padding byte that nothing writes - in
-     Main. memset covers the hole; see HARNESS.md for the layout mismatch,
-     which is a separate bug and still open. */
+     This struct is no longer packed, so there is one byte of tail padding and
+     the memset is what makes it defined. Packing removed it, but packing also
+     removes the alignment guarantee on every member, and Colorize() is handed
+     Color, Alpha, RustData and BurnData as pointers - see felibdef.h. Zeroing
+     costs one memset per key construction and keeps the members aligned. */
 
   graphicid() { memset(this, 0, sizeof(*this)); }
   bool operator<(const graphicid&) const;
-  ushort BitmapPosX NO_ALIGNMENT;
-  ushort BitmapPosY NO_ALIGNMENT;
-  packcol16 Color[4] NO_ALIGNMENT;
-  uchar Frame NO_ALIGNMENT;
-  uchar FileIndex NO_ALIGNMENT;
-  ushort SpecialFlags NO_ALIGNMENT;
-  packalpha Alpha[4] NO_ALIGNMENT;
-  packalpha BaseAlpha NO_ALIGNMENT;
-  uchar SparkleFrame NO_ALIGNMENT;
-  uchar SparklePosX NO_ALIGNMENT;
-  uchar SparklePosY NO_ALIGNMENT;
-  packcol16 OutlineColor NO_ALIGNMENT;
-  packalpha OutlineAlpha NO_ALIGNMENT;
-  uchar FlyAmount NO_ALIGNMENT;
-  v2 Position NO_ALIGNMENT;
-  uchar RustData[4] NO_ALIGNMENT;
-  uchar BurnData[4] NO_ALIGNMENT;
-  ushort Seed NO_ALIGNMENT;
-  uchar WobbleData NO_ALIGNMENT;
+  ushort BitmapPosX;
+  ushort BitmapPosY;
+  packcol16 Color[4];
+  uchar Frame;
+  uchar FileIndex;
+  ushort SpecialFlags;
+  packalpha Alpha[4];
+  packalpha BaseAlpha;
+  uchar SparkleFrame;
+  uchar SparklePosX;
+  uchar SparklePosY;
+  packcol16 OutlineColor;
+  packalpha OutlineAlpha;
+  uchar FlyAmount;
+  v2 Position;
+  uchar RustData[4];
+  uchar BurnData[4];
+  ushort Seed;
+  uchar WobbleData;
 };
-
-#ifdef VC
-#pragma pack()
-#endif
 
 inline bool graphicid::operator<(const graphicid& GI) const
 {

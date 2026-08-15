@@ -68,22 +68,21 @@ struct homedata
 outputfile& operator<<(outputfile&, const homedata*);
 inputfile& operator>>(inputfile&, homedata*&);
 
-#ifdef VC
-#pragma pack(1)
-#endif
-
 struct configid
 {
-  configid() = default;
+  /* Zeroed rather than defaulted, for the same reason as graphicid: operator<
+     memcmps the whole object because it is a std::map key, and it is written
+     with a raw sizeof Write. Two ints leave no padding, so unlike graphicid
+     every byte here is covered by a member and nothing currently default
+     initialises one - but that was true of graphicid until it wasn't, and a
+     member initialiser costs nothing. */
+
+  configid() : Type(0), Config(0) { }
   configid(int Type, int Config) : Type(Type), Config(Config) { }
   bool operator<(const configid& CI) const { return memcmp(this, &CI, sizeof(configid)) < 0; }
-  int Type NO_ALIGNMENT;
-  int Config NO_ALIGNMENT;
+  int Type;
+  int Config;
 };
-
-#ifdef VC
-#pragma pack()
-#endif
 
 outputfile& operator<<(outputfile&, const configid&);
 inputfile& operator>>(inputfile&, configid&);

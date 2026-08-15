@@ -40,7 +40,8 @@ validates the *rewrite*. You need both, in that order.
 
 | Test | Result |
 |---|---|
-| Clean build from scratch | exit 0, 84 warnings — **identical count to pre-change baseline** |
+| Clean build from scratch | exit 0, **133 warnings** — 84 pre-existing `-Wstringop-overflow=`, plus 49 format warnings §7.7 made visible |
+| `sizeof(graphicid)` under every combination of `-DGCC` / `-DVC` | **48 everywhere** — layout no longer depends on a build flag |
 | Headless boot (no display, no ALSA) | reaches main menu |
 | Replay end-to-end | exit 0 |
 | Two replays → trace comparison | **byte-identical** |
@@ -312,15 +313,21 @@ savediff [options] <dir-a> <dir-b>
 Exit: 0 all match, 1 something differs, 2 error.
 ```
 
-### Critical limitation — save files are NOT a native-vs-WASM oracle
+### Critical limitation — the *current* save format is not a native-vs-WASM oracle
 
 `SAVE_COMPATIBILITY` is dead code, so `long`/`ulong` serialize at **native width**. A WASM
 save is ILP32; every field after the first `long` sits at a different offset. `--word-size`
 exists to make this explicit rather than silently decoding a 32-bit save with 64-bit fields.
 
-**Consequence for the port plan:** savediff works for native-vs-native regression testing but
-cannot validate the WASM port. Frame hashing and the state stream carry that load — which is
-an argument for building the state-digest layer sooner rather than later.
+**This is a format problem, not a tool problem.** savediff reads faithfully; the two platforms
+write different files. §7.9 scopes what it would take to fix, and the answer is smaller than it
+looks: half the format is already portable, and `long`/`ulong` is the only broken primitive.
+Do not read this section as "saves can never work across platforms" — read it as "they do not
+today, and here is the bounded piece of work that would change that."
+
+**Consequence for the port plan meanwhile:** savediff works for native-vs-native regression
+testing but cannot validate the WASM port as things stand. Frame hashing carries that load until
+§7.9 lands.
 
 ### Other savediff notes
 
@@ -605,10 +612,9 @@ every byte with a raw `Write`. So padding was a live input to both the graphics 
 the save content. Now zeroed in the constructor. Identical shape to the `fastscriptmember` bug in
 §6.1 — worth grepping for `= default` on any struct that gets memcmp'd or raw-written.
 
-**And there is padding to hit, because of a build bug.** `NO_ALIGNMENT` is
-`__attribute__((packed))` only when `GCC` is defined, and `add_definitions(-DGCC)` sits in
-`FeLib/CMakeLists.txt:18` — a *sibling* directory to `Main/`, so it never reaches it. Verified
-against the real header:
+**And there was padding to hit, because of a build bug — now fixed, see §7.7.** `NO_ALIGNMENT`
+expanded to `__attribute__((packed))` only when `GCC` was defined, and `add_definitions(-DGCC)`
+sat in `FeLib/CMakeLists.txt:18` — a *sibling* directory to `Main/`, so it never reached it:
 
 ```
 Main's flags   (no -DGCC):  sizeof(graphicid)=48  alignof=4   <- one tail padding byte
@@ -618,9 +624,8 @@ FeLib's flags  (-DGCC):     sizeof(graphicid)=47  alignof=1
 One struct, two layouts, one binary — an ODR violation, and `igraph.cpp:364` writes
 `sizeof(Value)` bytes from a `Main` translation unit. **This is almost certainly the §6.4
 level-file divergence**: `graphicid` is serialized once per cached tile per object on a level, and
-its padding byte was garbage. Not fixed here because moving `-DGCC` up to the root `CMakeLists.txt`
-changes the on-disk save size from 48 to 47 bytes per `graphicid` — a save-format break, and
-therefore a call to make deliberately rather than as a side effect.
+its padding byte was garbage. Both halves now agree at 48 bytes and the zeroing constructor
+defines the padding, so §6.4 is worth re-measuring — it may already be closed.
 
 **Not fixed: the `Spawn` and database families.** `sysbase::Spawn` does `new type` and the
 per-class constructors initialize only some members (`item::item()` sets 6 of them). Those need
@@ -635,7 +640,10 @@ and it is a workaround, not a fix — it makes the reads return a constant inste
 
 **§6.6 now sits above all of these**, and it is specifically what blocks seam 1: a WASM build
 shares no allocation pattern with a native one, so every uninitialized read becomes a phantom
-diff that owes nothing to Emscripten. §6.5 is done.
+diff that owes nothing to Emscripten. §6.5 and §7.7 are done.
+
+§7.7 also cleared the way for §7.9, the save-format work: both are deliberate format breaks, and
+`SAVE_FILE_VERSION` has now moved once already, so the second break is cheaper than the first.
 
 ### 7.1 ~~Get savediff tested against real saves~~ — DONE
 
@@ -736,13 +744,133 @@ scoped.
 Note this is the same family as §6.6, and `area::Save`'s `FlagMap` is *not* an instance of it —
 `area::area()` memsets it. Re-derive that inventory rather than trusting the 358-byte figure.
 
-### 7.7 Decide what to do about `-DGCC` (§6.6)
+### 7.7 ~~Decide what to do about `-DGCC`~~ — DONE, unpacked
 
-`add_definitions(-DGCC)` in `FeLib/CMakeLists.txt:18` does not reach `Main/`, so `NO_ALIGNMENT`
-is packed in one half of the binary and a no-op in the other. Moving it to the root
-`CMakeLists.txt` is the obvious fix and changes the save format; the TODO already on that line
-("Use `__GNUC__` in the code instead") is the better one and changes it too. Either way it is a
-deliberate save-format break, so it wants a decision, not a drive-by.
+Resolved by testing `__GNUC__` in the header, which is the TODO that was already sitting on
+`FeLib/CMakeLists.txt:18`, and by then *removing* the packing from the two game structs rather
+than propagating it.
+
+**The bug was the disagreement, not the layout.** `graphicid` was 47 bytes in FeLib and 48 in
+Main, so either packing everywhere or unpacking everywhere would have fixed it. That made the
+layout a free choice, decided on other evidence:
+
+| | packed | unpacked |
+|---|---|---|
+| new warnings from the layout change | 301 | **0** |
+| `-Waddress-of-packed-member` | 1 | 0 |
+| `sizeof(graphicid)` | 47 | 48 |
+
+Packing removes the compiler's alignment guarantee for *every* member. `igraph.cpp:247` hands
+`GI.Color` — a `ushort[4]` member — to `Colorize()`, where it decays to a `ushort*` carrying an
+alignment promise a packed struct does not make. That is UB: free on x86, a fault or a slow path
+on ARM, and variable across WASM engines, which is the destination. One byte per cached tile is
+not worth it.
+
+**Why they were packed originally, which is not what it looks like.** The removed comment above
+the pragma said it outright: `/* memcmp doesn't like alignment of structure members */`. It was
+never a size optimisation. `operator<` is a `memcmp` over the whole object, so padding bytes are
+compared; padding is indeterminate, so two objects with identical members can compare unequal,
+which breaks the strict weak ordering `std::map` requires. `git log -S NO_ALIGNMENT` bottoms out
+at `3e50767 "…modified by nukes to support 64-bit systems"` — it arrived during a 32→64-bit port,
+exactly when padding layouts shift.
+
+**So packing and the zeroing constructors solve the same problem** — making every byte defined —
+and only the constructors keep the alignment guarantee. Unpacking is safe *because* `graphicid`
+got its `memset` in `bfec4d1` and `configid` got a zero-init constructor at the same time as this
+change. Removing either one silently reintroduces the original bug. Do not delete that `memset`
+on the grounds that every member is assigned: **no member owns the padding.**
+
+Two other things this turned up:
+
+- **`configid`'s packing was always a no-op.** Two `int`s have no padding on any platform; it was
+  applied by pattern-match from `graphicid` during that same 64-bit port and never did anything.
+- **`#pragma pack(1)` under `#ifdef VC`** wrapped both structs. `VC` is defined nowhere (MSVC sets
+  `_MSC_VER`), so it was dead — but it is the identical hand-maintained-flag pattern, and had
+  anyone defined it, `graphicid` would have been 47 on MSVC against 48 everywhere else. Removed.
+
+`NO_ALIGNMENT` is gone. `HARDWARE_LAYOUT` replaces it and is applied only to `graphics.h`'s
+`vesainfo`/`modeinfo`, which are VESA BIOS blocks filled by a real-mode interrupt at spec-defined
+offsets — there packing is mandatory, because the layout is defined outside this program. Naming
+the macro for that one real use is what stopped "unpack it" from looking like it would break the
+DOS build.
+
+**Cost:** `SAVE_FILE_VERSION` 136→137 and `BONE_FILE_VERSION` 120→121 (bone files carry a whole
+`level`, so they contain `graphicid` too). And the warning baseline moves 84→133, because
+`LIKE_PRINTF` was gated on the same broken macro and printf format checking has now switched on
+in `Main` for the first time. All 49 new warnings are pre-existing format bugs, listed in §7.8.
+There is no way to fix the packing via `__GNUC__` and keep them hidden: doing so needs a
+directory-scoped flag, which is the mechanism that caused this bug.
+
+### 7.8 Fix the format bugs `LIKE_PRINTF` just exposed (new)
+
+49 warnings, all in `Main`, all pre-existing and invisible until §7.7 turned format checking on:
+25 `-Wformat=`, 20 `-Wformat-security`, 4 `-Wformat-extra-args`. Confirmed real:
+
+- `gods.cpp:316` — `ADD_MESSAGE("You feel the music resonate within you.", GetName())`: a format
+  with no conversion specifier and an argument passed anyway.
+- `human.cpp:1055` and `:1079` — two specifiers, three arguments; the god's pronoun is dropped.
+- The 20 `-Wformat-security` are the `ADD_MESSAGE(SomeString)` pattern, where the format string is
+  not a literal. That is a live crash risk rather than a style nit, because the player types their
+  own character name and it reaches messages: a name containing `%s` is read as a conversion.
+
+`FeLib` has been format-checked all along and is clean, so the whole list is `Main`.
+
+### 7.9 Make the save format host-independent (new, scoped)
+
+§5 says savediff cannot be a native-vs-WASM oracle. That is true of the *current format* and it is
+a format problem, not a tool problem — savediff reads faithfully, the two platforms simply write
+different files. The scope turns out to be small, because **half the format is already portable**.
+
+**Tier 1, already portable and endian-independent.** `truth`/`char`/`uchar` go out via `Put()` as
+one byte. `short`/`ushort` are written explicitly little-endian, byte by byte (`save.h:218`).
+`festring` and `cchar*` are a `ushort` length plus raw bytes. Entity type IDs and flags are cast
+to `ushort`. None of this cares what host wrote it.
+
+**Tier 2, raw object representation** — `RAW_SAVE_LOAD` is `Write(&Value, sizeof(Value))`:
+
+| Written as | x86-64 | wasm32 | Verdict |
+|---|---|---|---|
+| `int`, `uint` | 4 | 4 | portable |
+| `double` | 8 | 8 | portable, IEEE-754, both little-endian |
+| `v2`, `rect`, `packv2` | 8/16/4 | same | portable, `int`/`short` members |
+| `expid`, `configid` | 8 | 8 | portable, two `int`s each |
+| **`long`, `ulong`** | **8** | **4** | **the only broken primitive** |
+
+**But that one break is pervasive, because every container writes its size as `ulong`** —
+`save.h:299` for `vector` and the same for `deque`, `list`, `map`, `set`. Every container in every
+save carries it in its length prefix, which is why the divergence would start early and never
+resynchronise. The flip side is that fixing `long`/`ulong` fixes the containers for free.
+
+**The work:**
+
+1. **Make `long`/`ulong` fixed width.** `save.h:238` already has a `SAVE_COMPATIBILITY` path that
+   routes them through `int64_t` — written for x86_64-mingw vs Linux, the same problem — but the
+   macro is **defined nowhere**, so `#if SAVE_COMPATIBILITY` is always false. Enabling it works,
+   but on wasm32 `long` is 4 bytes so loading a 64-bit value truncates; that needs an audit.
+   Better: follow the file's own `short`/`ushort` idiom and write 8 explicit little-endian bytes.
+   Endian-independent, no `int64_t` dependency, consistent with the existing style.
+2. **Containers** — falls out of (1). Worth deciding separately whether 8 bytes per container
+   length is worth it; `uint` would halve it and is equally portable.
+3. **`time_t` may not even compile.** `game.cpp:3594` does `SaveFile >> TimePlayedBeforeLastLoad`
+   on a `time_t`. On x86-64 Linux `time_t` *is* `long`, so it binds the `long` overload by
+   accident. Under Emscripten, if `time_t` is `long long` there is **no matching overload** and it
+   is a build error. Check this early; it is cheap now and annoying later.
+4. **Raw struct writes.** `graphicid` (`igraph.cpp:364`) and `configid` (`game.cpp:5393`) are
+   written with `sizeof`. §7.7 made their layouts flag-independent, which is necessary but not
+   sufficient — they still carry host layout. Converting them to field-by-field, the way
+   `dangerid`, `killreason` and `massacreid` already are, removes the question permanently and is
+   the real fix.
+5. **savediff** decoders move to the new offsets, and `--word-size` becomes a legacy-save flag
+   rather than a required guess.
+
+**What makes this affordable:** `SAVE_FILE_VERSION` exists (`game.cpp:76`, written at `:3454`,
+checked at `:3519`) and the stamp itself is an `int`, 4 bytes on both platforms — so a WASM build
+can read a native save's version and reject it cleanly rather than mis-decoding it. §7.7 has
+already spent one version bump, so bundle this into the next one.
+
+**And the harness can validate it**, which was not true before: replay a corpus, save, load,
+re-save and compare on one platform to prove the format round-trips, then use native-vs-native
+savediff to prove the change did not alter semantics.
 
 ---
 
@@ -761,6 +889,8 @@ named `fork`. **Nothing has been offered upstream.**
 | 5 | `2b79f7f` Add savediff, a differential reader for saved games | §5 |
 | 6 | `9a19bf2` Add play.py, a driver for steering the game | §5a |
 | 7 | `21a050b` Add HARNESS.md | this file |
+| 8 | `dfb8294` HARNESS.md: record the commit inventory | §8 |
+| 9 | Unpack `graphicid` and `configid`, fix the `-DGCC` split | §6.6, §7.7 |
 
 **Commits 1–3 depend on nothing the harness adds and are separately upstreamable.** They are
 pre-existing bugs that determinism testing merely made visible — the MIDI one fixes a launch
@@ -768,10 +898,14 @@ failure on any machine without an ALSA sequencer, harness or no harness. That is
 ordered first, and why `audio.cpp` and `graphics.cpp` were split by hunk rather than letting a
 bug fix ride along inside the harness commit.
 
-**Every commit builds independently**, verified by checking each one out into an isolated
+**Commits 1–7 each build independently**, verified by checking each one out into an isolated
 worktree and building it. Note `cmake` must be re-run per commit, not just `make`, because
-`FeLib/CMakeLists.txt` globs its sources. A clean build at the tip is exit 0 with **84
-warnings — the same count as the pre-change baseline**.
+`FeLib/CMakeLists.txt` globs its sources.
+
+A clean build at the tip is exit 0 with **133 warnings**: the 84 pre-existing
+`-Wstringop-overflow=` that were the old baseline, plus the 49 format warnings commit 9 made
+visible (§7.8). Commit 9 introduced **no** warnings of its own — the layout change is clean, and
+the 49 are pre-existing bugs that `LIKE_PRINTF` had never been able to report in `Main`.
 
 Files touched, by area:
 
@@ -787,8 +921,11 @@ RNG unification   FeLib/Include/femath.h       FeLib/Source/sfx.cpp
                   Main/Source/worldmap.cpp
 uninitialised     Main/Include/script.h        Main/Include/igraph.h
                   Main/Source/database.cpp     FeLib/Source/graphics.cpp
+struct layout     FeLib/Include/felibdef.h     FeLib/Include/graphics.h
+                  Main/Include/igraph.h        Main/Include/game.h
 tools             tools/savediff/              tools/play/
-build             CMakeLists.txt               .gitignore
+build             CMakeLists.txt               FeLib/CMakeLists.txt
+                  .gitignore
 ```
 
 `rawbit.cpp` is the only file the capture work added to the list: two guarded
