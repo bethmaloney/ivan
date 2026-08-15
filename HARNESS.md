@@ -1,6 +1,6 @@
 # IVAN Differential Test Harness — Progress & Handoff
 
-**Status:** working and verified. Twenty-five commits on `master` of the fork (§8). Nothing has
+**Status:** working and verified. Thirty-two commits on `master` of the fork (§8). Nothing has
 been offered upstream. The corpora are committed (§5b), the host libm is no longer an input
 (§6.7), and the one known Emscripten build error is fixed (§6.8).
 
@@ -9,7 +9,12 @@ no-video path, now `--headless`), and on the non-combat corpus a native replay a
 replay produce **byte-identical frame traces, text logs, screenshots, world maps and level
 files**. The auto-play corpus agrees for its first 389 frames and then diverges inside a long
 combat; what is found and fixed, what is left, and how to hunt the rest is §9.4.
-**Last updated:** 2026-08-15
+
+**The game is also playable in a browser.** `-DWASM_BROWSER=ON` produces a page that boots to
+the main menu, generates a world and takes keystrokes — §9.5. That is a second host for the
+same WASM core, not progress on seam 1, and the two should not be conflated: the browser build
+is unmeasured against the goldens and is not an oracle.
+**Last updated:** 2026-08-16
 
 ---
 
@@ -85,6 +90,11 @@ validates the *rewrite*. You need both, in that order.
 | **Native vs WASM, non-combat corpus** | trace, text log, screenshot, sidecar, `.wm` and level file **all byte-identical**; `.sav` differs by the one `GetTimeSpent` byte |
 | **Native vs WASM, auto-play corpus** | identical for 389 of 593 frames, and `.wm` and the descent level file are byte-identical; then diverges (§9.4) |
 | `portmath` output under GCC vs under Emscripten, 14,000 evaluations | **bit-identical** — §6.7's pin holds across compilers, not just across libms |
+| `emcmake cmake -DWASM_BROWSER=ON`, then build | **0 warnings, 0 errors**, exit 0 — `ivan.html` + a 3.3MB `ivan.data` |
+| Node-host defaults after the browser option landed | unchanged: `NODERAWFS=ON`, `ivan.js`, no preload |
+| Browser build loaded in headless Chrome 143 | **reaches the main menu** — art, fonts and all five entries |
+| Same, driven 8x ENTER over CDP | **intro, world gen, character, world map**, "Turn 0", side panel populated |
+| Page console for that whole run | one line, `MidiOutDummy: This class provides no functionality.` — no abort, no exception |
 | Level file across 4 ordinary runs, after §6.6e | **1 distinct** on both corpora; was 4 |
 | Uninitialized bytes reaching a level file, after §6.6e | **0** on both corpora, `MALLOC_PERTURB_` 42 vs 99 |
 | `valgrind` uninitialized reads, after §6.6e | **0 / 0** on both corpora |
@@ -196,10 +206,45 @@ codegen or struct layout, and the first symptom would be an unexplained frame-ha
 thousands of frames from the cause. `latest` is not a toolchain, it is a moving target.
 
 SDL2, SDL2_mixer and libpng come from Emscripten's own ports rather than the host — see §9.3
-for what that changed in the CMake files and why the flags are global. Two build options exist
+for what that changed in the CMake files and why the flags are global. Four build options exist
 only on this target: `WASM_NODERAWFS` (ON, real filesystem under node — the harness needs to
-write its trace somewhere) and `WASM_ASYNCIFY` (ON, for interactive input; a replay does reach
-`SDL_Delay` through the menu fade, so leave it on).
+write its trace somewhere), `WASM_ASYNCIFY` (ON, for interactive input; a replay does reach
+`SDL_Delay` through the menu fade, so leave it on), and `WASM_BROWSER` / `WASM_PRELOAD_AUDIO`,
+both below.
+
+### Build for the browser
+
+```bash
+source ~/emsdk/emsdk_env.sh
+emcmake cmake -S . -B build-web -DCMAKE_BUILD_TYPE=Release -DWIZARD=ON -DPORTABLE_BUILD=ON \
+  -DWASM_BROWSER=ON
+cmake --build build-web -j$(nproc)   # ivan.{html,js,wasm} + a 3.3MB ivan.data
+emrun --no_browser --port 8111 build-web/Main
+```
+
+Use a **separate build directory** from `build-wasm`. That one is the seam-1 oracle and the two
+hosts do not share a configuration.
+
+`WASM_BROWSER` flips the target from node to a page: `WASM_NODERAWFS` defaults off (it binds to
+node's `fs` module, and setting both is a hard error rather than a link that half works),
+`Graphics/` and `Script/` are preloaded into `ivan.data` at the MEMFS root, and the executable
+is emitted as `.html` so emcc generates the page and the canvas with it — Emscripten's SDL2 port
+looks up `#canvas` at video init and has nothing to bind to otherwise.
+
+The preload paths are absolute because `PORTABLE_BUILD` makes `game::GetDataDir()` and
+`GetUserDataDir()` both return `"./"` (`game.cpp:5426`, `save.cpp:814`) while the module starts
+with its working directory at `/`, so the `"./Graphics/..."` every call site builds resolves to
+exactly the `/Graphics` in the package.
+
+`WASM_PRELOAD_AUDIO` (OFF) adds `Music/` and `Sound/`. They are ~28MB against the other two
+directories' 3.5MB and the game runs without either — a missing `Sound/SoundEffects.cfg` leaves
+`initSound` at `SoundState = -1` (`sfx.cpp:131`; the `ABORT` beside it is commented out) and the
+wavs load lazily per effect, while `audio::LoadMIDIFile` only pushes a filename onto a vector
+(`audio.cpp:449`) and RtMidi is a dummy on this target regardless. Untested with it ON.
+
+`emrun` rather than `python3 -m http.server` because it serves `.wasm` as `application/wasm`
+without argument. It has to be HTTP either way — `file://` will not fetch the wasm. No
+COOP/COEP headers are needed, there being no pthreads and no `SharedArrayBuffer`.
 
 **`-fexceptions` is not optional on this target and is not a tuning knob.** Emscripten disables
 exception *throwing* by default, so `__cxa_throw` lowers to `abort()`, and IVAN throws as
@@ -1666,7 +1711,7 @@ savediff to prove the change did not alter semantics.
 
 ## 8. Change inventory
 
-Committed on **`master` of the fork `bethmaloney/ivan`**, thirty commits on top of upstream
+Committed on **`master` of the fork `bethmaloney/ivan`**, thirty-two commits on top of upstream
 `de528ac`. `origin` still points at `Attnam/ivan` and is untouched; the fork is the remote
 named `fork`. **Nothing has been offered upstream.**
 
@@ -1701,10 +1746,12 @@ named `fork`. **Nothing has been offered upstream.**
 | 27 | `4428a26` Initialise trap and terrain members that level files read | §2, §6.6e |
 | 28 | `7ff0d4b` Stop the compiler and the standard library deciding the game | §2, §5, §5b, §9.4 |
 | 29 | `b7c138f` HARNESS.md: record the headless path and the first native-vs-WASM comparison | §2, §3, §4, §5, §5b, §6.6e, §6.7, §7, §8, §9.3, §9.4 |
-| 30 | HARNESS.md: re-measure the warning baseline from a clean build | §2, §8 |
+| 30 | `663d197` HARNESS.md: re-measure the warning baseline and correct §9.4's count | §2, §8, §9.4 |
+| 31 | `4ec9fe1` Build for the browser as well as for node | §2, §3, §9.3, §9.5 |
+| 32 | HARNESS.md: record the browser host | §1, §2, §3, §8, §9.3, §9.5 |
 
 **Commits 27 and 28 are the ones worth upstream's attention.** 27 is two more of the
-uninitialized-member family. 28 is nine defects that have been in the game for years and that
+uninitialized-member family. 28 is eleven defects that have been in the game for years and that
 nobody could have found without compiling it twice: a font blit whose width was
 `20 / sizeof(ulong)`, a dozen expressions that let the compiler choose which random draw went
 where, and six comparators that let the standard library choose how to break a tie. They change
@@ -1924,7 +1971,12 @@ Recommended approach, for context on why the harness is shaped this way:
    `GetKey`. The old note here said a replay never reaches it; that is wrong. `iosystem::Menu`
    and `bitmap::FadeToScreen` call `globalwindowhandler::WaitUntil`, which is `SDL_Delay`, so a
    replay unwinds and rewinds through the menu fade on every run. Leave it on. JSPI or
-   `-sPROXY_TO_PTHREAD` later.
+   `-sPROXY_TO_PTHREAD` later. It now also carries **real keystrokes** through `GetKey`, which
+   the node host never exercised because the harness answers before the blocking call — §9.5.
+
+   **The browser half of this step is done too, and it is a different host rather than more of
+   the same one.** `--headless` was the way *around* the DOM; `-DWASM_BROWSER=ON` is the way
+   *into* it, and the game plays. §9.5.
 
    Three pre-port hazards were already dealt with: the host libm (§6.7), the `time_t` overload
    that would have failed this step outright (§6.8), and the MT width question now recorded in
@@ -1933,10 +1985,12 @@ Recommended approach, for context on why the harness is shaped this way:
    control flow. `-fexceptions`, §3.
 
 4. **Make the game compiler-independent — half done, and where the interesting bugs were.**
-   Nine defects where the source left a choice to the compiler or the standard library rather
+   Eleven defects where the source left a choice to the compiler or the standard library rather
    than making it. The non-combat corpus now matches native-vs-WASM byte for byte; the auto-play
    corpus matches for 389 of 593 frames. Findings, technique and what is left: **§9.4**.
 5. **TinySoundFont** for MIDI (RtMidi cannot work in WASM), IDBFS for saves, touch input.
+   **IDBFS is now the one that blocks something real** — the browser build plays but cannot
+   save across a reload (§9.5).
 6. **SDL3 / JSPI / threads** as optional performance and quality passes.
 
 ### 9.4 Native vs WASM: what the first real frame comparison found (new)
@@ -2048,3 +2102,57 @@ rather than reinventing:
 
 The first divergence in this run was one pixel of a text shadow; the second was two pixels of a
 sprite's eyes. Neither would have survived being described as "a hash mismatch".
+
+---
+
+### 9.5 The browser host: what it took and what it proved (new)
+
+**Measured 2026-08-16: `-DWASM_BROWSER=ON` produces a page that plays.** Loaded in headless
+Chrome 143 it reaches the main menu — artwork, fonts, all five entries — and driven with eight
+`ENTER` keystrokes over CDP it plays the intro, generates a world, creates a character and lands
+on the world map with the side panel populated and "Turn 0" on the clock. Console output for
+the entire run was one line, `MidiOutDummy: This class provides no functionality.` No abort, no
+exception. Build recipe in §3.
+
+**This is a second host, not seam-1 progress, and the distinction matters.** §9.3's `--headless`
+was the way *around* the DOM so the differential harness could run under bare node; this is the
+way *into* it. The browser build has never been compared against a golden and cannot be an
+oracle in its current shape — `NODERAWFS` is what let the harness write a trace, and turning it
+off is the first thing `WASM_BROWSER` does. Frame comparison stays on the node host.
+
+**What was actually in the way was three build-system facts, not game code.** Nothing in
+`Main/` or `FeLib/` changed to make this work, which is the first real evidence that the
+headless path and the compiler-independence work (§9.4) left the game genuinely portable:
+
+- `NODERAWFS` binds to node's `fs` module. In a browser it is not a degraded filesystem, it is
+  a missing one, so the option had to become mutually exclusive with the browser target rather
+  than merely defaulted differently.
+- With it off, MEMFS starts empty. `Graphics/` and `Script/` are preloaded to absolute paths
+  because `PORTABLE_BUILD` returns `"./"` from both directory functions and the module's working
+  directory is `/`. Verified in the generated package metadata: `"/Graphics/Char.png"`.
+- Emitting `.js` gives you no page. The SDL2 port looks up `#canvas` at video init, so the
+  executable has to be emitted as `.html` for emcc to generate one.
+
+**Two hazards this section was braced for did not appear.** Both were predicted here before the
+run and both were wrong, which is worth recording as plainly as the successes:
+
+- **Asyncify carries real input.** §9.3 established it unwinds `SDL_Delay` through the menu
+  fade, but a replay is answered by the harness *before* the blocking `SDL_WaitEvent` in
+  `GetKey`, so no node run had ever proven a keystroke could cross it. A browser one has now.
+- **The audio alert never fired.** `Mix_OpenAudio` was expected to fail before a user gesture
+  and drop into `iosystem::AlertConfirmMsg`, which blocks on `GET_KEY()`. It did not — an
+  `AudioContext` is constructible while suspended, so the open succeeds. `WASM_PRELOAD_AUDIO`
+  was OFF for this run, so whether anything is audible is untested.
+
+**What is open.**
+
+- **Saves do not survive a reload.** MEMFS is ephemeral and `GetUserDataDir()` is `"./"`, so
+  `Save/`, `Scrshot/` and `ivan.cfg` all vanish with the tab. This is §9 step 5's IDBFS, and it
+  is now the item blocking something a player would notice rather than a theoretical one.
+- **`ASYNCIFY=1` instruments the whole binary**, all 7.5MB of it. Nothing has been measured
+  against a native frame time; `ASYNCIFY_ONLY` or JSPI is the tuning knob if it needs one.
+- **Audio is unexercised.** Headless Chrome has no audio device, so `WASM_PRELOAD_AUDIO=ON`
+  needs a human with speakers, not another CDP script.
+- **Input beyond `ENTER` is unexercised.** Direction keys, `>` and the command set all go
+  through the same `GetKey`, so there is no reason to expect trouble, but "no reason to expect
+  trouble" is what §9.4 was full of.
