@@ -1275,12 +1275,28 @@ class character : public entity, public id
   stack* Stack;
   long NP, AP;
   long TemporaryState;
-  int TemporaryStateCounter[STATES];
+  /* Initialize assigns a counter only where the matching TemporaryState bit is
+     set, but character::Save writes all STATES of them unconditionally, so the
+     slots for inactive states went to the file as raw heap. That is the whole
+     of the level-file leak in HARNESS.md 6.4a: every one of the 1,860 bytes
+     that differ between two MALLOC_PERTURB_ values falls inside one of these
+     arrays, sixteen of them, one per character on the level, and the slots
+     that hold defined data are exactly the ones whose state bit is set.
+
+     Zero is unobservable in play. Every in-memory read of a counter is behind
+     a check on its own state bit - HandleStates, DecreaseStateCounter and
+     ResetStates all test TemporaryState first, BeginTemporaryState reads the
+     old value only on the TemporaryStateIsActivated branch, and the panel at
+     char.cpp:6347 short-circuits on EquipmentState before it reads. The
+     serializer was the only consumer that did not check. */
+  int TemporaryStateCounter[STATES] = {};
   team* Team;
   v2 GoingTo;
   double RandomMoveDir;
   long Money;
-  int MyVomitMaterial;
+  /* Written by character::Save. Unobservable: LoadDataBaseStats assigns it
+     through SetNewVomitMaterial before anything reads or saves it. */
+  int MyVomitMaterial = 0;
   std::list<character*>::iterator TeamIterator;
   /* ~character() frees this, OriginalBodyPartID and CWeaponSkill, and the
      default constructor nulls every other pointer it frees - Action,
@@ -1291,21 +1307,43 @@ class character : public entity, public id
   festring AssignedName;
   action* Action;
   const database* DataBase;
-  double BaseExperience[BASE_ATTRIBUTES];
+  /* Written by character::Save. Unobservable: LoadDataBaseStats fills all
+     BASE_ATTRIBUTES of them on the spawn path and character::Load reads them
+     back on the load path, and neither is skippable. */
+  double BaseExperience[BASE_ATTRIBUTES] = {};
   std::list<ulong>* OriginalBodyPartID = 0;
   entity* MotherEntity;
   character* PolymorphBackup;
   cweaponskill* CWeaponSkill = 0;
   long EquipmentState;
   square** SquareUnder;
-  long Volume;
-  long Weight;
-  long CarriedWeight;
-  long BodyVolume;
-  int HP;
-  int MaxHP;
-  int BurdenState;
-  double DodgeValue;
+  /* CalculateAll runs CalculateAttributeBonuses before CalculateVolumeAndWeight,
+     and CalculateAttributeBonuses reaches CalculateBurdenState through
+     leg::CalculateAttributeBonuses. So the first CalculateBurdenState of every
+     character's life reads CarriedWeight before the function that assigns it has
+     run - the one character:: context valgrind still reported on the non-combat
+     corpus after HARNESS.md 6.6a.
+
+     Zero is provable for the four of them: CalculateVolumeAndWeight assigns
+     Weight and CarriedWeight from the stack and then adds each bodypart, and a
+     character that owns neither yet weighs and carries nothing. It also makes
+     that premature CalculateBurdenState compute UNBURDENED, which is the right
+     answer for a character carrying nothing rather than merely a defined one. */
+  long Volume = 0;
+  long Weight = 0;
+  long CarriedWeight = 0;
+  long BodyVolume = 0;
+  /* Unobservable. CalculateHP and CalculateMaxHP assign rather than accumulate -
+     each is a plain sum over the bodyparts - so no prior value survives. */
+  int HP = 0;
+  int MaxHP = 0;
+  /* Not zero: OVER_LOADED is 0 and UNBURDENED is 3, so zeroing this would name
+     the worst burden state, not a neutral one. CalculateBurdenState reads the
+     old value into OldBurdenState before assigning, and UNBURDENED is what it
+     computes from the zeroed CarriedWeight above. */
+  int BurdenState = UNBURDENED;
+  /* Unobservable: CalculateDodgeValue assigns unconditionally. */
+  double DodgeValue = 0;
   int AllowedWeaponSkillCategories = 0;
   /* Zero, not the 1 that the virtual CalculateBodyParts() defaults to. The two
      answer different questions: the virtual says how many parts this species
@@ -1320,19 +1358,40 @@ class character : public entity, public id
      delete[] on null. A 1 here would dereference that null pointer instead. */
   int BodyParts = 0;
   long RegenerationCounter;
-  int AttributeBonus[BASE_ATTRIBUTES];
-  int CarryingBonus;
+  /* Initialize calls UpdatePictures() before CalculateAll(), and GetAttribute
+     returns BaseExperience plus AttributeBonus, so the sprite lookups that pick
+     the player's head and arm bitmaps by attribute read these before anything
+     assigns them - the two object::UpdatePictures contexts valgrind reported.
+     CalculateAttributeBonuses then reads them again into BackupBonus on its
+     first pass, before the loop that zeroes them.
+
+     Zero is provable: CalculateAttributeBonuses opens by setting every entry to
+     0 and adding each equipped item's enchantment, so 0 is exactly the value it
+     computes for a character with nothing equipped yet. */
+  int AttributeBonus[BASE_ATTRIBUTES] = {};
+  int CarryingBonus = 0;
   homedata* HomeData;
-  ulong ID;
-  int SquaresUnder;
+  /* Written by character::Save. Unobservable: Initialize assigns it from
+     CreateNewCharacterID on the spawn path, character::Load on the other. */
+  ulong ID = 0;
+  /* Zero for the reason BodyParts above is zero - the count has to agree with
+     the array, and SquareUnder is null until Initialize allocates it. The
+     virtual CalculateSquaresUnder() defaults to 1 and runs first in Initialize,
+     so nothing observable changes. */
+  int SquaresUnder = 0;
   std::vector<v2> Route;
   std::set<v2> Illegal;
   ulong LastAcidMsgMin;
-  int Stamina;
-  int MaxStamina;
+  /* Stamina is written by character::Save. Both are unobservable:
+     CalculateMaxStamina assigns MaxStamina unconditionally and RestoreStamina
+     follows it in Initialize, and character::Load reads Stamina back. */
+  int Stamina = 0;
+  int MaxStamina = 0;
   int BlocksSinceLastTurn;
   double GenerationDanger;
-  ulong CommandFlags;
+  /* Written by character::Save. Unobservable: Initialize assigns it from
+     GetDefaultCommandFlags before the first save. */
+  ulong CommandFlags = 0;
   ulong WarnFlags;
   int ScienceTalks;
   trapdata* TrapData;

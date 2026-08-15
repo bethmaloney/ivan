@@ -231,10 +231,30 @@ CHARACTER(playerkind, humanoid)
   virtual bodypart* MakeBodyPart(int) const;
   virtual void PostConstruct();
   ulong SoulID;
-  col16 HairColor;
-  col16 EyeColor;
-  int Talent;
-  int Weakness;
+  /* All four are written by playerkind::Save and all four are assigned in
+     PostConstruct, but Initialize runs CreateBodyParts before PostConstruct and
+     CreateBodyParts reaches GetNaturalExperience through InitSpecialAttributes.
+     GetNaturalExperience compares Talent and Weakness against TalentOfAttribute
+     to decide whether to scale a limb's natural experience, so every arm and
+     leg the player is built with had its attributes settled by indeterminate
+     memory - eight of the thirteen contexts valgrind reported on the non-combat
+     corpus, and the largest group of them.
+
+     For Talent and Weakness zero is provable rather than a placeholder:
+     ivandef.h reserves 0 for no talent and the four real talents start at 1, so
+     a zeroed pair matches neither branch and the limb gets its unscaled natural
+     experience. That is what the ordering already produces almost always, since
+     indeterminate memory rarely equals one of four small values - this makes it
+     the answer every time instead of most of the time. It does not decide
+     whether CreateBodyParts ought to see the talent at all; that ordering
+     question is still open.
+
+     HairColor and EyeColor are unobservable: PostConstruct assigns them before
+     UpdatePictures reads them and before any save. */
+  col16 HairColor = 0;
+  col16 EyeColor = 0;
+  int Talent = 0;
+  int Weakness = 0;
   truth IsBonePlayer;
   truth IsClone;
 };
