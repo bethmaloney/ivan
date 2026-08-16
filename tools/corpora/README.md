@@ -1,6 +1,6 @@
 # tools/corpora — the committed differential corpora
 
-Two recordings, their golden traces and golden text logs, and the scripts that
+Three recordings, their golden traces and golden text logs, and the scripts that
 replay and check them. This is the oracle HARNESS.md is built around, in the one
 form that makes it an oracle: committed artifacts rather than instructions for
 regenerating some.
@@ -11,18 +11,19 @@ tools/corpora/verify-corpora.sh -n 1       # quick smoke test
 tools/corpora/verify-corpora.sh --update   # rewrite the goldens from this build
 ```
 
-About nine seconds for both corpora at the default eight runs.
+About twelve seconds for all three at the default eight runs.
 
 ## The corpora
 
-Both are seed 999 and both start with `enter*4`, which is exactly character
+All three are seed 999 and all start with `enter*4`, which is exactly character
 creation — pick the default character, accept the pre-filled name, dismiss the
-two intro screens.
+two intro screens. Each is a prefix of the next.
 
 | | keys | lands on | exercises |
 |---|---|---|---|
 | `noncombat.rec` | 7 | UT lvl 1, turn 3, HP 37/37 | world gen, character creation, level gen, descent |
 | `autoplay-200.rec` | 210 | UT lvl 1, turn 161, HP 24/35 | the above plus combat, item use, equipment, hunger, death |
+| `autoplay-2000.rec` | 2010 | UT lvl 2, turn 1750, HP 41/43 | the above plus a **second dungeon level** — level 2 generation, both directions of the stairs, and seventeen turn-boundary autosaves |
 
 `down left >` is **specific to seed 999**: it walks onto the cave mouth one tile
 west of the start and enters. Another seed generates another island.
@@ -31,17 +32,26 @@ west of the start and enters. Another seed generates another island.
 confirm, auto-play mode 1) and then 200 `.` presses, one AI action each. Stay in
 mode 1 — at mode ≥ 2 any key that is not `.` or `~` switches auto-play back off.
 
+`autoplay-2000.rec` is the same again with 2000 presses instead of 200. It costs
+about 4x the wall clock of the other two together, and it is the only corpus that
+leaves the first dungeon level: the AI descends to UT 2 in the last quarter of
+the run and crosses back and forth afterwards. That is what makes it the one to
+reach for when the thing under test scales with the save set or with level size —
+the browser save path (HARNESS.md §9.10) is measured on it, because on
+`autoplay-200` the save set never exceeds one level and the cost being measured
+never shows up.
+
 ### Check values
 
 These are the numbers that say a regenerated corpus is *the same* corpus. They
 are recorded across HARNESS.md §6.6a–d as the check values for those fixes.
 
-| | noncombat | autoplay-200 |
-|---|---|---|
-| trace frames | 365 | 592 |
-| cumulative RNG draws | 1,075,023 | 1,517,713 |
-| final HP | 37/37 | **24/35** |
-| final turn | 3 | 161 |
+| | noncombat | autoplay-200 | autoplay-2000 |
+|---|---|---|---|
+| trace frames | 365 | 592 | 2,698 |
+| cumulative RNG draws | 1,075,023 | 1,517,713 | 5,038,226 |
+| final HP | 37/37 | **24/35** | **41/43** |
+| final turn | 3 | 161 | 1,750 |
 
 These moved once, deliberately, in the commit that made the game compiler
 independent (HARNESS.md §9.4). The key sequences did not change and neither did
@@ -69,7 +79,66 @@ cp build/corpus-session/session.rec tools/corpora/autoplay-200.rec
 tools/corpora/verify-corpora.sh --update
 ```
 
+`autoplay-2000.rec` is the same prefix with a single larger `auto`, from its own
+session directory so the 200-key corpus above is not disturbed:
+
+```bash
+python3 tools/play/play.py --session build/corpus-session-2000 new --seed 999 --start
+python3 tools/play/play.py --session build/corpus-session-2000 send down left '>'
+python3 tools/play/play.py --session build/corpus-session-2000 auto 2000
+cp build/corpus-session-2000/session.rec tools/corpora/autoplay-2000.rec
+
+tools/corpora/verify-corpora.sh --update
+```
+
+`auto 2000` rather than `auto 200` followed by `auto 1800`: both produce the same
+key list, but `play.py` replays the whole session on every command, so the split
+pays for the long replay twice.
+
 Check the HP against the table above before trusting a regenerated corpus.
+
+## Two divergences past key 1559, both found by `autoplay-2000`
+
+**`compare-targets.sh` fails on `autoplay-2000` today, and both causes are real.**
+`verify-corpora.sh` passes — that is the check CI runs, and every configuration
+below is deterministic *on its own* (8 native runs, 3 native trace-only runs, and
+repeated WASM runs each agree with themselves). They disagree with each other,
+and for two independent reasons.
+
+Read the table as: replay the corpus in these four ways and compare traces.
+
+| | frames | first disagreement |
+|---|---|---|
+| native, `--trace --text --shot` (the golden) | 2,699 | — |
+| native, `--trace` only | 2,676 | vs golden: frame 1562, **7 draws** |
+| WASM, `--trace --text --shot` | 2,681 | vs golden: frame 1562, **7 draws** |
+| WASM, `--trace` only | 2,681 | byte-identical to WASM `+text` |
+
+**Cause A — `--text` changes the native run.** This is the harness perturbing
+what it measures. Native with text capture and native without it diverge at frame
+1562 / key index 1559 — the descent to UT 2 — with the native `+text` run having
+drawn **seven more random numbers**. The rendered frame is identical
+(`9b6be20a49c85220` either way); only the draw count differs. WASM is *not*
+affected: its trace is byte-identical with and without `--text`. So the committed
+golden encodes a run that only happens when text capture is on. That is harmless
+for `verify-corpora.sh`, because `run-corpus.sh` pins the same flags every time —
+but it means the golden is not "what the game does", it is "what the game does
+while being watched".
+
+**Cause B — a genuine native/WASM divergence, much later.** Take `--text` out of
+both and the two targets agree all the way to frame 2199, then diverge at frame
+2200 / key index 2197 by **1,600 draws**. That one is a real cross-target
+difference and has the signature of the bug class HARNESS.md §9.4 closed on the
+first dungeon level: sub-expressions that each draw from the RNG, with the
+evaluation order left to the compiler. §9.4 fixed the ones the 210-key corpus
+reaches; nothing had ever replayed this far on both targets before.
+
+The first *visible* symptom of either is the insult in "The door is already open,
+%s." (`game::Insult`, `game.cpp:1226`) landing on a different word.
+
+Neither is a regression, and neither affects the browser game's determinism
+against itself — only the native-vs-WASM oracle, on the second level, and only
+past key 1559.
 
 ## Two things that will bite you
 
@@ -99,7 +168,7 @@ load, which is 2 distinct `.sav` files across 8 runs and is expected. Use
 than by name, which matters because `game::SaveName` stamps the stem with a
 timestamp.
 
-**Anything outside these two corpora.** Every determinism number in HARNESS.md
-is a property of the levels these 210 keys generate. Neither corpus visits the
-whole world map. Widening the corpus is how the remaining coverage qualifier
-gets retired.
+**Anything outside these three corpora.** Every determinism number in HARNESS.md
+is a property of the levels these key sequences generate. `autoplay-2000` reaches
+a second dungeon level; none of them visits the whole world map. Widening the
+corpus is how the remaining coverage qualifier gets retired.

@@ -44,11 +44,11 @@ SDL2, SDL2_mixer and libpng from Emscripten's ports.
 
 ## Testing — run the corpora
 
-There is no unit test suite for the game. The oracle is two committed recordings with golden
+There is no unit test suite for the game. The oracle is three committed recordings with golden
 traces, text logs and screenshots.
 
 ```bash
-tools/corpora/verify-corpora.sh          # 8 runs each: self-consistency + golden. ~9s
+tools/corpora/verify-corpora.sh          # 8 runs each: self-consistency + golden. ~12s
 tools/corpora/verify-corpora.sh -n 1     # smoke test
 tools/corpora/compare-targets.sh         # native vs WASM, both corpora
 node tools/web/music.test.js             # music.js contract and mixing arithmetic, no browser
