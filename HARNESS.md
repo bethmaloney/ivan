@@ -34,8 +34,20 @@ MIDI parser and the playback engine are no longer compiled for Emscripten; the p
 pre-rendered OGG instead. The game keeps the playlist and the intensity, which turned out to
 matter: IVAN's music is adaptive, 62% of its notes are inaudible at full health, and the mix
 that reveals them is exactly three volume curves — so three stems reproduce it rather than
-approximate it. **Nothing has been rendered or listened to yet**: the split, the contract and
-the arithmetic are verified, the audio is not.
+approximate it. ~~**Nothing has been rendered or listened to yet.**~~ The stems are rendered and
+committed, and §9.9 measured all three of `Dungeon.mid` loading, mixing and staying in sync over
+HTTP. It has also, accidentally, been **heard** — a headless browser under WSLg has speakers like
+any other, which §9.9's first draft asserted it did not. The mix is still unjudged; the reason
+previously given for that was wrong.
+
+**There is a site to put it on** — §9.9. `tools/web/dist.py` assembles 70.4MB into a landing page
+at `/` and the game at `/play/`, so a shared link opens in 30KB instead of committing whoever
+clicked it to a 5MB download. The stock Emscripten shell is gone. The assembly step verifies
+every asset the page can ask for against the config that names it, and immediately found
+`explosion3.WAV` — a case mismatch older than the web build, invisible on Windows and macOS and
+a silent 404 everywhere else. **Saves still do not survive the tab**, which hosting promotes from
+a footnote to the most visible defect there is; the landing page says so rather than letting
+someone find out at hour two.
 **Last updated:** 2026-08-16
 
 ---
@@ -2731,3 +2743,147 @@ run on a path that then pushes the result across a boundary.
 - **`-sUSE_SDL_MIXER=2` is still dead weight**, and now more so: `FeAudio` no longer links it on
   this target either, leaving `sfx.h`'s `Mix_Chunk*` as the only reason it is on the command
   line.
+
+---
+
+### 9.9 A site to put it on (new)
+
+**Measured 2026-08-16: `tools/web/dist.py` assembles 70.4MB into a tree that serves the landing
+page at `/` and the game at `/play/`.** Both were driven in headless Chrome from the assembled
+tree, not from the build directory: the page loads, the module boots, eight `ENTER` keystrokes
+create a character and reach the world map, and every asset either page can request answers 200.
+
+**The front door is not the game, and that is the only structural decision here.** `/` is a 30KB
+page; `/play/` is where the download starts. Splitting them costs one link and means a
+shared URL opens instantly rather than committing whoever clicked it to a download they did not
+ask for.
+
+| | |
+|---|---|
+| landing page | 30KB, plus 113KB of fonts over 5 files |
+| game, on disk | 11.0MB — `ivan.wasm` 7.8, `ivan.data` 3.4, `ivan.js` 0.3 |
+| game, **on the wire** | **5.0MB** — measured against the CDN with the cache disabled |
+| sound effects | 25.4MB over 159 wav, fetched on demand |
+| music stems | 33.8MB over 14 ogg, streamed |
+| **total, on disk** | **70.4MB** |
+
+**On the wire is the number that matters, and it is less than half the one on disk.** Cloudflare
+brotli-compresses `application/wasm`, which takes `ivan.wasm` from 7.48MB to **1.65MB** — a 4.5×
+cut on the single largest thing a player waits for. `ivan.data` is already-compressed PNG and
+does not move (3.21MB). Nothing had to be configured for this, but it does mean the size quoted
+anywhere a player reads it has to come from a measurement against the deployed site rather than
+from `ls`: the landing page said 11MB until this was checked, which was true of the disk and
+wrong about the download.
+
+**`shell_minimal.html` is gone, and replacing it hit a trap worth writing down.** emcc runs the
+shell through its C preprocessor before substituting anything, and it treats **any** line whose
+first non-whitespace character is `#` as a directive (`src/parseTools.mjs:149`):
+
+```
+error: shell.html:18: Unknown preprocessor directive #canvas
+```
+
+That rules out CSS id selectors at the start of a line — `#status {` is an unknown directive, not
+a rule. The stock shell only survives because its CSS ships minified onto a single line. The fix
+is to style by class and leave ids for JavaScript and for SDL, which has to find `#canvas` by id
+at video init regardless.
+
+**The assembly step verifies the assets rather than trusting a glob, and that paid immediately.**
+`dist.py` parses `Sound/SoundEffects.cfg` for every wav a pattern can name, and `Music/stems.json`
+for every stem it promises, then looks for each by name. The first run reported one missing file:
+
+```
+MISSING sound effects (1):
+  explosion3.wav
+```
+
+The file was on disk as **`explosion3.WAV`**. Case-insensitive filesystems hide it, which is why
+it survived on Windows and macOS; over HTTP and on Linux it is a 404, and §9.7's design makes a
+404 silent by construction — one console line, no error, a game that is quietly missing a sound.
+The other three in that pattern are lowercase. This is older than the web build and was never a
+web bug; the web is just the first place it could not hide. Fixed by renaming.
+
+A glob would have agreed with itself and found nothing, which is the whole argument for parsing
+the config: the check is only worth having if it can disagree with the directory.
+
+**Music is not unheard any more, and §9.8's open item saying so is stale.** The stems are
+rendered and committed (`9df5d2b`) — `Music/Dungeon.const.ogg` is Vorbis, stereo, 44.1kHz, 290.2
+seconds. Forcing `Dungeon.mid` in a browser served from the assembled tree:
+
+| | |
+|---|---|
+| stems loaded | `["const","fadeout","fadein"]`, `started 1`, **`failed 0`** |
+| gains at intensity 0 | `[1, 1, 0]` — const full, fadeout full, fadein silent, as §9.8's table says |
+| drift after ~12s | `[-0.017, -0.003]`, **18 corrections, 0 seeks** |
+
+So the fetch, the decode, the three-way mix and the drift correction all work over HTTP from the
+deploy layout.
+
+**And it has now been heard, which is not how anyone planned it.** This section first claimed the
+mix was still unheard because "headless Chrome has no speakers". That is false on this machine:
+under WSLg a `--headless=new` Chrome routes audio to the Windows host like any other client, and
+the check above left `Dungeon.mid` playing in a browser with no window to close it from. The
+first human listening to IVAN's rendered stems was somebody hunting an invisible process for it.
+
+Two things follow, and the second is the useful one:
+
+- **A headless browser here is audible.** Anything that calls `ivanMusic.setPlaying(true)` should
+  stop it again, and the browser should be killed when the check ends rather than left for the
+  next one to reuse. `pkill -f "tools/web/serve.py"` is not the way to do it either — the pattern
+  matches the shell running it, so the shell dies first and the servers outlive the command that
+  was meant to end them. Kill by pid.
+- **"No speakers" was an assumption doing the work of a measurement**, in a document whose whole
+  argument is against exactly that. It read as an environmental fact and was really a guess about
+  an environment nobody had checked. The mix being unjudged is still true; the reason given for it
+  was not.
+
+The soundfont is still an unmade decision.
+
+**Cloudflare Pages, for one reason that dominates the rest.** 60MB of the payload is media, and
+its free tier does not meter bandwidth, where Netlify and Vercel both cap at 100GB/month — which
+this game reaches in a few thousand sessions. The constraints that would have ruled a host out
+are all satisfied: byte ranges (`<audio>` streaming degrades quietly without them, §9.8), the
+`application/wasm` MIME type, and a per-file limit above 7.8MB. Nothing here needs COOP/COEP,
+because there are no pthreads and no `SharedArrayBuffer`.
+
+`_headers` revalidates the wasm bundle rather than caching it hard: none of those filenames are
+content-hashed, so a redeploy reuses `ivan.wasm` and a browser holding a long `max-age` copy
+would keep playing an old build with no way to find out. Media caches for a day, fonts for a
+week. Verified live: `application/wasm` on the wasm, and every rule in `_headers` applied.
+
+**Cloudflare Pages does not answer byte ranges, and that was the one host property §9.8 depended
+on.** A `Range: bytes=100-199` on a stem comes back `200` with the whole 2.6MB file and no
+`Accept-Ranges` header at all, on a warm cache and a cold one:
+
+```
+$ curl -sI -H 'Range: bytes=100-199' .../Music/Dungeon.const.ogg
+HTTP/2 200
+content-length: 2631966
+```
+
+`tools/web/serve.py` implements 206 precisely so that local testing would not flatter a host that
+does not — and then the host did not. **Measured cost, which is smaller than the setup suggests:
+stems still start in 1.0s**, `started 1`, `failed 0`. Progressive download is enough to begin
+playback; what ranges buy is seeking and an early `duration`, and music.js only needs `duration`
+for drift correction, which it can wait for. So this degrades the thing §9.8 built rather than
+breaking it, and the degradation was measured rather than assumed in either direction.
+
+Worth revisiting if a long track starts late in practice — `Dungeon3`'s stems are 5MB each and
+its three must all arrive. R2 answers ranges and `music.js` already takes `?musicbase=<url>`, so
+moving just the music is a query parameter rather than a migration.
+
+**What is open.**
+
+- **Saves still do not survive the tab**, and hosting this promotes that from a footnote to the
+  most visible defect in the product. MEMFS is ephemeral and `GetUserDataDir()` is `"./"`, so a
+  player who closes the tab loses the run — §9 step 5's IDBFS. The landing page says so plainly
+  rather than letting someone find out at hour two; that line comes out when IDBFS lands.
+- **The crash endpoint is still inert.** `WASM_CRASH_ENDPOINT` is unset, so a player's crash
+  report reaches `localStorage` and nowhere else (§9.6). A Pages Function would be a few lines
+  and would turn every stranger's crash into a replayable recording — which is exactly what §9.6
+  built and nothing is collecting.
+- **No CI.** `dist.py` runs by hand against a local emsdk. Nothing rebuilds or redeploys on push.
+- **The page quotes the source and nothing checks that it still says that.** The body part
+  numbers, the message templates, the opening text and the key list are all real values lifted
+  from `Script/item.dat`, `char.cpp`, `game.cpp` and `command.cpp`. If those change the page is
+  wrong, and only a reader would notice.
