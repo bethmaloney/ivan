@@ -25,10 +25,17 @@ on it was §6.9, which turned out to be §9.4's open divergence as well.
 **The browser build has sound effects, and they are played by the page rather than by the
 module** — §9.7. The wasm still decides what to play; JavaScript fetches and plays it, which is
 the first piece of presentation to cross to the frontend side of §1's boundary and takes 26MB of
-wav off the first load. Music is not done. The cut was placed below the pattern matching on
-purpose, because the matching is the part that should not exist at all: the game has no sound
-events, only sentences with regexes pointed at them
-([issue #1](https://github.com/bethmaloney/ivan/issues/1)).
+wav off the first load. The cut was placed below the pattern matching on purpose, because the
+matching is the part that should not exist at all: the game has no sound events, only sentences
+with regexes pointed at them ([issue #1](https://github.com/bethmaloney/ivan/issues/1)).
+
+**The soundtrack has crossed too, and it retires `audio/` on this target** — §9.8. RtMidi, the
+MIDI parser and the playback engine are no longer compiled for Emscripten; the page streams
+pre-rendered OGG instead. The game keeps the playlist and the intensity, which turned out to
+matter: IVAN's music is adaptive, 62% of its notes are inaudible at full health, and the mix
+that reveals them is exactly three volume curves — so three stems reproduce it rather than
+approximate it. **Nothing has been rendered or listened to yet**: the split, the contract and
+the arithmetic are verified, the audio is not.
 **Last updated:** 2026-08-16
 
 ---
@@ -2497,12 +2504,182 @@ from `initSound` before it (§9.3), which is also why the seam-1 measurement nev
   one lump. Converting them to OGG is a data-only change — `Mix_LoadWAV_RW` falls through to
   `Mix_LoadMusic_RW` for non-RIFF magic (`mixer.c:822`) so the native path takes them too, and
   only the filenames in `SoundEffects.cfg` change. Expect roughly 26MB → 2MB.
-- **Music is not done.** RtMidi is still a dummy and `audio::Loop` still never runs, so the
-  browser is silent between messages. The same argument as this section applies to it and is
-  cheaper there: the page can play a pre-rendered OGG with no synth, no soundfont and no thread,
-  which is what makes the whole `audio/` directory skippable on this target rather than
-  something to port.
+- **Music is not done.** — **done, §9.8.** It went the way this predicted, with one thing this
+  did not see: the adaptive mix is real and had to survive the crossing, which turned out to
+  cost three stems rather than one file.
 - **`-sUSE_SDL_MIXER=2` is now dead weight on the browser build.** Nothing calls `Mix_*` there
   any more; `sfx.h` includes `SDL_mixer.h` for the `Mix_Chunk*` in `SoundFile` and that is all.
   Dropping the port is a link-level change with a wider blast radius than it looks — `FeAudio`
   links it too — so it is left alone deliberately.
+
+---
+
+### 9.8 Music, played by the page (new)
+
+§9.7 moved the sound effects across; this moves the soundtrack, and it is the change that
+retires `audio/` on this target rather than porting it. **RtMidi, the MIDI parser, the playback
+engine and their helpers — about 4,700 lines — are no longer compiled for Emscripten at all.**
+What is left of `audio.cpp` is the part the game actually calls: the playlist, the playback
+state, the volume and the intensity.
+
+Nothing synthesizes MIDI in the browser. `Music/*.mid` are never fetched by the page; they are
+the *source* for pre-rendered OGG stems, and those are what stream.
+
+**Three things this found before writing any code, all of which changed the design.**
+
+**1. Six of the eleven tracks are the same note-free file.** `Empty.mid`, `defeat.mid`,
+`mainmenu.mid`, `newgame.mid`, `victory.mid` and `world.mid` are byte-identical — md5
+`29be858c8269a7618c68db9aa0152ade`. It is the project template: 18 tracks, 96 program changes,
+27,654 controller events, and **zero note-ons**. The main menu, the world map, victory and
+defeat are silent in the native game too, and always have been. There are five pieces of music
+in IVAN, totalling 17.9 minutes, and "this area is silent" is a normal state the page has to
+represent rather than a fault to report.
+
+**2. The adaptive mix is live, and it carries most of the music.** `character::Be` recomputes
+an intensity every turn from the player's *worst* body part — `127 - MinHPPercent`,
+`char.cpp:1062` — and `audio::SendVolumeMessage` turns it into a per-channel MIDI volume.
+`MPB_PB_NO_VOL` (`midiplayback.cpp:792`) drops the file's own CC7 on the way through, so the
+game owns channel volume outright and the composer's automation there is never heard; the
+files' CC11 expression rides underneath and is heard.
+
+The fade-in group holds **13,683 of the 22,037 notes, 62%**, and it is at volume 0 at intensity
+0. A player at full health is meant to be hearing about a third of the piece, and the mix opens
+up as they get hurt. Cathedral is 363 notes constant against 1,416 fade-in. **Rendering one
+flat mix per track would have shipped music missing most of itself**, and it would have sounded
+fine — which is the kind of loss nobody would think to look for.
+
+**3. The intensity system is exactly three curves, so three stems reproduce it rather than
+approximate it.** From the two constant tables at `audio.cpp:84-89`:
+
+| group | channels | volume | notes |
+|---|---|---|---|
+| `const` | 0–4, 9 | `127` | 4,679 |
+| `fadeout` | 5–8, 10 | `127 - intensity` | 3,675 |
+| `fadein` | 11–15 | `0 + intensity` | 13,683 |
+
+Every one of the sixteen channels follows one of these and nothing else does anything. So
+splitting the MIDI on those groups, rendering each, and giving the three to three WebAudio gain
+nodes is not a model of the intensity system — it *is* the intensity system, with the mixing
+moved from a MIDI device to a gain node. `tools/music/split-stems.py` derives it from the same
+two tables so the two can be diffed if upstream ever retunes the mix.
+
+**What crosses the boundary.** The playlist, and one value back.
+
+```
+dungeon::PrepareMusic          [C++]  playlist for this level, from the level script
+  -> audio::LoadMIDIFile              -> Tracks
+  -> IvanMusicPlaylist("Dungeon.mid,Dungeon2.mid")    [bridge]
+  -> ivanMusic.setPlaylist(...)       [JS: choose, fetch, loop, mix]
+
+character::Be                  [C++]  every turn
+  -> audio::IntensityLevel(127 - worstBodyPartHP)
+  -> ivanMusic.setIntensity(...)      [JS: three gain nodes, ramped]
+```
+
+**`GetCurrentlyPlayedFile` is the one readback, and it is why this could not be pure fire-and-
+forget like §9.7.** `dungeon::PrepareMusic` calls it at every level change to decide whether the
+new area shares the track already playing and should therefore not restart it (`dungeon.cpp:174`).
+It is a plain synchronous `EM_JS` returning an `int` index into the playlist — no promise, no
+callback into wasm, nothing for asyncify to unwind, and no string whose lifetime someone has to
+own. Resolved by name at the moment it is asked for, so it stays correct across the reorder
+`ClearMIDIPlaylist` performs. The page enforces the same rule independently, so it holds
+whatever the module asks for.
+
+**Track choice moved to the page, and that is safe for the reason §6.5 made it safe.**
+`NextTrackRand` was a private xorshift precisely so that neither which music is installed nor
+when a track happens to end could shift the game's own RNG (`audio.cpp:54`). Moving the choice
+out of the module keeps that property by construction: there is no longer a shared stream for it
+to draw from. The rule itself is unchanged — on ending, pick from the playlist at random,
+possibly the same track again, and play it once through.
+
+**Music streams; effects are cached. That is the one real structural difference from §9.7.**
+`decodeAudioData` produces float32 at the context rate — about **23MB per minute per stereo
+stem**. `Dungeon3` is 7.31 minutes, so its three stems would be roughly **half a gigabyte** of
+decoded audio for one dungeon, played once through. So each stem is an `<audio>` element behind
+a `MediaElementAudioSourceNode`: memory stays flat and playback starts on the first few KB
+rather than after a multi-megabyte fetch completes.
+
+The cost is that three elements keep three clocks, and these stems are the same piece of music,
+so drift is heard as a doubled attack rather than as a timing error. They are pulled back with a
+0.2% playback-rate nudge — about 3.5 cents, inaudible, and no gap in the audio. A seek is the
+fallback for an element that has fallen a quarter second behind, and it is counted separately in
+`ivanMusic.stats()` because if it ever happens routinely this design is the wrong one.
+
+**The two files share one `AudioContext` but not one gain, and both halves of that matter.**
+Sharing the context is the easy half: browsers cap how many a page may have, each costs a device
+connection, and two would need two resumes off the same gesture — so `sfx.js` exposes the one it
+already owns and `music.js` joins it. Not sharing the *gain* is the half that was a bug first:
+the music volume went onto the shared master, where it would have scaled the sound effects by it
+as well, since effects pass through the same node with their own `SfxVolume` applied per sound.
+Music now hangs its own gain off the master and puts the volume there.
+
+The second half of the same bug: `ivanconfig::Initialize` calls `audio::SetVolumeLevel` at
+startup (`iconf.cpp:1343`), long before a gesture can have let a context exist — so the volume
+is *normally* set before there is anywhere to put it, and the first version dropped it and
+started every session at full volume regardless of the setting. The remembered value is now
+applied when the node is created. Both directions are covered by the test suite, and both were
+confirmed to fail it before the fix.
+
+**Ramps use the game's own slew rate.** `audio.cpp:78` moves `CurrentIntensity` one step per
+15ms toward the target, so a full sweep takes 1.905s. The gain ramps are given that duration
+rather than an arbitrary smoothing constant: the mix opening up as a fight turns bad is meant to
+be a swell, not a switch.
+
+**One pseudo-device keeps `ivanconfig` unchanged.** `GetMIDIOutputDevices` reports a single
+"Web Audio" device on this target. That is what turns the soundtrack on by default — `Initialize`
+enables it whenever the count is non-zero (`iconf.cpp:1292`) — and what the options menu shows
+against "Use MIDI soundtrack", with "no" still available by cycling past it. No change to
+`iconf.cpp` at all.
+
+**`Music/stems.json` is why the page never probes.** It records which stems each track actually
+has, and is generated by the splitter rather than maintained. Without it, a track with no stems
+and a track whose files failed to deploy look identical — and since six of the eleven tracks are
+legitimately silent, swallowing 404s would make a broken deploy indistinguishable from an
+ordinary quiet area.
+
+**Rendering is offline and the result is committed**, like `Sound/`'s wavs. Making it a build
+step would put fluidsynth and a soundfont in the way of every `-DWASM_BROWSER=ON` and bake
+whichever soundfont was on the builder's machine into their copy. Rendering once means every
+player hears the same music — which is more than the native path can say, where the soundtrack
+is whatever the local MIDI device makes of it.
+
+**Two erase bugs fixed on the way past.** `ClearMIDIPlaylist` and `RemoveMIDIFile` both reused
+an iterator `vector::erase` had invalidated; `RemoveMIDIFile` also skipped the element after
+every match and could step past `end()`. Undefined either way. They survived because nothing
+calls `RemoveMIDIFile` and because the other one's misuse happens to do the right thing on a
+vector — luck that stops holding the moment anything else changes, and this change makes both
+run on a path that then pushes the result across a boundary.
+
+**What is measured.**
+
+| Check | Result |
+|---|---|
+| Stem split against the original, per group | **lossless** — every emitted stem carries its channels' events exactly, meta and timing identical, CC7 stripped |
+| Events dropped by the split | only controllers on groups with **zero notes**, which are inaudible by construction |
+| Native build after the audio.cpp changes | exit 0, links |
+| `emcmake` browser build | exit 0, warnings at the documented baseline; `music.js` in the bundle, `Music/` symlinked beside the page |
+| Objects in `libFeAudio.a` on Emscripten | **`audio.cpp.o` only** — RtMidi, parser, playback engine and helpers not compiled |
+| Both corpora, 8 runs each vs golden | **self-consistent and matching golden** |
+| `compare-targets.sh`, both corpora | **targets agree** — frames, text and screen all match |
+| `node tools/web/music.test.js` | **43/43** — playlist, index readback, restart-or-keep, intensity→gains, slew rate, volume routing, silent tracks |
+| Same suite against 6 deliberate mutations | **all 6 caught** (swapped curves, pinned index, always-restart, dropped slew, volume on the shared master, volume not applied at node creation) |
+| `touch tools/web/music.js` then rebuild | **relinks** — `LINK_DEPENDS` is wired, the §9.7 stale-pre-js trap is not reopened |
+
+**What is open.**
+
+- **Nothing has been rendered or heard yet.** `tools/music/render-stems.py` is written and the
+  split it consumes is verified, but fluidsynth is not installed on this machine, so no OGG
+  exists and no one has listened to any of this. Everything above is about the split, the
+  contract and the arithmetic being right. Until the render happens the browser is silent — the
+  manifest fetch fails, one console line says so, and the game plays on.
+- **The soundfont is an unmade decision.** Pre-rendering picks one canonical instrument set for
+  every player, which is a change in kind from the native path. Worth choosing by ear rather
+  than by whichever file `find_soundfont` reaches first.
+- **Total size is unmeasured.** 51.6 stem-minutes nominal, but the stems are sparse and Vorbis
+  is cheap on silence, so the linear estimate is an upper bound worth replacing with a
+  measurement before deciding the quality setting.
+- **Drift is unmeasured.** The rate-nudge correction is the standard fix and `stats().drift`
+  reports it, but three-element sync has only been reasoned about, not observed in a browser.
+- **`-sUSE_SDL_MIXER=2` is still dead weight**, and now more so: `FeAudio` no longer links it on
+  this target either, leaving `sfx.h`'s `Mix_Chunk*` as the only reason it is on the command
+  line.

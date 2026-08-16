@@ -39,7 +39,7 @@ if(EMSCRIPTEN)
   # effect and gets debugged as a code problem.
   if(WASM_BROWSER)
     set_target_properties(ivan PROPERTIES
-                          LINK_DEPENDS "${CMAKE_BINARY_DIR}/harness-pre.js;${CMAKE_SOURCE_DIR}/tools/web/sfx.js")
+                          LINK_DEPENDS "${CMAKE_BINARY_DIR}/harness-pre.js;${CMAKE_SOURCE_DIR}/tools/web/sfx.js;${CMAKE_SOURCE_DIR}/tools/web/music.js")
   endif()
 
   # Emitting .html rather than .js is what makes emcc generate the page and the
@@ -50,19 +50,27 @@ if(EMSCRIPTEN)
   if(WASM_BROWSER)
     set_target_properties(ivan PROPERTIES SUFFIX ".html")
 
-    # Sound/ is the one data directory the page fetches over HTTP instead of
-    # reading out of ivan.data (§9.7), so it has to be reachable at a URL
-    # relative to ivan.html. Symlinked rather than copied: it is 26MB, it is
-    # read-only, and a copy would go stale the moment a wav changed. This is
-    # what keeps the documented `emrun --no_browser build-web/Main` serving a
-    # complete game with no extra argument.
-    add_custom_command(TARGET ivan POST_BUILD
-                       COMMAND ${CMAKE_COMMAND} -E remove -f
-                               $<TARGET_FILE_DIR:ivan>/Sound
-                       COMMAND ${CMAKE_COMMAND} -E create_symlink
-                               ${CMAKE_SOURCE_DIR}/Sound
-                               $<TARGET_FILE_DIR:ivan>/Sound
-                       COMMENT "Linking Sound/ beside the page for §9.7 audio")
+    # Sound/ and Music/ are the data directories the page fetches over HTTP
+    # instead of reading out of ivan.data -- effects per §9.7, music per §9.8 --
+    # so both have to be reachable at a URL relative to ivan.html. Symlinked
+    # rather than copied: together they are ~28MB, they are read-only, and a
+    # copy would go stale the moment a wav or a stem changed. This is what keeps
+    # the documented `emrun --no_browser build-web/Main` serving a complete game
+    # with no extra argument.
+    #
+    # Music/ carries the .mid too, which the page never asks for. Linking the
+    # directory rather than picking files out of it keeps this rule simple and
+    # costs nothing: a symlink does not copy, and an unrequested file is not
+    # served.
+    foreach(AudioDir Sound Music)
+      add_custom_command(TARGET ivan POST_BUILD
+                         COMMAND ${CMAKE_COMMAND} -E remove -f
+                                 $<TARGET_FILE_DIR:ivan>/${AudioDir}
+                         COMMAND ${CMAKE_COMMAND} -E create_symlink
+                                 ${CMAKE_SOURCE_DIR}/${AudioDir}
+                                 $<TARGET_FILE_DIR:ivan>/${AudioDir}
+                         COMMENT "Linking ${AudioDir}/ beside the page for browser audio")
+    endforeach()
   endif()
 endif()
 

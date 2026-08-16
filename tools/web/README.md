@@ -211,3 +211,105 @@ previous copy, so the edit looks like it did nothing.
 There is no `configure_file` step and nothing is substituted at build time. What
 would have been build-time settings are query-string options instead, so they
 can be changed without a rebuild, exactly as `?crashlog=` is.
+
+---
+
+# music.js — the soundtrack, played by the page
+
+The same split as `sfx.js`, one level up: the module says what should be
+playing, this plays it. HARNESS.md §9.8 has the design argument. Nothing here
+synthesizes MIDI — the `.mid` are never fetched by the page.
+
+## Where the boundary is
+
+The playlist is the game's. `dungeon::PrepareMusic` builds it from the level
+scripts and `audio.cpp` keeps it, exactly as on the native build; what crosses
+is that list, plus the master volume and the intensity the game recomputes
+every turn:
+
+```
+dungeon::PrepareMusic          [C++]  playlist for this level
+  -> audio::LoadMIDIFile              -> Tracks
+  -> IvanMusicPlaylist("Dungeon.mid,Dungeon2.mid")   [bridge]
+  -> ivanMusic.setPlaylist(...)       [JS: choose, fetch, loop, mix]
+
+character::Be                  [C++]  every turn
+  -> audio::IntensityLevel(127 - worstBodyPartHP)
+  -> ivanMusic.setIntensity(...)      [JS: three gain nodes]
+```
+
+One value travels back, because `PrepareMusic` branches on it:
+`GetCurrentlyPlayedFile` is an `IvanMusicCurrentIndex()` readback resolved
+against the playlist. It is a plain synchronous `EM_JS` returning an `int` — no
+promise, no callback into wasm, nothing for asyncify.
+
+## The stems
+
+IVAN's music is adaptive: as the player's worst body part gets worse, some
+instrument groups fade out and others fade in. `audio.cpp`'s two volume tables
+only ever produce three curves, so each track is pre-rendered as up to three
+OGG stems and mixed here by three gain nodes:
+
+| stem | MIDI channels | gain |
+|---|---|---|
+| `const` | 0–4, 9 | full, always |
+| `fadeout` | 5–8, 10 | `127 - intensity` |
+| `fadein` | 11–15 | `intensity` |
+
+Regenerate them from the `.mid` with `tools/music/render-stems.py` and commit
+the result. `Music/stems.json` says which stems each track has, and is why the
+page never probes for a file that was never rendered: six of the eleven tracks
+have no notes at all, so "no stems" is a normal answer rather than a fault.
+
+Unlike effects, stems are **streamed** through `<audio>` elements rather than
+decoded into `AudioBuffer`s. Decoded audio is about 23MB per minute per stem,
+and `Dungeon3` is 7.3 minutes — half a gigabyte for one dungeon if it were
+cached the way `sfx.js` caches wavs.
+
+## From the console
+
+```js
+ivanMusic.stats()      // {track, stems, gains, intensity, volume, drift, ...}
+ivanMusic.playlist()   // what the module last handed down
+```
+
+```
+ivan.html?music=off            never play anything
+ivan.html?musicbase=<url>      fetch from somewhere other than the page's Music/
+ivan.html?musiccurve=linear    volume as a straight ratio, not the GM square law
+```
+
+`stats().drift` is the one to watch. Three media elements keep three clocks, and
+these stems are the same piece of music, so drift between them is heard as a
+doubled attack rather than as a timing error. They are pulled back with a 0.2%
+playback-rate nudge, which is inaudible; `corrections` counts those. If `seeks`
+is climbing, the rate nudge is not keeping up and something is wrong.
+
+## When it is silent
+
+1. **`stats().track` is `null` and `playlist()` is empty.** Nothing crossed the
+   bridge. Either the game has music off — `ChangeMIDIOutputDevice(0)`, which
+   is the "Use MIDI soundtrack: no" option — or `audio::Init` never ran.
+2. **`stats().track` is `null` but `playlist()` is not.** The playlist is all
+   silent tracks. Normal on the main menu, the world map, and any dungeon whose
+   script names `Empty.mid`; those six files are byte-identical and have no
+   notes. Check `Music/stems.json`.
+3. **`stats().failed` is climbing.** A stem in the manifest would not load.
+   `Music/` has to be served beside `ivan.html`; the build symlinks it, a deploy
+   that copies only the emcc output will not have it. Or the stems were never
+   rendered — `ls Music/*.ogg`.
+4. **`state()` is `suspended`.** The autoplay policy. Unlike effects, music is
+   picked up when the context resumes rather than dropped, because the main menu
+   asks for it before any gesture can have happened.
+
+## Editing it
+
+Same `--pre-js` and `LINK_DEPENDS` caveat as `sfx.js`, and one more: `music.js`
+is listed *after* `sfx.js` on the command line and depends on that order. It
+borrows the `AudioContext` `sfx.js` owns rather than opening a second one, so
+`ivanSfx` has to exist by the time it runs.
+
+`node tools/web/music.test.js` covers the module contract and the mixing
+arithmetic against stubs — the playlist, the index readback, the
+restart-or-keep rule at a level change, and intensity to gains. It needs no
+browser and no rendered audio.

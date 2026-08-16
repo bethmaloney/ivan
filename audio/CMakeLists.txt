@@ -1,4 +1,18 @@
-file(GLOB FEAUDIO_SOURCES *.h *.cpp)
+if(EMSCRIPTEN)
+  # Nothing on this target synthesizes MIDI: the page plays pre-rendered stems
+  # instead (HARNESS.md §9.8), so RtMidi, the MIDI parser, the playback engine
+  # and their helpers are not compiled at all rather than compiled and unused.
+  #
+  # That is about 4,700 lines, and none of it could have worked here. RtMidi
+  # auto-selects its dummy backend when no API macro is set (RtMidi.h:571) and
+  # answers "no devices" to everything, and the playback engine is driven by
+  # audio::Loop on an SDL thread that Emscripten never creates. What is left is
+  # audio.cpp, whose remaining job -- the playlist, the playback state, the
+  # volume and the intensity -- is the part the game actually calls.
+  set(FEAUDIO_SOURCES audio.cpp audio.h)
+else()
+  file(GLOB FEAUDIO_SOURCES *.h *.cpp)
+endif()
 
 add_library(FeAudio ${FEAUDIO_SOURCES})
 target_link_libraries(FeAudio FeLib)

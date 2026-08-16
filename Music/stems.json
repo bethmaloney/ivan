@@ -1,0 +1,32 @@
+{
+  "Cathedral.mid": [
+    "const",
+    "fadein"
+  ],
+  "Dungeon.mid": [
+    "const",
+    "fadeout",
+    "fadein"
+  ],
+  "Dungeon2.mid": [
+    "const",
+    "fadeout",
+    "fadein"
+  ],
+  "Dungeon3.mid": [
+    "const",
+    "fadeout",
+    "fadein"
+  ],
+  "Empty.mid": [],
+  "Japan.mid": [
+    "const",
+    "fadeout",
+    "fadein"
+  ],
+  "defeat.mid": [],
+  "mainmenu.mid": [],
+  "newgame.mid": [],
+  "victory.mid": [],
+  "world.mid": []
+}

@@ -242,6 +242,14 @@
 
   globalThis.ivanSfx = {
     play: Play,
+
+    /* Shared with music.js, which must not open a second context: browsers cap
+       how many a page may have, each one costs a device connection, and two
+       would need two separate resumes off the same gesture. Whichever of the
+       two files needs audio first creates it here, and the other joins it. */
+
+    context: Context,
+    master: function () { return Master; },
     stats: function () {
       return {
         played: Counts.played,

@@ -30,7 +30,21 @@
 #include "error.h"
 #include "festring.h"
 #include <vector>
+
+/* On Emscripten the page plays the music and nothing here synthesizes it
+   (HARNESS.md §9.8), so the MIDI machinery is not merely unused -- it is not
+   compiled at all. RtMidi cannot work on this target in any case: it would
+   auto-select its dummy backend, which is 2,800 lines that answer "no devices"
+   to everything.
+
+   What that leaves behind is exactly the part the game actually calls: the
+   playlist, the playback state, the volume and the intensity. Everything that
+   needs a MIDI type or the audio thread is guarded out below, and none of it
+   appears in main.cpp, dungeon.cpp, iconf.cpp, game.cpp or char.cpp. */
+
+#ifndef __EMSCRIPTEN__
 #include "RtMidi.h"
+#endif
 
 class musicfile
 {
@@ -78,7 +92,9 @@ public:
       US_PER_VOLUME_CHANGE  = 15000
    };
 
+#ifndef __EMSCRIPTEN__
    static void error(RtMidiError::Type type, const std::string &errorText, void *userData );
+#endif
 
    /**
     * @param musicDirectory path to the directory containing the MIDI files to load.
@@ -86,12 +102,21 @@ public:
    static void Init(cfestring& musicDirectory);
    static void DeInit(void);
 
+#ifndef __EMSCRIPTEN__
    static int Loop(void *ptr);
 
    static int PlayMIDIFile(cfestring& filename, int32_t loops);
 
    static void SendMIDIEvent(std::vector<unsigned char>* message);
+#endif
 
+   /**
+    * On Emscripten this reports one pseudo-device, because the page is the
+    * only output there is. That is what keeps ivanconfig unchanged: it enables
+    * the soundtrack when any device is present (iconf.cpp:1292) and names the
+    * selected one in the options menu, and "no" stays available by cycling
+    * past it exactly as it does natively.
+    */
    static int GetMIDIOutputDevices(std::vector<std::string>& deviceNames);
 
    static int ChangeMIDIOutputDevice(int newPort);
@@ -105,7 +130,9 @@ public:
 
    static int GetVolumeLevel(void);
 
+#ifndef __EMSCRIPTEN__
    static void SendVolumeMessage(int targetVolume);
+#endif
 
    /**
     * @param intensity 0 - 100
@@ -127,7 +154,9 @@ public:
 
    static void SetPlaybackStatus(uint8_t newStateBitmap);
 
+#ifndef __EMSCRIPTEN__
    static void CalculateChannelVolumes(int intensity, int* deltaIntensity);
+#endif
 
 private:
 
@@ -135,10 +164,19 @@ private:
    static bool isInit;
    static bool volumeChangeRequest;
    static int  MasterVolume; /** 0 - 127 */
+
+#ifndef __EMSCRIPTEN__
+   /* The three curves these two tables describe are the whole of the intensity
+      system, and on Emscripten they have been applied already: they are what
+      tools/music/split-stems.py cuts the rendered stems on, and what the three
+      gain nodes in tools/web/music.js drive. Keeping a second copy here that
+      nothing reads would be one more thing to drift. */
+
    static int  IntensityVolume[MAX_MIDI_CHANNELS];
 
    static int  InitialIntensityVolume[MAX_MIDI_CHANNELS];
    static int  DeltaVolumePerIntensity[MAX_MIDI_CHANNELS];
+#endif
 
    static int  TargetIntensity;
    static int  CurrentIntensity;
@@ -153,7 +191,10 @@ private:
 
    static std::vector<musicfile> Tracks;
 
+#ifndef __EMSCRIPTEN__
    static RtMidiOut* midiout;
+#endif
+
    static int CurrentMIDIOutPort;
 
 };

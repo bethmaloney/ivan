@@ -90,17 +90,21 @@ if(EMSCRIPTEN)
   option(WASM_ASYNCIFY "Unwind the stack around blocking input so interactive play works" ON)
 
   # Music/ and Sound/ are ~28MB against Graphics/ and Script/'s ~3.5MB, and
-  # neither belongs in ivan.data.
+  # neither belongs in ivan.data. Neither is needed there either, now that both
+  # are played by the page and fetched over HTTP: effects by tools/web/sfx.js
+  # (§9.7), music by tools/web/music.js (§9.8). Preloading would put 28MB back
+  # on the first load to populate a MEMFS nothing reads.
   #
-  # Sound/ does not need preloading at all any more, and this option no longer
-  # governs whether effects are audible: §9.7 moved playback to the page, and
-  # tools/web/sfx.js fetches each wav over HTTP the first time the game asks
-  # for it. Preloading it would put 26MB back on the first load to populate a
-  # MEMFS nothing reads. Music/ is still listed here because the MIDI path is
-  # unimplemented on this target -- RtMidi is a dummy (§9.3) -- so the 1.5MB
-  # would buy nothing either. The option is kept for the music work that will
-  # need to decide the same question again.
-  option(WASM_PRELOAD_AUDIO "Preload Music/ and Sound/ into ivan.data (~28MB; effects do not need it, see §9.7)" OFF)
+  # For Music/ it would be worse than useless. What the page fetches is the
+  # rendered OGG stems and stems.json beside them; the .mid are the *source*
+  # for those, they are never read on this target, and nothing here can play
+  # them -- the MIDI parser and playback engine are not even compiled (see
+  # audio/CMakeLists.txt). Preloading Music/ buys 1.5MB of files with no
+  # reader.
+  #
+  # Kept as an escape hatch for serving the page from somewhere that cannot
+  # serve the directories beside it.
+  option(WASM_PRELOAD_AUDIO "Preload Music/ and Sound/ into ivan.data (~28MB; neither is needed, see §9.7 and §9.8)" OFF)
 
   # Function names are not in here: WASM_BROWSER keeps them unconditionally,
   # because a report from a player's crash is worthless without them and cannot
@@ -278,6 +282,15 @@ if(EMSCRIPTEN)
     # without a rebuild, exactly as ?crashlog= is.
     set(IVAN_WASM_LINK_FLAGS
         "${IVAN_WASM_LINK_FLAGS} --pre-js ${CMAKE_CURRENT_SOURCE_DIR}/tools/web/sfx.js")
+
+    # Music, likewise played by the page (§9.8). After sfx.js, and that order
+    # matters: music.js borrows the AudioContext sfx.js owns rather than
+    # opening a second one, so the object it looks for has to exist by the time
+    # it runs. Both are plain --pre-js with nothing substituted, and their
+    # options are query-string rather than build-time for the same reason
+    # ?crashlog= is.
+    set(IVAN_WASM_LINK_FLAGS
+        "${IVAN_WASM_LINK_FLAGS} --pre-js ${CMAKE_CURRENT_SOURCE_DIR}/tools/web/music.js")
 
     # Function names are kept in *every* browser build, not just a debug one.
     # --profiling-funcs preserves the name section and changes no codegen, so it

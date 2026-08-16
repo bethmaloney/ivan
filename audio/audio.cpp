@@ -34,8 +34,13 @@
 #include <cstdio>
 #include <cstring>
 #include "message.h"
-#include "midiplayback.h"
 #include "game.h"
+
+#ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+#else
+#include "midiplayback.h"
+#endif
 
 
 musicfile::musicfile(cfestring& Filename, int LowThreshold, int HighThreshold)
@@ -43,6 +48,8 @@ musicfile::musicfile(cfestring& Filename, int LowThreshold, int HighThreshold)
 {
    isPlaying = false;
 }
+
+#ifndef __EMSCRIPTEN__
 
 /* Track picking deliberately does not use rand(): that is one process wide
    stream, and audio::Loop below runs on its own thread, so every draw made
@@ -61,6 +68,8 @@ static ulong NextTrackRand()
    return State;
 }
 
+#endif
+
 int audio::MasterVolume;
 int audio::TargetIntensity;
 int audio::CurrentIntensity;
@@ -75,10 +84,13 @@ int audio::CurrentPosition;
 int audio::CurrentMIDIOutPort;
 
 std::vector<musicfile> audio::Tracks;
-RtMidiOut* audio::midiout = 0;
 
 festring audio::CurrentTrack;
 festring audio::MusDir;
+
+#ifndef __EMSCRIPTEN__
+
+RtMidiOut* audio::midiout = 0;
 
 /** For each increase in intensity, the respective MIDI channel changes by the following amount */
 int  audio::DeltaVolumePerIntensity[MAX_MIDI_CHANNELS] = {0, 0, 0, 0, 0, -1, -1, -1, -1, 0, -1, 1, 1, 1, 1, 1};
@@ -93,6 +105,95 @@ void audio::error(RtMidiError::Type type, const std::string &errorText, void *us
 {
 
 }
+
+#else
+
+/* The browser plays the music; this decides what it should be (HARNESS.md
+   §9.8). The split is the one sfx.cpp already makes for effects, and the same
+   reasoning puts the cut in the same place: the playlist is built from the
+   level scripts by dungeon::PrepareMusic and belongs to the game, while
+   fetching, decoding, looping and mixing belong to the page.
+
+   Fire and forget in both directions but one. Nothing here waits on the page,
+   so asyncify has nothing to unwind and a slow fetch cannot stall a turn, and
+   everything that can fail -- a missing render, a decode error, a context the
+   autoplay policy still holds suspended -- fails on the JS side and stays
+   quiet, which is what the RtMidi path does when no device will open.
+
+   The exception is IvanMusicCurrentIndex, which has to answer *now* because
+   dungeon::PrepareMusic branches on it. It is a plain synchronous EM_JS
+   returning an int: no promise, no callback into wasm, nothing for asyncify.
+   An index into the playlist rather than a string keeps the ownership of that
+   memory on this side, where it already is. */
+
+EM_JS(void, IvanMusicPlaylist, (const char* Names), {
+  var Music = globalThis.ivanMusic;
+
+  if(!Music)
+    return;
+
+  Music.setPlaylist(UTF8ToString(Names));
+});
+
+EM_JS(void, IvanMusicPlaying, (int State), {
+  var Music = globalThis.ivanMusic;
+
+  if(!Music)
+    return;
+
+  Music.setPlaying(!!State);
+});
+
+EM_JS(void, IvanMusicVolume, (int Level), {
+  var Music = globalThis.ivanMusic;
+
+  if(!Music)
+    return;
+
+  Music.setVolume(Level);
+});
+
+EM_JS(void, IvanMusicIntensity, (int Level), {
+  var Music = globalThis.ivanMusic;
+
+  if(!Music)
+    return;
+
+  Music.setIntensity(Level);
+});
+
+EM_JS(int, IvanMusicCurrentIndex, (), {
+  var Music = globalThis.ivanMusic;
+
+  if(!Music)
+    return -1;
+
+  return Music.currentIndex();
+});
+
+/* Pushed whole on every change rather than as add/remove deltas, because the
+   list is at most a handful of names and a single authoritative copy cannot
+   fall out of step with this one. dungeon::PrepareMusic mutates it several
+   times per level change; music.js compares against what it already has and
+   does nothing when they match, so the repeats cost nothing and the music does
+   not restart. */
+
+static void PushPlaylist(const std::vector<musicfile>& Tracks)
+{
+   festring Names;
+
+   for(uint c = 0; c < Tracks.size(); ++c)
+   {
+      if(c)
+         Names << ',';
+
+      Names << Tracks[c].GetFilename();
+   }
+
+   IvanMusicPlaylist(Names.CStr());
+}
+
+#endif
 
 void audio::Init(cfestring& musicDirectory)
 {
@@ -112,6 +213,28 @@ void audio::Init(cfestring& musicDirectory)
    volumeChangeRequest = false;
    CurrentTrack.Empty();
    MusDir = musicDirectory;
+
+#ifdef __EMSCRIPTEN__
+
+   /* No device to open and no thread to run it. The page creates its own
+      AudioContext on the first gesture, and what audio::Loop existed to do --
+      wait for a track to end, then choose the next -- is an 'ended' listener
+      there. Emscripten has no pthread here anyway: SDL_CreateThread would
+      return null and the loop would simply never run, which is what has kept
+      the browser build silent until now (§9.3).
+
+      isInit is still set, because everything below reads it as "the playlist
+      may be used". atexit stays too: EXIT_RUNTIME is on so main returning does
+      run it, and DeInit stopping the music is worth having on the way out. */
+
+   PlaybackState = 0x00;
+   isInit = true;
+   isTrackPlaying = false;
+   PushPlaylist(Tracks);
+   atexit(audio::DeInit);
+   return;
+
+#else
 
    // RtMidiOut constructor
    try
@@ -151,6 +274,8 @@ void audio::Init(cfestring& musicDirectory)
    isTrackPlaying = false;
    atexit(audio::DeInit);
 
+#endif
+
 }
 
 void audio::DeInit(void)
@@ -158,14 +283,22 @@ void audio::DeInit(void)
    SetPlaybackStatus(STOPPED);
    isInit = false;
 
+#ifndef __EMSCRIPTEN__
    if( midiout )
    {
       delete midiout;
    }
+#endif
 
    Tracks.erase(Tracks.begin(), Tracks.end());
 
+#ifdef __EMSCRIPTEN__
+   PushPlaylist(Tracks);
+#endif
+
 }
+
+#ifndef __EMSCRIPTEN__
 
 int audio::Loop(void *ptr)
 {
@@ -191,9 +324,33 @@ int audio::Loop(void *ptr)
    return 0;
 }
 
+#endif
+
 
 cfestring& audio::GetCurrentlyPlayedFile()
 {
+#ifdef __EMSCRIPTEN__
+
+   /* The page chose the track, so this is a readback rather than a field.
+      dungeon::PrepareMusic calls it on every level change to decide whether
+      the new area shares the track already playing, and keeps it running if so
+      (dungeon.cpp:174) -- so an answer that is merely plausible would restart
+      the music at every staircase.
+
+      Resolved through the playlist by index: music.js holds the name it picked
+      and looks it up in the list this side last pushed, which stays right
+      across the reorder ClearMIDIPlaylist performs. Out of range means nothing
+      is playing, and an empty string is what PrepareMusic already handles. */
+
+   int Index = IvanMusicCurrentIndex();
+
+   if(Index >= 0 && Index < int(Tracks.size()))
+      CurrentTrack = Tracks[Index].GetFilename();
+   else
+      CurrentTrack.Empty();
+
+#endif
+
    return CurrentTrack;
 }
 
@@ -208,6 +365,21 @@ int audio::ChangeMIDIOutputDevice(int newPort)
 {
    if( !isInit )
       return 0;
+
+#ifdef __EMSCRIPTEN__
+
+   /* One pseudo-device, so port 1 is the page and port 0 is still "no". The
+      same two states the native path has, without a port to open. */
+
+   if( newPort != CurrentMIDIOutPort )
+   {
+      CurrentMIDIOutPort = newPort;
+      SetPlaybackStatus(newPort ? (audio::PLAYING | audio::RESUME_SONG) : 0x00);
+   }
+
+   return 0;
+
+#else
 
    if( newPort != CurrentMIDIOutPort)
    {
@@ -236,12 +408,27 @@ int audio::ChangeMIDIOutputDevice(int newPort)
    }
 
    return 0;
+
+#endif
 }
 
 int audio::GetMIDIOutputDevices(std::vector<std::string>& deviceNames)
 {
    if( !isInit )
       return 0;
+
+#ifdef __EMSCRIPTEN__
+
+   /* Named for what it is, because this string is what the options menu shows
+      against "Use MIDI soundtrack" (iconf.cpp:600). Reporting one device is
+      also what turns the soundtrack on by default here: Initialize enables it
+      whenever the count is non-zero (iconf.cpp:1292). */
+
+   deviceNames.push_back("Web Audio");
+
+   return int(deviceNames.size());
+
+#else
 
    int nPorts = midiout->getPortCount();
    std::string portName;
@@ -259,8 +446,12 @@ int audio::GetMIDIOutputDevices(std::vector<std::string>& deviceNames)
    }
 
    return int(deviceNames.size());
+
+#endif
 }
 
+
+#ifndef __EMSCRIPTEN__
 
 void audio::SendVolumeMessage(int targetVolume)
 {
@@ -384,11 +575,17 @@ int audio::PlayMIDIFile(cfestring& filename, int32_t loops)
    return 0;
 }
 
+#endif
+
 
 void audio::SetVolumeLevel(int vol)
 {
    MasterVolume = vol;
    volumeChangeRequest = true;
+
+#ifdef __EMSCRIPTEN__
+   IvanMusicVolume(vol);
+#endif
 }
 
 int audio::GetVolumeLevel(void)
@@ -401,6 +598,16 @@ void audio::IntensityLevel(int intensity)
    if( intensity != TargetIntensity )
    {
       TargetIntensity = intensity;
+
+#ifdef __EMSCRIPTEN__
+      /* character::Be recomputes this every turn from the player's worst body
+         part (char.cpp:1062), so it arrives often and mostly unchanged. Only
+         the changes are worth a call across the boundary, and music.js ramps
+         to the new value over the same 15ms-per-step the native mixer takes
+         (US_PER_VOLUME_CHANGE) rather than jumping. */
+
+      IvanMusicIntensity(intensity);
+#endif
    }
    /* Do a check to see if we change / cue MIDI file */
 }
@@ -409,6 +616,20 @@ void audio::IntensityLevel(int intensity)
 void audio::SetPlaybackStatus(uint8_t newStateBitmap)
 {
    PlaybackState = newStateBitmap;
+
+#ifdef __EMSCRIPTEN__
+
+   /* No thread, so nothing to wait for -- and waiting is the one thing this
+      must not do here. isTrackPlaying is only ever cleared by audio::Loop,
+      which does not run on this target, so the spin below would be an
+      unbreakable loop on the single thread the whole page shares if anything
+      ever set it. */
+
+   IvanMusicPlaying(PlaybackState & PLAYING);
+   return;
+
+#else
+
    if( !(PlaybackState & PLAYING))
    {
       //Wait until the track has finished playing
@@ -417,8 +638,18 @@ void audio::SetPlaybackStatus(uint8_t newStateBitmap)
 
       }
    }
+
+#endif
 }
 
+
+/* Both erasers take the iterator vector::erase hands back rather than reusing
+   the one it invalidated. The old form is undefined either way, and
+   RemoveMIDIFile's -- erase and then ++it -- also skipped the element after
+   every match and could step past end(). It survived because nothing calls it
+   and because ClearMIDIPlaylist's misuse happens to do the right thing on a
+   vector, which is the kind of luck that stops holding the moment anything
+   else changes. */
 
 void audio::ClearMIDIPlaylist(cfestring& exceptFilename)
 {
@@ -430,26 +661,40 @@ void audio::ClearMIDIPlaylist(cfestring& exceptFilename)
       }
       else
       {
-         Tracks.erase(it);
+         it = Tracks.erase(it);
       }
    }
+
+#ifdef __EMSCRIPTEN__
+   PushPlaylist(Tracks);
+#endif
 }
 
 void audio::RemoveMIDIFile(cfestring& filename)
 {
-   for(auto it = Tracks.begin(); it != Tracks.end(); ++it)
+   for(auto it = Tracks.begin(); it != Tracks.end();)
    {
       if(it->GetFilename() == filename)
-      {
-         Tracks.erase(it);
-      }
+         it = Tracks.erase(it);
+      else
+         ++it;
    }
+
+#ifdef __EMSCRIPTEN__
+   PushPlaylist(Tracks);
+#endif
 }
 
 void audio::LoadMIDIFile(cfestring& filename, int intensitylow, int intensityhigh)
 {
   Tracks.push_back(musicfile(filename, intensitylow, intensityhigh));
+
+#ifdef __EMSCRIPTEN__
+  PushPlaylist(Tracks);
+#endif
 }
+
+#ifndef __EMSCRIPTEN__
 
 void audio::SendMIDIEvent(std::vector<unsigned char>* message)
 {
@@ -495,3 +740,5 @@ void SendMIDIEvent(MIDI_CHAN_EVENT_t* event)
    }
    audio::SendMIDIEvent( &message );
 }
+
+#endif
