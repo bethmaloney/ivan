@@ -466,7 +466,7 @@ page rather than a 5MB one, and `/play/` is where the download starts.
 
 ```
 site/
-  index.html        the whole page -- markup, CSS and its one script
+  index.html        the whole page -- markup and CSS, no script
   icon.png          Graphics/Icon.bmp at 128px. A pick-axe and a banana.
   screenshot.webp   frame 594 of the autoplay-200 corpus, lossless, 60KB
   fonts/            Grenze, Spectral and IBM Plex Mono, latin subset only
@@ -480,16 +480,14 @@ because a variable font answers every weight in its range with the same file —
 Grenze 600 and 700 are one download, and writing it twice would put a copy of it
 on every first load for nothing.
 
-**Everything quoted on the page is real**, and that is the point rather than a
-flourish. The body part numbers are `Script/item.dat:4859`. The sentences are
-what `char.cpp:2005` builds out of a part's `NameSingular`. The opening text is
-`game.cpp:790`. The key list is `command.cpp:92`. The screenshot is a replayed
-recording rather than a staged shot. If one of those files changes, the page is
-wrong, so check it when they do.
+**Everything on the page is real**, and that is the point rather than a
+flourish. The key list is `command.cpp:92`. The screenshot is a replayed
+recording — frame 594 of the autoplay-200 corpus — rather than a staged shot.
+If either changes, the page is wrong, so check it when they do.
 
-The page also states plainly that a run does not survive the tab, because a
-player who loses two hours to a closed tab was misled by the page rather than by
-the game. Delete that line when IDBFS lands (HARNESS.md §9 step 5), not before.
+The page no longer prints those sources beside what it took from them. That was
+a deliberate trim for the reader, not a licence to let them drift: this file is
+where the provenance lives now.
 
 ---
 

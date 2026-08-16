@@ -152,15 +152,7 @@ code {
 /* ---- hero -------------------------------------------------------------- */
 
 .hero {
-  display: grid;
-  grid-template-columns: minmax(0, 1.1fr) minmax(22rem, 1fr);
-  gap: clamp(2rem, 5vw, 3.5rem);
-  align-items: center;
   padding-block: clamp(3rem, 9vw, 6.5rem) clamp(3rem, 8vw, 5.5rem);
-}
-
-@media (max-width: 56rem) {
-  .hero { grid-template-columns: minmax(0, 1fr); }
 }
 
 .hero h1 {
@@ -222,108 +214,6 @@ code {
   letter-spacing: 0.04em;
   color: var(--ash);
   line-height: 1.9;
-}
-
-/* ---- the plate ---------------------------------------------------------- */
-
-.plate {
-  border: 1px solid var(--char);
-  background: var(--loam);
-  padding: 1.6rem 1.7rem 1.4rem;
-}
-
-@media (max-width: 30rem) {
-  .plate { padding: 1.2rem; }
-}
-
-.figure {
-  width: 100%;
-  max-width: 25rem;
-  height: auto;
-  display: block;
-  margin: 0 auto 1.2rem;
-}
-
-/* A part is a group: the shape, its leader line and its label all light
-   together, because they are one thing being pointed at. */
-.part { cursor: pointer; }
-
-.part rect, .part ellipse {
-  fill: #241c15;
-  stroke: #4a3a2b;
-  stroke-width: 1.5;
-  transition: fill 140ms ease, stroke 140ms ease;
-}
-
-.part line {
-  stroke: #4a3a2b;
-  stroke-width: 1;
-  transition: stroke 140ms ease;
-}
-
-.part text {
-  font-family: 'IBM Plex Mono', monospace;
-  font-size: 9px;
-  letter-spacing: 0.08em;
-  fill: var(--ash);
-  transition: fill 140ms ease;
-}
-
-.part:hover rect, .part:hover ellipse { fill: #3b2d21; stroke: var(--ash); }
-.part:hover text { fill: var(--bone); }
-
-/* Lit and bleeding, not merely highlighted: the deep red reads as the part
-   that has just been hit, which is what the readout below is describing. */
-.part.on rect, .part.on ellipse {
-  fill: #7d2b22;
-  stroke: var(--torch);
-  stroke-width: 2;
-}
-
-.part.on line { stroke: var(--torch); }
-.part.on text { fill: var(--torch); }
-
-.figure:focus-visible { outline: none; }
-.part:focus-visible { stroke: var(--torch); stroke-width: 2.5; }
-
-/* ---- the readout beside it ---------------------------------------------- */
-
-.readout h3 {
-  font-size: 1.5rem;
-  letter-spacing: 0.02em;
-  margin-bottom: 0.9rem;
-  color: var(--bone);
-}
-
-.stats {
-  width: 100%;
-  border-collapse: collapse;
-  margin-bottom: 1rem;
-}
-
-.stats th, .stats td {
-  font-family: 'IBM Plex Mono', monospace;
-  font-size: 0.72rem;
-  letter-spacing: 0.04em;
-  text-align: left;
-  padding: 0.28rem 0;
-  border-bottom: 1px solid var(--char);
-  font-weight: 400;
-}
-
-.stats th { color: var(--ash); }
-.stats td { color: var(--ichor); text-align: right; }
-
-.said {
-  font-family: 'IBM Plex Mono', monospace;
-  font-size: 0.78rem;
-  line-height: 1.7;
-  letter-spacing: 0.01em;
-  color: var(--bone);
-  border-left: 2px solid var(--rubric);
-  padding-left: 0.8rem;
-  margin: 0;
-  min-height: 4.2em;
 }
 
 .cite {
@@ -540,154 +430,22 @@ footer p { margin: 0 0 0.4rem; }
 
 <div class="wrap">
   <section class="hero">
-    <div>
-      <span class="mono">Roguelike &middot; v0.59 &middot; free and open source</span>
-      <h1>Iter Vehemens ad Necem</h1>
-      <p class="gloss">“a vehement journey to death”</p>
+    <span class="mono">Roguelike &middot; v0.59 &middot; free and open source</span>
+    <h1>Iter Vehemens ad Necem</h1>
+    <p class="gloss">“a vehement journey to death”</p>
 
-      <p class="lead">
-        IVAN models your body one part at a time. Parts come off. A severed part
-        is <strong>food</strong> — so when you try to eat your own arm, the game
-        stops and asks whether you are sure, because you may still be able to
-        put it back.
-      </p>
+    <p class="lead">
+      IVAN models your body one part at a time. Parts come off.
+    </p>
 
-      <a class="play" href="/play/">Play in your browser</a>
+    <a class="play" href="/play/">Play in your browser</a>
 
-      <p class="terms">
-        5 MB &middot; nothing to install &middot; no account<br>
-        saves to your browser &middot; Chrome 85+, Firefox 79+ or Safari 15+
-      </p>
-    </div>
-
-    <!-- The signature. Seven parts, the numbers the game actually gives them,
-         and a sentence it actually prints when something bites one. -->
-    <div class="plate">
-      <svg class="figure" viewBox="0 0 320 300" role="group"
-           aria-label="The seven body parts IVAN models. Choose one to read its values.">
-        <defs>
-          <radialGradient id="lamp" cx="50%" cy="32%" r="58%">
-            <stop offset="0%" stop-color="#e89a3c" stop-opacity="0.12"/>
-            <stop offset="100%" stop-color="#e89a3c" stop-opacity="0"/>
-          </radialGradient>
-        </defs>
-
-        <rect x="0" y="0" width="320" height="300" fill="url(#lamp)"/>
-
-        <g class="part" data-part="head" tabindex="0" role="button" aria-label="head">
-          <ellipse cx="160" cy="38" rx="21" ry="24"/>
-          <line x1="216" y1="38" x2="183" y2="38"/>
-          <text x="222" y="41" text-anchor="start">head</text>
-        </g>
-
-        <!-- The arms start below the top of the torso on purpose. A horizontal
-             leader to the torso at any height the arms also occupy would run
-             straight through one of them, and a leader line that crosses the
-             part it is not pointing at is a diagram that lies. Shoulders solve
-             it: the band at y=74 belongs to the torso alone. -->
-        <g class="part" data-part="rightarm" tabindex="0" role="button" aria-label="right arm">
-          <rect x="108" y="82" width="19" height="70" rx="9"/>
-          <line x1="104" y1="117" x2="98" y2="117"/>
-          <text x="94" y="120" text-anchor="end">right arm</text>
-        </g>
-
-        <g class="part" data-part="torso" tabindex="0" role="button" aria-label="torso">
-          <rect x="134" y="68" width="52" height="84" rx="10"/>
-          <line x1="216" y1="74" x2="188" y2="74"/>
-          <text x="222" y="77" text-anchor="start">torso</text>
-        </g>
-
-        <g class="part" data-part="leftarm" tabindex="0" role="button" aria-label="left arm">
-          <rect x="193" y="82" width="19" height="70" rx="9"/>
-          <line x1="222" y1="117" x2="214" y2="117"/>
-          <text x="228" y="120" text-anchor="start">left arm</text>
-        </g>
-
-        <g class="part" data-part="groin" tabindex="0" role="button" aria-label="groin">
-          <rect x="139" y="153" width="42" height="25" rx="8"/>
-          <line x1="104" y1="166" x2="137" y2="166"/>
-          <text x="94" y="169" text-anchor="end">groin</text>
-        </g>
-
-        <g class="part" data-part="rightleg" tabindex="0" role="button" aria-label="right leg">
-          <rect x="139" y="183" width="20" height="90" rx="9"/>
-          <line x1="104" y1="232" x2="137" y2="232"/>
-          <text x="94" y="235" text-anchor="end">right leg</text>
-        </g>
-
-        <g class="part" data-part="leftleg" tabindex="0" role="button" aria-label="left leg">
-          <rect x="161" y="183" width="20" height="90" rx="9"/>
-          <line x1="216" y1="248" x2="183" y2="248"/>
-          <text x="222" y="251" text-anchor="start">left leg</text>
-        </g>
-      </svg>
-
-      <div class="readout">
-        <h3 id="part-name">head</h3>
-
-        <table class="stats">
-          <tbody>
-            <tr><th scope="row">StrengthModifier</th><td id="part-str">200</td></tr>
-            <tr><th scope="row">Roundness</th><td id="part-round">70</td></tr>
-          </tbody>
-        </table>
-
-        <p class="said" id="part-said" aria-live="polite">
-          The large hedgehog bites you in the head! You feel quite happy.
-        </p>
-
-        <span class="cite">
-          Every one of them is <b>Category = FOOD</b> and
-          <b>IsSadistWeapon = true</b>.<br>
-          Script/item.dat:4859
-        </span>
-      </div>
-    </div>
+    <p class="terms">
+      5 MB &middot; nothing to install &middot; no account<br>
+      saves to your browser &middot; Chrome 85+, Firefox 79+ or Safari 15+
+    </p>
   </section>
 </div>
-
-<!-- ---- the premise --------------------------------------------------- -->
-
-<div class="rule"></div>
-
-<section class="band">
-  <div class="wrap">
-    <div class="premise">
-      <div>
-        <span class="mono eyebrow">The job</span>
-        <h2>Deliver a letter.</h2>
-        <p class="prose">
-          You gather bananas for a living. The viceroy of the colony needs a
-          message carried to high priest Petrus in Attnam, and the only route is
-          an underwater tunnel he describes as infested with monsters but
-          probably fine.
-        </p>
-        <p class="prose">
-          This is the whole plot, and the game means all of it sincerely. What
-          follows is the part where you lose an arm to a hedgehog.
-        </p>
-      </div>
-
-      <blockquote class="quote">
-        <p>
-          You couldn’t possibly have guessed this day would differ from any
-          other. It began just as always. <em>You woke up at dawn and drove off
-          the giant spider resting on your face.</em> On your way to work you had
-          serious trouble avoiding the lions and pythons roaming wild around the
-          village.
-        </p>
-        <p>
-          After getting kicked by colony masters for being late you performed
-          your twelve-hour routine of climbing trees, gathering bananas,
-          climbing trees, gathering bananas, chasing monkeys that stole the
-          first gathered bananas, carrying bananas to the village and trying to
-          look happy when real food was distributed.
-        </p>
-        <span class="cite">The game’s opening screen &middot; Main/Source/game.cpp:790</span>
-      </blockquote>
-    </div>
-  </div>
-</section>
 
 <!-- ---- the picture --------------------------------------------------- -->
 
@@ -695,73 +453,12 @@ footer p { margin: 0 0 0.4rem; }
 
 <section class="band">
   <div class="wrap">
-    <span class="mono eyebrow">Underwater Tunnel, level 1, turn 161</span>
+    <span class="mono eyebrow">Underwater Tunnel, level 1</span>
     <h2>What it looks like from inside.</h2>
 
     <img class="shot" src="/screenshot.webp" width="800" height="600" loading="lazy"
          alt="IVAN in play: a brown cave corridor lit unevenly, the player beside a zombie,
               a stat panel reading HP 24 of 35 in red, and a message log recording the fight.">
-
-    <p class="mono shot-note">
-      Frame 594 of a recorded session, replayed to the same pixel every time.<br>
-      The red HP is not a coincidence — the zombie is still there.
-    </p>
-  </div>
-</section>
-
-<!-- ---- systems -------------------------------------------------------- -->
-
-<div class="rule"></div>
-
-<section class="band">
-  <div class="wrap">
-    <span class="mono eyebrow">Under it</span>
-    <h2>Simulation, not scenery.</h2>
-    <p class="prose">
-      Everything in IVAN is made of something, and the something has opinions.
-      These are counts out of the game’s own data files.
-    </p>
-
-    <div class="systems">
-      <div class="system">
-        <span class="figure-number">411</span>
-        <span class="unit">materials</span>
-        <p>
-          Each with a strength, a density, a colour and a patron god. A sword’s
-          material decides whether it bends. A banana peel has
-          <code>Flexibility = 10</code>, which is why you slip on it.
-        </p>
-      </div>
-
-      <div class="system">
-        <span class="figure-number">186</span>
-        <span class="unit">kinds of creature</span>
-        <p>
-          They have bodyparts too, and the same rules apply to theirs. This is
-          why you can end a fight holding something that used to belong to the
-          other party.
-        </p>
-      </div>
-
-      <div class="system">
-        <span class="figure-number">7</span>
-        <span class="unit">parts of you</span>
-        <p>
-          Tracked separately, damaged separately, lost separately. Losing a leg
-          is not a number going down; it is a leg on the floor.
-        </p>
-      </div>
-
-      <div class="system">
-        <span class="figure-number">62%</span>
-        <span class="unit">of notes, silent</span>
-        <p>
-          The soundtrack is adaptive: instruments fade in as your worst body
-          part gets worse. At full health most of the notes are silent. Getting
-          hurt is how you hear the rest of the song.
-        </p>
-      </div>
-    </div>
   </div>
 </section>
 
@@ -775,8 +472,7 @@ footer p { margin: 0 0 0.4rem; }
     <h2>Controls.</h2>
     <p class="prose">
       Move with the arrow or numpad keys. Press <kbd>?</kbd> in the game for the
-      full list — there are forty-odd commands and these are the ones you need
-      in the first ten minutes.
+      full list.
     </p>
 
     <table class="keys">
@@ -795,8 +491,6 @@ footer p { margin: 0 0 0.4rem; }
         <tr><td><kbd>S</kbd></td><td>save and quit</td></tr>
       </tbody>
     </table>
-
-    <p class="mono shot-note">Main/Source/command.cpp:92</p>
   </div>
 </section>
 
@@ -817,18 +511,7 @@ footer p { margin: 0 0 0.4rem; }
           logic is unchanged — the same code, on a different target.
         </p>
         <p>
-          Sound and music are the exception: those are played by the page rather
-          than by the module, which keeps 60 MB of audio off the first load.
-        </p>
-      </div>
-
-      <div>
-        <h3>Correctness</h3>
-        <p>
-          IVAN shipped with no tests. Before any of this, the fork grew a
-          differential harness: record a session, replay it, hash every frame.
-          Native and WebAssembly builds now produce byte-identical traces,
-          screenshots and save files on both committed corpora.
+          An unofficial fork of IVAN, ported to the web.
         </p>
       </div>
 
@@ -858,65 +541,6 @@ footer p { margin: 0 0 0.4rem; }
 <footer class="wrap">
   <p class="mono">Iter Vehemens ad Necem &middot; you die</p>
 </footer>
-
-<script>
-(function () {
-  'use strict';
-
-  /* Numbers straight out of Script/item.dat:4859-4950. The sentences are the
-     game's own: char.cpp:2005 builds "<attacker> bites you in the <part>!" from
-     the part's NameSingular, so each of these is a line IVAN prints. The head
-     one is verbatim from a recorded session -- it really does say that. */
-
-  var Parts = {
-    head:     ['head',      200, 70, 'The large hedgehog bites you in the head! You feel quite happy.'],
-    torso:    ['torso',     250, 60, 'The zombie hits you! Your torso bleeds very badly.'],
-    rightarm: ['right arm', 100, 15, 'The large hedgehog bites you in the right arm!'],
-    leftarm:  ['left arm',  100, 15, 'The large hedgehog bites you in the left arm!'],
-    groin:    ['groin',     150, 40, 'The kobold makes vulgar gestures in your general direction.'],
-    rightleg: ['right leg', 125, 20, 'The large hedgehog bites you in the right leg!'],
-    leftleg:  ['left leg',  125, 20, 'Bodypart severed!']
-  };
-
-  var Name = document.getElementById('part-name');
-  var Str = document.getElementById('part-str');
-  var Round = document.getElementById('part-round');
-  var Said = document.getElementById('part-said');
-  var Shapes = document.querySelectorAll('.part');
-
-  function Show(Shape) {
-    var Part = Parts[Shape.getAttribute('data-part')];
-
-    if (!Part)
-      return;
-
-    Shapes.forEach(function (Other) { Other.classList.remove('on'); });
-    Shape.classList.add('on');
-
-    Name.textContent = Part[0];
-    Str.textContent = Part[1];
-    Round.textContent = Part[2];
-    Said.textContent = Part[3];
-  }
-
-  Shapes.forEach(function (Shape) {
-    Shape.addEventListener('mouseenter', function () { Show(Shape); });
-    Shape.addEventListener('focus', function () { Show(Shape); });
-    Shape.addEventListener('click', function () { Show(Shape); });
-
-    /* role="button" promises the keyboard behaviour of one, and an SVG shape
-       gives none of it for free. */
-    Shape.addEventListener('keydown', function (Event) {
-      if (Event.key === 'Enter' || Event.key === ' ') {
-        Event.preventDefault();
-        Show(Shape);
-      }
-    });
-  });
-
-  Show(document.querySelector('[data-part="head"]'));
-})();
-</script>
 
 </body>
 </html>
