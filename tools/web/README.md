@@ -564,12 +564,13 @@ npx wrangler pages deploy dist --project-name=playivan --branch main
 **Both of those arguments are load-bearing and this file used to have the first
 one wrong.** The project is `playivan`, not `ivan`; `wrangler pages project
 list` is the authority, and the wrong name fails loudly. `--branch` fails
-quietly, which is worse: the project's production branch is `main`, the git
-branch here is `master`, and wrangler labels a deployment with the branch it
-thinks you are on. Without `--branch main` the deploy succeeds, prints a URL
-that serves the new build, and leaves `playivan.pages.dev` on the previous
-production deployment — a deploy that looks done and changed nothing anyone
-visits. `wrangler pages deployment list --project-name=playivan` shows the
+quietly, which is worse: the project's production branch is `main` and wrangler
+labels a deployment with the branch it thinks you are on. The git branch here
+was `master` when that bit us; it is `main` now, so the two agree, but the flag
+stays explicit rather than trusting the inference. Without it the deploy
+succeeds, prints a URL that serves the new build, and leaves
+`playivan.pages.dev` on the previous production deployment — a deploy that looks
+done and changed nothing anyone visits. `wrangler pages deployment list --project-name=playivan` shows the
 Environment column that gives it away.
 
 `wrangler pages deploy` will not create the project for you; run

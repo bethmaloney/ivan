@@ -1,6 +1,6 @@
 # IVAN Differential Test Harness — Progress & Handoff
 
-**Status:** working and verified. Thirty-six commits on `master` of the fork (§8). Nothing has
+**Status:** working and verified. Thirty-six commits on `main` of the fork (§8). Nothing has
 been offered upstream. The corpora are committed (§5b), the host libm is no longer an input
 (§6.7), and the one known Emscripten build error is fixed (§6.8).
 
@@ -1862,9 +1862,9 @@ savediff to prove the change did not alter semantics.
 
 ## 8. Change inventory
 
-Committed on **`master` of the fork `bethmaloney/ivan`**, thirty-six commits on top of upstream
-`de528ac`. `origin` still points at `Attnam/ivan` and is untouched; the fork is the remote
-named `fork`. **Nothing has been offered upstream.**
+Committed on **`main` of the fork `bethmaloney/ivan`**, thirty-six commits on top of upstream
+`de528ac`. `origin` still points at `Attnam/ivan`, whose default branch is `master`, and is
+untouched; the fork is the remote named `fork`. **Nothing has been offered upstream.**
 
 | | Commit | Covers |
 |---|---|---|
@@ -3044,7 +3044,8 @@ what an `ivanSaves.export()` would settle.
 - **The project is `playivan`, not `ivan`.** §9.9 and `CLAUDE.md` both said `ivan`, which is not
   a project in this account. This one fails loudly and cost a minute.
 - **`--branch main` is not optional, and it fails silently.** The Pages project's production
-  branch is `main`; the git branch here is `master`. Without it, wrangler labels the upload
+  branch is `main`; the git branch was `master` at the time (it has since been renamed to
+  `main`, so the two now agree, but the flag stays). Without it, wrangler labels the upload
   `Preview`, prints a URL that serves the new build perfectly, and leaves `playivan.pages.dev`
   on the previous production deployment. A deploy that looks finished and changed nothing anyone
   visits — verified by fetching the live `ivan.js` and finding the old size and no `IDBFS` in it.
