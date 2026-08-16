@@ -1827,15 +1827,25 @@ void character::Die(ccharacter* Killer, cfestring& Msg, ulong DeathFlags)
     }
   }
 
-  square* SquareUnder[MAX_SQUARES_UNDER];
-  lsquare** LSquareUnder = reinterpret_cast<lsquare**>(SquareUnder);
-  memset(SquareUnder, 0, sizeof(SquareUnder));
+  /* Declared as what every read below actually is. This used to be a
+     square* array reinterpret_cast to lsquare**, written through the one
+     type and read through the other, which is a strict aliasing violation:
+     the compiler is entitled to assume the two never alias and so that the
+     stores in the loop cannot affect the loads. Clang does exactly that and
+     folds every read back to the memset's zero, so CreateCorpse() below was
+     handed a null square and the WASM build trapped inside lsquare::AddItem.
+     GCC does not, which is why it never reproduced natively. Every
+     dereference of this array is guarded by !game::IsInWilderness(), where
+     the squares under a character really are lsquares. */
+
+  lsquare* LSquareUnder[MAX_SQUARES_UNDER];
+  memset(LSquareUnder, 0, sizeof(LSquareUnder));
   Disable();
 
   if(IsPlayer() || !game::IsInWilderness())
   {
     for(int c = 0; c < SquaresUnder; ++c)
-      SquareUnder[c] = GetSquareUnder(c);
+      LSquareUnder[c] = GetLSquareUnder(c);
 
     Remove();
   }
