@@ -292,6 +292,18 @@ if(EMSCRIPTEN)
     set(IVAN_WASM_LINK_FLAGS
         "${IVAN_WASM_LINK_FLAGS} --pre-js ${CMAKE_CURRENT_SOURCE_DIR}/tools/web/music.js")
 
+    # The page emcc wraps around the module. Without this it emits
+    # shell_minimal.html, which is an emscripten.org logo, a "Resize canvas"
+    # checkbox and a debug textarea -- a page that says what built the thing
+    # rather than what the thing is.
+    #
+    # Also a LINK_DEPENDS in Main/CMakeLists.txt, for the same reason the
+    # --pre-js files are: the shell reaches emcc only through LINK_FLAGS, so
+    # nothing would relink when it changed and an edit would silently appear to
+    # do nothing.
+    set(IVAN_WASM_LINK_FLAGS
+        "${IVAN_WASM_LINK_FLAGS} --shell-file ${CMAKE_CURRENT_SOURCE_DIR}/tools/web/shell.html")
+
     # Function names are kept in *every* browser build, not just a debug one.
     # --profiling-funcs preserves the name section and changes no codegen, so it
     # costs about 800KB and nothing else, and without it a trap from a player's

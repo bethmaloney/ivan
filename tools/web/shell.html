@@ -1,0 +1,540 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>IVAN</title>
+<meta name="robots" content="noindex">
+<link rel="icon" href="/icon.png" type="image/png">
+<link rel="stylesheet" href="/fonts/fonts.css">
+
+<!--
+  The page emcc wraps around the module (HARNESS.md §9.5), replacing the stock
+  shell_minimal.html. Wired in from the top-level CMakeLists with --shell-file.
+
+  Three things here are load-bearing and must survive any edit, because the
+  runtime and the pre-js files reach into them by name:
+
+    id="canvas"      Emscripten's SDL2 port looks up "canvas" by id at video
+                     init. Rename it and the game has nothing to draw on.
+    var Module       declared global before ivan.js loads, exactly as the stock
+                     shell does. ivan.js opens with
+                     `var Module = typeof Module != "undefined" ? Module : {}`
+                     and harness-pre.js takes the same object, so the canvas,
+                     the status hooks and --record's argv all arrive through it.
+    {{{ SCRIPT }}}   emcc substitutes the script tag for ivan.js here.
+
+  NO LINE IN THIS FILE MAY BEGIN WITH A HASH. emcc runs the shell through its C
+  preprocessor, which treats any line whose first non-whitespace character is a
+  hash as a directive (src/parseTools.mjs:149) and fails the link on one it does
+  not recognise. That rules out CSS id selectors at the start of a line, which
+  is why everything below is styled by class and the ids are left for JavaScript
+  and for SDL to find. The stock shell only gets away with it by shipping its
+  CSS minified onto a single line.
+
+  Everything else is presentation and is safe to change.
+-->
+
+<style>
+:root {
+  color-scheme: dark;
+
+  /* Lit dungeon, not a dark theme. IVAN's ground is warm -- cave walls and
+     floors are browns -- so the near black is soil rather than slate, and
+     there are three light sources rather than one accent, because
+     multi-coloured lighting is a feature of the renderer rather than a
+     decoration here. Shared with the landing page. */
+  --soil:   #14100c;
+  --loam:   #1c1610;
+  --char:   #2b2119;
+  --bone:   #e6dcc8;
+  --ash:    #978b76;
+  --torch:  #e89a3c;
+  --rubric: #c4392e;
+  --ichor:  #6fb3a0;
+
+  --bar-height: 2.75rem;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--soil);
+  color: var(--bone);
+  font-family: 'Spectral', Georgia, serif;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+a { color: var(--torch); }
+
+:focus-visible {
+  outline: 2px solid var(--torch);
+  outline-offset: 2px;
+}
+
+/* ---- top bar ---------------------------------------------------------- */
+
+.bar {
+  height: var(--bar-height);
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0 clamp(0.75rem, 3vw, 1.5rem);
+  background: var(--loam);
+  border-bottom: 1px solid var(--char);
+}
+
+.mark {
+  font-family: 'Grenze', Georgia, serif;
+  font-weight: 700;
+  font-size: 1.35rem;
+  letter-spacing: 0.14em;
+  color: var(--bone);
+  text-decoration: none;
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+}
+
+.mark::before {
+  content: "\2190";
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 0.8rem;
+  color: var(--ash);
+  letter-spacing: 0;
+}
+
+.mark:hover, .mark:focus-visible { color: var(--torch); }
+.mark:hover::before, .mark:focus-visible::before { color: var(--torch); }
+
+.tools {
+  display: flex;
+  gap: 0.5rem;
+}
+
+button {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 0.72rem;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--ash);
+  background: transparent;
+  border: 1px solid var(--char);
+  border-radius: 2px;
+  padding: 0.4rem 0.7rem;
+  cursor: pointer;
+}
+
+button:hover {
+  color: var(--bone);
+  border-color: var(--ash);
+}
+
+/* ---- the stage -------------------------------------------------------- */
+
+.stage {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: grid;
+  place-items: center;
+  padding: clamp(0.5rem, 2vw, 1.25rem);
+}
+
+/* 4:3 because the game draws 800x600 and always has. The canvas keeps its own
+   backing store at that size; this scales only the presentation, so the pixels
+   stay square. */
+.frame {
+  aspect-ratio: 4 / 3;
+  max-width: 100%;
+  max-height: 100%;
+  width: min(100%, calc((100vh - var(--bar-height) - 4rem) * 4 / 3));
+  border: 1px solid var(--char);
+  background: #000;
+  position: relative;
+}
+
+.screen {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: #000;
+  /* The tileset is 16x16 pixel art. Smoothing it on the way up is the one
+     thing that would make a scaled canvas look worse than an unscaled one. */
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  outline: none;
+}
+
+/* ---- loading ----------------------------------------------------------- */
+
+.veil, .fault {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1.1rem;
+  padding: 2rem;
+  text-align: center;
+  background: var(--soil);
+}
+
+.veil { transition: opacity 400ms ease; }
+.veil[hidden], .fault[hidden] { display: none; }
+.veil.gone { opacity: 0; pointer-events: none; }
+
+.status {
+  margin: 0;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 0.78rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--torch);
+}
+
+.track {
+  width: min(22rem, 70%);
+  height: 2px;
+  background: var(--char);
+  overflow: hidden;
+}
+
+.fill {
+  height: 100%;
+  width: 0;
+  background: var(--torch);
+  transition: width 200ms linear;
+}
+
+/* No measured total until the data package starts reporting, so before that
+   the bar says "working" rather than inventing a percentage. */
+.track.waiting .fill {
+  width: 35%;
+  animation: sweep 1.4s ease-in-out infinite;
+}
+
+@keyframes sweep {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(340%); }
+}
+
+.flavour {
+  margin: 0;
+  max-width: 34rem;
+  font-size: 0.95rem;
+  line-height: 1.65;
+  color: var(--ash);
+  font-style: italic;
+  min-height: 3.2em;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .veil { transition: none; }
+  .track.waiting .fill { animation: none; width: 100%; opacity: 0.35; }
+}
+
+/* ---- the failure panel -------------------------------------------------- */
+
+.fault h2 {
+  margin: 0;
+  font-family: 'Grenze', Georgia, serif;
+  font-weight: 700;
+  font-size: 1.6rem;
+  letter-spacing: 0.04em;
+  color: var(--rubric);
+}
+
+.fault p {
+  margin: 0;
+  max-width: 34rem;
+  line-height: 1.7;
+  color: var(--ash);
+}
+
+.fault code {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 0.85em;
+  color: var(--ichor);
+}
+
+/* ---- footer ------------------------------------------------------------- */
+
+.hint {
+  flex: none;
+  margin: 0;
+  padding: 0.55rem 1rem 0.7rem;
+  text-align: center;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 0.68rem;
+  letter-spacing: 0.07em;
+  color: var(--ash);
+  border-top: 1px solid var(--char);
+  background: var(--loam);
+}
+
+.hint kbd {
+  font: inherit;
+  color: var(--bone);
+  border: 1px solid var(--char);
+  border-bottom-width: 2px;
+  border-radius: 2px;
+  padding: 0.05rem 0.3rem;
+}
+
+@media (max-width: 34rem) {
+  .hint { display: none; }
+}
+</style>
+</head>
+
+<body>
+
+<header class="bar">
+  <a class="mark" href="/">IVAN</a>
+  <div class="tools">
+    <button id="mute" type="button" aria-pressed="false">Mute</button>
+    <button id="full" type="button">Fullscreen</button>
+  </div>
+</header>
+
+<main class="stage">
+  <div class="frame" id="frame">
+    <canvas class="screen" id="canvas" tabindex="-1" oncontextmenu="event.preventDefault()"></canvas>
+
+    <div class="veil" id="veil">
+      <p class="status" id="status">Loading</p>
+      <div class="track waiting" id="track"><div class="fill" id="fill"></div></div>
+      <p class="flavour" id="flavour"></p>
+    </div>
+
+    <div class="fault" id="fault" hidden>
+      <h2>You die.</h2>
+      <p id="fault-detail">The game stopped. This is a bug in IVAN, not in your browser.</p>
+      <p>
+        The session recorded itself, so it can be replayed and fixed. Open the
+        console and run <code>ivanHarness.save()</code> to get the report, then
+        file it on <a href="https://github.com/bethmaloney/ivan/issues">GitHub</a>.
+      </p>
+      <p><a href="">Reload and start again</a></p>
+    </div>
+  </div>
+</main>
+
+<p class="hint">
+  Move with the <kbd>arrow</kbd> or <kbd>numpad</kbd> keys &middot;
+  <kbd>?</kbd> lists every command &middot;
+  <kbd>&gt;</kbd> goes down &middot;
+  <kbd>S</kbd> saves
+</p>
+
+<script>
+(function () {
+  'use strict';
+
+  var Veil = document.getElementById('veil');
+  var Status = document.getElementById('status');
+  var Track = document.getElementById('track');
+  var Fill = document.getElementById('fill');
+  var Flavour = document.getElementById('flavour');
+  var Fault = document.getElementById('fault');
+  var Canvas = document.getElementById('canvas');
+
+  /* ---- flavour ---------------------------------------------------------
+     The game's own opening, from game.cpp:790. It is the fastest way to say
+     what kind of game this is, and there are eleven megabytes to fill. */
+
+  var Lines = [
+    'You couldn’t possibly have guessed this day would differ from any other.',
+    'It began just as always. You woke up at dawn and drove off the giant spider resting on your face.',
+    'On your way to work you had serious trouble avoiding the lions and pythons roaming wild around the village.',
+    'After getting kicked by colony masters for being late you performed your twelve-hour routine of climbing trees and gathering bananas.',
+    'Finally you were about to enjoy your free time by taking a quick dip in the nearby crocodile bay.',
+    'However, at this point something unusual happened.'
+  ];
+
+  var Still = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  var Line = 0;
+
+  Flavour.textContent = Lines[0];
+
+  if (!Still) {
+    Flavour.style.transition = 'opacity 300ms ease';
+
+    setInterval(function () {
+      Line = (Line + 1) % Lines.length;
+      Flavour.style.opacity = '0';
+
+      setTimeout(function () {
+        Flavour.textContent = Lines[Line];
+        Flavour.style.opacity = '';
+      }, 300);
+    }, 4200);
+  }
+
+  /* ---- progress --------------------------------------------------------
+     Emscripten reports the data package as "Downloading data... (n/total)".
+     The wasm fetch is not reported at all, so the bar stays indeterminate
+     until the first of those arrives rather than pretending to a percentage it
+     does not have. */
+
+  var Measured = /([^(]+)\((\d+(\.\d+)?)\/(\d+)\)/;
+  var Done = false;
+
+  function SetStatus(Text) {
+    if (Done)
+      return;
+
+    if (!Text) {
+      Finish();
+      return;
+    }
+
+    var Parts = Measured.exec(Text);
+
+    if (Parts) {
+      var Got = parseInt(Parts[2], 10);
+      var All = parseInt(Parts[4], 10);
+
+      Track.classList.remove('waiting');
+      Fill.style.width = (100 * Got / All) + '%';
+      Status.textContent = 'Loading — ' + (Got / 1048576).toFixed(1) + ' of '
+                           + (All / 1048576).toFixed(1) + ' MB';
+    } else {
+      Status.textContent = Text.replace(/\.\.\.$/, '');
+    }
+  }
+
+  function Finish() {
+    if (Done)
+      return;
+
+    Done = true;
+    Veil.classList.add('gone');
+    setTimeout(function () { Veil.hidden = true; }, 450);
+    Canvas.focus();
+  }
+
+  /* ---- failure ---------------------------------------------------------
+     harness-pre.js has already stored a report and printed it by the time this
+     runs; this only makes the page say so, because "nothing happened" is the
+     worst possible reading of a crash. */
+
+  var Shown = false;
+
+  function Fell(Detail) {
+    if (Shown)
+      return;
+
+    Shown = true;
+    Done = true;
+    Veil.hidden = true;
+    Fault.hidden = false;
+
+    if (Detail)
+      document.getElementById('fault-detail').textContent = String(Detail).split('\n')[0];
+  }
+
+  addEventListener('error', function (Event) { Fell(Event.message); });
+  addEventListener('unhandledrejection', function (Event) {
+    Fell((Event.reason && Event.reason.message) || Event.reason);
+  });
+
+  /* ---- keys ------------------------------------------------------------
+     A roguelike is played with the arrow and numpad keys, and those scroll the
+     page by default. Only the scrolling keys are taken, only when unmodified,
+     and only when focus is not on one of the buttons in the bar -- so browser
+     shortcuts keep working and the page stays navigable by keyboard. */
+
+  var Scrolls = {
+    ArrowUp: 1, ArrowDown: 1, ArrowLeft: 1, ArrowRight: 1,
+    PageUp: 1, PageDown: 1, Home: 1, End: 1, ' ': 1
+  };
+
+  addEventListener('keydown', function (Event) {
+    if (!Scrolls[Event.key] || Event.ctrlKey || Event.altKey || Event.metaKey)
+      return;
+
+    if (document.activeElement && document.activeElement.tagName === 'BUTTON')
+      return;
+
+    Event.preventDefault();
+  }, false);
+
+  /* Clicking the picture should put keys back into the game, not leave them
+     with whichever button was pressed last. */
+  Canvas.addEventListener('mousedown', function () { Canvas.focus(); });
+
+  /* ---- the two buttons -------------------------------------------------
+     Mute goes through the master gain sfx.js owns, which is also what music.js
+     connects its stems to (music.js:149), so the one node covers both. Calling
+     ivanSfx.context() here is safe and deliberate: this is a click, so it is
+     exactly the user gesture the autoplay policy is waiting for. */
+
+  document.getElementById('mute').addEventListener('click', function () {
+    var Muted = this.getAttribute('aria-pressed') === 'true';
+
+    if (!globalThis.ivanSfx)
+      return;
+
+    ivanSfx.context();
+
+    var Master = ivanSfx.master();
+
+    if (!Master)
+      return;
+
+    Master.gain.value = Muted ? 1 : 0;
+    this.setAttribute('aria-pressed', Muted ? 'false' : 'true');
+    this.textContent = Muted ? 'Mute' : 'Unmute';
+  });
+
+  document.getElementById('full').addEventListener('click', function () {
+    var Frame = document.getElementById('frame');
+
+    if (document.fullscreenElement)
+      document.exitFullscreen();
+    else if (Frame.requestFullscreen)
+      Frame.requestFullscreen().then(function () { Canvas.focus(); },
+                                     function () {});
+  });
+
+  /* ---- the module ------------------------------------------------------
+     Global on purpose: ivan.js opens by picking up an existing Module, and
+     harness-pre.js, sfx.js and music.js all attach to the same object. */
+
+  globalThis.Module = {
+    canvas: Canvas,
+    setStatus: SetStatus,
+    totalDependencies: 0,
+
+    print: function () { console.log.apply(console, arguments); },
+    printErr: function () { console.warn.apply(console, arguments); },
+
+    monitorRunDependencies: function (Left) {
+      this.totalDependencies = Math.max(this.totalDependencies, Left);
+
+      if (!Left)
+        Finish();
+    },
+
+    onAbort: function (Reason) { Fell(Reason); }
+  };
+
+  SetStatus('Loading');
+})();
+</script>
+
+{{{ SCRIPT }}}
+
+</body>
+</html>

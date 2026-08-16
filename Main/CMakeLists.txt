@@ -39,7 +39,7 @@ if(EMSCRIPTEN)
   # effect and gets debugged as a code problem.
   if(WASM_BROWSER)
     set_target_properties(ivan PROPERTIES
-                          LINK_DEPENDS "${CMAKE_BINARY_DIR}/harness-pre.js;${CMAKE_SOURCE_DIR}/tools/web/sfx.js;${CMAKE_SOURCE_DIR}/tools/web/music.js")
+                          LINK_DEPENDS "${CMAKE_BINARY_DIR}/harness-pre.js;${CMAKE_SOURCE_DIR}/tools/web/sfx.js;${CMAKE_SOURCE_DIR}/tools/web/music.js;${CMAKE_SOURCE_DIR}/tools/web/shell.html")
   endif()
 
   # Emitting .html rather than .js is what makes emcc generate the page and the
@@ -70,6 +70,24 @@ if(EMSCRIPTEN)
                                  ${CMAKE_SOURCE_DIR}/${AudioDir}
                                  $<TARGET_FILE_DIR:ivan>/${AudioDir}
                          COMMENT "Linking ${AudioDir}/ beside the page for browser audio")
+    endforeach()
+
+    # The shell asks for /fonts/fonts.css and /icon.png at absolute paths,
+    # because on the deployed site the page sits at /play/ and shares both with
+    # the landing page at / rather than carrying a second copy. Linking the
+    # site root's assets in beside the page is what makes a local
+    # tools/web/serve.py -- whose root is this directory -- resolve the same
+    # URLs the deployed site does. Without it the page still plays; it just
+    # draws in the fallback serif, which is the kind of difference between dev
+    # and production that gets noticed late.
+    foreach(SiteAsset fonts icon.png)
+      add_custom_command(TARGET ivan POST_BUILD
+                         COMMAND ${CMAKE_COMMAND} -E remove -f
+                                 $<TARGET_FILE_DIR:ivan>/${SiteAsset}
+                         COMMAND ${CMAKE_COMMAND} -E create_symlink
+                                 ${CMAKE_SOURCE_DIR}/tools/web/site/${SiteAsset}
+                                 $<TARGET_FILE_DIR:ivan>/${SiteAsset}
+                         COMMENT "Linking ${SiteAsset} beside the page")
     endforeach()
   endif()
 endif()
