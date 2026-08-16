@@ -70,6 +70,13 @@ python3 tools/play/play.py auto 200
 
 ## Deploying
 
+**A push to `main` deploys.** `.github/workflows/deploy.yml` builds native and replays the
+corpora, runs the two node tests, builds the browser target with the pinned emsdk and runs
+`dist.py`, then publishes to Cloudflare Pages. A pull request runs everything except the
+publish. It needs two repo secrets, `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`.
+
+The manual path is still the one to use when checking a build by hand:
+
 ```bash
 tools/web/dist.py                      # -> dist/ (rebuilt from scratch), from build-web/Main
 tools/web/serve.py 8113 dist           # check it locally first
