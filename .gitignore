@@ -8,6 +8,9 @@ build-*/
 node_modules/
 dist/
 
+# wrangler's local state, written beside the project it deploys
+.wrangler/
+
 # Compiled Java class files
 *.class
 
