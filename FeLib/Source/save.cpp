@@ -45,6 +45,19 @@ void outputfile::Close() { DBG3(FileNameNewTmp.CStr(),FileName.CStr(),saveOnNewF
     if(FileNameNewTmp.IsEmpty())
       ABORT("new tmp filename is empty, 'save on new file always' option was properly set before this output file '%s' ?",FileName.CStr());
 
+    /* A rename rather than the copy below, because the browser cannot afford
+       the copy: the stream copy runs at about 5MB/s through Emscripten's
+       filesystem, so it scales with the level file and the autosave it sits in
+       grew to 548ms by the second dungeon level. MEMFS renames by relinking,
+       which is flat in the file size -- under a millisecond for the same 2.1MB
+       (measured in Chrome on the autoplay-2000 corpus). It is also atomic where
+       remove-then-copy is not, closing the window in which the final name
+       exists half-written. */
+#if defined(__EMSCRIPTEN__) && defined(IVAN_WASM_BROWSER)
+    if(std::rename(FileNameNewTmp.CStr(), FileName.CStr()))
+      ABORT("could not move the new tmp file '%s' onto '%s'!",
+            FileNameNewTmp.CStr(), FileName.CStr());
+#else
     std::ifstream newTmpFile(FileNameNewTmp.CStr(), std::ios::binary);
     if(newTmpFile.good()){
       std::remove(FileName.CStr()); //just to not let existing one create any doubts if some crash happens here
@@ -59,6 +72,7 @@ void outputfile::Close() { DBG3(FileNameNewTmp.CStr(),FileName.CStr(),saveOnNewF
     }else{
       ABORT("the new tmp file '%s' should exist!",FileNameNewTmp.CStr());
     }
+#endif
   }
 }
 
