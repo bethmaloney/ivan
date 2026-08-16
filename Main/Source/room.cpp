@@ -18,12 +18,12 @@ roomprototype::roomprototype(roomspawner Spawner, cchar* ClassID)
 void room::Save(outputfile& SaveFile) const
 {
   SaveFile << static_cast<ushort>(GetType());
-  SaveFile << Pos << Size << Index << DivineMaster << MasterID;
+  SaveFile << Pos << Size << Index << DivineMaster << MasterID << Flags;
 }
 
 void room::Load(inputfile& SaveFile)
 {
-  SaveFile >> Pos >> Size >> Index >> DivineMaster >> MasterID;
+  SaveFile >> Pos >> Size >> Index >> DivineMaster >> MasterID >> Flags;
 }
 
 room* roomprototype::SpawnAndLoad(inputfile& SaveFile) const

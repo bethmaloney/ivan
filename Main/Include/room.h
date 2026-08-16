@@ -44,7 +44,11 @@ class room
 {
  public:
   typedef roomprototype prototype;
-  room() : LastMasterSearchTick(0), MasterID(0) { }
+  /* Flags is NO_MONSTER_GENERATION and was read uninitialised by every reloaded
+     room until Save/Load below started carrying it (HARNESS.md §9.11). */
+
+  room() : Master(0), LastMasterSearchTick(0), MasterID(0), Index(0),
+           DivineMaster(0), Flags(0) { }
   virtual ~room() = default; 
   virtual void Save(outputfile&) const;
   virtual void Load(inputfile&);

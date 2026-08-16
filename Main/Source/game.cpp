@@ -74,7 +74,7 @@
 #include "dbgmsgproj.h"
 #include "portmath.h"
 
-#define SAVE_FILE_VERSION 137 // Increment this if changes make savefiles incompatible
+#define SAVE_FILE_VERSION 138 // Increment this if changes make savefiles incompatible
 #define BONE_FILE_VERSION 121 // Increment this if changes make bonefiles incompatible
 
 #define LOADED 0
