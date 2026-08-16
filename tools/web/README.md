@@ -1,4 +1,20 @@
-# tools/web — collecting and diagnosing a browser crash
+# tools/web — the browser frontend
+
+Five things live here, and only the first is about crashes:
+
+| | |
+|---|---|
+| `harness-pre.js.in` | turns the query string into argv, and collects a crash report |
+| `sfx.js` | sound effects, played by the page |
+| `music.js` | the soundtrack, played by the page |
+| `shell.html` | the page emcc wraps around the module |
+| `site/` | the landing page, and the fonts and images it serves |
+| `dist.py` | assembles a deployable tree from a build plus the repo's assets |
+| `serve.py` | a static server that answers byte ranges, for testing either of them |
+
+---
+
+# Collecting and diagnosing a browser crash
 
 The goal is that an ordinary session, played with no foresight and no special
 flags, produces enough on a crash to find the bug. That means two things have to
@@ -313,3 +329,204 @@ borrows the `AudioContext` `sfx.js` owns rather than opening a second one, so
 arithmetic against stubs — the playlist, the index readback, the
 restart-or-keep rule at a level change, and intensity to gains. It needs no
 browser and no rendered audio.
+
+---
+
+# shell.html — the page around the module
+
+`--shell-file` input, wired in from the top-level `CMakeLists.txt`. Without it
+emcc emits `shell_minimal.html`, which is an emscripten.org logo, a "Resize
+canvas" checkbox and a debug textarea — a page that advertises what built the
+thing rather than what the thing is.
+
+## What must not change
+
+Three things are load-bearing, because the runtime and the `--pre-js` files
+reach into them by name:
+
+- **`id="canvas"`** — Emscripten's SDL2 port looks the canvas up by that id at
+  video init. Rename it and the game has nothing to draw on.
+- **`var Module`, global, before `ivan.js` loads.** `ivan.js` opens with
+  `var Module = typeof Module != 'undefined' ? Module : {}`, and
+  `harness-pre.js` takes the same object, so the canvas, the status hooks and
+  `--record`'s argv all arrive through it. `onAbort` is chained rather than
+  replaced: the shell sets one, and harness-pre wraps it.
+- **`{{{ SCRIPT }}}`** — where emcc substitutes the script tag.
+
+## No line may begin with a hash
+
+emcc runs the shell through its C preprocessor first, and it treats **any** line
+whose first non-whitespace character is `#` as a directive
+(`src/parseTools.mjs:149`), failing the link on one it does not recognise:
+
+```
+error: shell.html:18: Unknown preprocessor directive #canvas
+```
+
+That rules out CSS id selectors at the start of a line, which is why everything
+in the shell is styled by class and the ids are left for JavaScript and for SDL
+to find. The stock shell only gets away with `#status{...}` because its CSS
+ships minified onto a single line.
+
+## What it does beyond drawing a canvas
+
+- **Scales the canvas.** The game draws 800×600 and keeps its backing store at
+  that size; the page scales the presentation to fit, with
+  `image-rendering: pixelated` so a 16×16 tileset survives the trip up.
+- **Takes the scrolling keys.** Arrows, space, Page Up/Down, Home and End
+  scroll the page out from under a roguelike. Only those, only unmodified, and
+  only when focus is not on one of the buttons in the bar, so browser shortcuts
+  keep working and the page stays navigable by keyboard.
+- **Says when it dies.** On abort or an unhandled rejection it shows a panel
+  pointing at `ivanHarness.save()`, because "nothing happened" is the worst
+  possible reading of a crash.
+- **Mutes.** Through the master gain `sfx.js` owns, which is also what
+  `music.js` connects its stems to (`music.js:149`), so one node covers both.
+
+Same `LINK_DEPENDS` caveat as the `--pre-js` files (`Main/CMakeLists.txt`): the
+shell reaches emcc only through `LINK_FLAGS`, so without it nothing relinks when
+the shell changes and the edit silently appears to do nothing.
+
+---
+
+# site/ — the landing page
+
+Static, self-contained, and deliberately not the game: the front door is a 30KB
+page rather than a 5MB one, and `/play/` is where the download starts.
+
+```
+site/
+  index.html        the whole page -- markup, CSS and its one script
+  icon.png          Graphics/Icon.bmp at 128px. A pick-axe and a banana.
+  screenshot.webp   frame 594 of the autoplay-200 corpus, lossless, 60KB
+  fonts/            Grenze, Spectral and IBM Plex Mono, latin subset only
+    fetch-fonts.py  regenerates the above; not run at build time
+```
+
+**The fonts are self-hosted on purpose.** A page that pulls them from
+`fonts.gstatic.com` tells Google who is playing IVAN, which is not something a
+page needs to do to draw a headline. `fetch-fonts.py` deduplicates by URL,
+because a variable font answers every weight in its range with the same file —
+Grenze 600 and 700 are one download, and writing it twice would put a copy of it
+on every first load for nothing.
+
+**Everything quoted on the page is real**, and that is the point rather than a
+flourish. The body part numbers are `Script/item.dat:4859`. The sentences are
+what `char.cpp:2005` builds out of a part's `NameSingular`. The opening text is
+`game.cpp:790`. The key list is `command.cpp:92`. The screenshot is a replayed
+recording rather than a staged shot. If one of those files changes, the page is
+wrong, so check it when they do.
+
+The page also states plainly that a run does not survive the tab, because a
+player who loses two hours to a closed tab was misled by the page rather than by
+the game. Delete that line when IDBFS lands (HARNESS.md §9 step 5), not before.
+
+---
+
+# dist.py — assembling a deploy
+
+```bash
+tools/web/dist.py                     # -> dist/
+tools/web/serve.py 8113 dist          # check it before pushing it
+```
+
+Builds this, from `build-web/Main` plus the repo's asset directories:
+
+```
+dist/
+  index.html  icon.png  screenshot.webp  fonts/  _headers
+  play/
+    index.html                    emcc's ivan.html, renamed
+    ivan.js  ivan.wasm  ivan.data
+    Sound/*.wav                   fetched on demand by sfx.js
+    Music/*.ogg  stems.json       streamed by music.js
+```
+
+`Sound/` and `Music/` sit beside the *game page* rather than at the site root
+because both are resolved relative to whatever asks for them — the module hands
+`sfx.js` the string `"./Sound/name.wav"` itself (`sfx.js:112`) — so moving them
+would need a `?sfxbase=` on every link.
+
+Not copied: `Music/*.mid`, which are the source the stems were rendered from and
+which nothing on this target can play; and `Sound/SoundEffects.cfg`, which is
+already inside `ivan.data` where `initSound` reads it out of MEMFS.
+
+## It checks that the assets exist
+
+This is the part worth keeping. A missing sound or stem **fails silently at
+runtime** — one console line, no error, a game that is just quieter than it
+should be — so the check happens at assembly time instead:
+
+- every `.wav` named in `Sound/SoundEffects.cfg` is parsed out of the config and
+  looked for by name;
+- every stem `Music/stems.json` promises is looked for as `Track.stem.ogg`.
+
+Parsed rather than globbed, deliberately: a glob would agree with itself and
+prove nothing. The first run of this found `explosion3.WAV` on disk against
+`explosion3.wav` in the config — invisible on Windows and macOS, a 404 over HTTP
+and a silent failure on Linux, and wrong since long before the web build.
+
+`dist/` is rebuilt from scratch each time, because copying into a directory that
+still holds a previous deploy is how a file deleted from the repo keeps getting
+published.
+
+## _headers
+
+Cloudflare Pages policy, written by the script.
+
+No COOP/COEP: those are for `SharedArrayBuffer`, this build has no pthreads and
+does not use it, and turning them on would only break cross-origin loads.
+
+The wasm bundle is `no-cache` rather than cached hard, because none of its
+filenames are content-hashed — a redeploy reuses `ivan.wasm`, so a browser
+holding a long `max-age` copy would keep playing last week's build with no way to
+find out. `no-cache` still permits a 304, which costs a round trip and no bytes.
+The media caches for a day and the fonts for a week; those change only when the
+game's assets do.
+
+## Deploying it
+
+```bash
+tools/web/dist.py
+npx wrangler pages deploy dist --project-name=ivan
+```
+
+`wrangler pages deploy` will not create the project for you; run
+`wrangler pages project create <name> --production-branch=main` first. Uploads
+are content-addressed, so a redeploy that changes one file uploads one file.
+
+A custom domain is attached in the Pages dashboard under *Custom domains*, and
+needs the domain to exist first — `wrangler` deploys sites, it does not register
+names.
+
+**Give the edge a few seconds before believing a redeploy failed.** For a short
+window after a deploy, `https://<project>.pages.dev/` can still serve the
+previous HTML even though the policy on it is `max-age=0, must-revalidate`. The
+deployment-specific URL wrangler prints is authoritative immediately, and
+`?x=<anything>` bypasses the stale copy:
+
+```bash
+curl -s "https://<project>.pages.dev/?x=$RANDOM" | grep something-you-changed
+```
+
+## What this host does not do
+
+**Cloudflare Pages does not answer byte ranges.** A `Range:` request on a music
+stem returns `200` with the whole file and no `Accept-Ranges` header. `serve.py`
+implements 206 specifically so local testing would not flatter a host that
+doesn't, and this host doesn't.
+
+Measured cost: stems still start in about a second, `failed 0`. Progressive
+download is enough to begin playback — what ranges buy is seeking and an early
+`duration`, and `music.js` only wants `duration` for drift correction, which it
+can wait for. If a long track ever starts late in practice (`Dungeon3` is three
+5MB stems), R2 answers ranges and `music.js` already takes `?musicbase=<url>`,
+so moving only the music is a query parameter rather than a migration.
+
+Check it locally before pushing it, because the two differ in one way that
+matters: `serve.py` sends `no-store` on HTML and JS so a stale copy can never be
+mistaken for a build that did not take, while `_headers` sends the real policy.
+
+```bash
+tools/web/serve.py 8113 dist
+```
