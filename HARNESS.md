@@ -45,9 +45,14 @@ at `/` and the game at `/play/`, so a shared link opens in 30KB instead of commi
 clicked it to a 5MB download. The stock Emscripten shell is gone. The assembly step verifies
 every asset the page can ask for against the config that names it, and immediately found
 `explosion3.WAV` — a case mismatch older than the web build, invisible on Windows and macOS and
-a silent 404 everywhere else. **Saves still do not survive the tab**, which hosting promotes from
-a footnote to the most visible defect there is; the landing page says so rather than letting
-someone find out at hour two.
+a silent 404 everywhere else.
+
+**Saves survive the tab now** — §9.10. `GetUserDataDir()` points at an IDBFS mount on this
+target and the page copies it in and out of IndexedDB, so a run is still there after a reload
+and after the browser has been closed: byte-identical save files, and "Game loaded successfully."
+from the menu. That was the most visible defect in the product and the landing page's caveat has
+gone with it. IndexedDB rather than localStorage because one dungeon level is 3.5MB of save
+files; `.bkp` backups are off here because they are another 35% on top.
 **Last updated:** 2026-08-16
 
 ---
@@ -145,6 +150,13 @@ validates the *rewrite*. You need both, in that order.
 | Recording taken from inside a report, replayed natively | exit 0, **346 frames** |
 | Browser recording pulled from MEMFS, replayed natively | exit 0 — **358 frames** (8 keys) and **752 frames** (403 keys) |
 | 400 turns of auto-play in a browser under `WASM_DEBUG` | **no trap, no assertion** — does not reproduce the reported crash (§9.6) |
+| Browser save set after a page reload, and after restarting Chrome | **byte-identical**, all three files, by SHA-256 (§9.10) |
+| Continue Game from a save restored out of IndexedDB | **"Game loaded successfully."**, same character, HP and gold |
+| `S` save-and-flee, then reload | new set survives and the `AutoSave` set it replaced is **gone** — deletions cross too |
+| IndexedDB populate at startup | **12–25ms** for 4.75–5.9MB, inside a 550–850ms load |
+| Tracked writes per sync, one autosave | 578–2,336 writes became **4–5 syncs**; **0** `.tmp` files reached IndexedDB |
+| `node tools/web/saves.test.js` | **57/57**, and **11 of 12** deliberate mutations caught |
+| Both corpora after the `save.cpp` change of §9.10 | `verify-corpora.sh` **matches golden**, `compare-targets.sh` **targets agree** |
 | Level file across 4 ordinary runs, after §6.6e | **1 distinct** on both corpora; was 4 |
 | Uninitialized bytes reaching a level file, after §6.6e | **0** on both corpora, `MALLOC_PERTURB_` 42 vs 99 |
 | `valgrind` uninitialized reads, after §6.6e | **0 / 0** on both corpora |
@@ -286,10 +298,13 @@ node's `fs` module, and setting both is a hard error rather than a link that hal
 is emitted as `.html` so emcc generates the page and the canvas with it — Emscripten's SDL2 port
 looks up `#canvas` at video init and has nothing to bind to otherwise.
 
-The preload paths are absolute because `PORTABLE_BUILD` makes `game::GetDataDir()` and
-`GetUserDataDir()` both return `"./"` (`game.cpp:5426`, `save.cpp:814`) while the module starts
-with its working directory at `/`, so the `"./Graphics/..."` every call site builds resolves to
-exactly the `/Graphics` in the package.
+The preload paths are absolute because `PORTABLE_BUILD` makes `game::GetDataDir()` return `"./"`
+(`game.cpp:5426`) while the module starts with its working directory at `/`, so the
+`"./Graphics/..."` every call site builds resolves to exactly the `/Graphics` in the package.
+`GetUserDataDir()` used to answer `"./"` as well and now answers `/ivan/` here, which is an
+IDBFS mount holding everything the player accumulates — §9.10. That is also why this target
+links `-lidbfs.js` and `-sFS_DEBUG=1`, the second of which registers the filesystem callbacks
+`tools/web/saves.js` needs and is not a debug mode despite the name.
 
 `WASM_PRELOAD_AUDIO` (OFF) adds `Music/` and `Sound/`, and **it no longer governs whether the
 game makes a sound**. §9.7 moved effect playback to the page: `tools/web/sfx.js` fetches each
@@ -2129,9 +2144,10 @@ Recommended approach, for context on why the harness is shaped this way:
    interesting bugs were.** Twelve defects where the source left a choice to the compiler or the
    standard library rather than making it — or, in §6.9's case, told it a lie. Both committed
    corpora now match native-vs-WASM byte for byte. Findings, technique and what is left: **§9.4**.
-5. **TinySoundFont** for MIDI (RtMidi cannot work in WASM), IDBFS for saves, touch input.
-   **IDBFS is now the one that blocks something real** — the browser build plays but cannot
-   save across a reload (§9.5).
+5. **TinySoundFont** for MIDI (RtMidi cannot work in WASM), ~~IDBFS for saves~~, touch input.
+   IDBFS is **done** — saves survive the tab, the reload and the browser, §9.10. MIDI was
+   answered differently in the end: §9.8 pre-renders the stems instead, so nothing on this
+   target needs a synthesiser. Touch input is untouched.
 6. **SDL3 / JSPI / threads** as optional performance and quality passes.
 
 ### 9.4 Native vs WASM: what the first real frame comparison found (new)
@@ -2288,17 +2304,16 @@ run and both were wrong, which is worth recording as plainly as the successes:
 
 **What is open.**
 
-- **Saves do not survive a reload.** MEMFS is ephemeral and `GetUserDataDir()` is `"./"`, so
-  `Save/`, `Scrshot/` and `ivan.cfg` all vanish with the tab. This is §9 step 5's IDBFS, and it
-  is now the item blocking something a player would notice rather than a theoretical one.
+- ~~**Saves do not survive a reload.**~~ Closed by §9.10: `GetUserDataDir()` answers `/ivan/` on
+  this target and that is an IDBFS mount. `Scrshot/` goes with it.
 - **`ASYNCIFY=1` instruments the whole binary**, all 7.5MB of it. Nothing has been measured
   against a native frame time; `ASYNCIFY_ONLY` or JSPI is the tuning knob if it needs one.
 - ~~**Audio is unexercised.**~~ Effects now play, and not through SDL_mixer — §9.7 moved
   playback to the page. Still unexercised by anything with a speaker.
-- **Input beyond the auto-play set is unexercised.** `` ` ``, `y`, `~` and 400 `.` have all
-  crossed `GetKey` in a browser (§9.6). Direction keys, `>` and the rest of the command set go
-  the same way, so there is no reason to expect trouble, but "no reason to expect trouble" is
-  what §9.4 was full of.
+- **Input beyond the auto-play set is mostly exercised now.** `` ` ``, `y`, `~` and 400 `.`
+  crossed `GetKey` in §9.6; the arrow keys, `>`, `?` and a shifted `S` crossed it in §9.10, which
+  covers movement, descent, the command list and the save prompt. What is left is the rest of the
+  command set, and "no reason to expect trouble" is still what §9.4 was full of.
 
 ---
 
@@ -2874,10 +2889,8 @@ moving just the music is a query parameter rather than a migration.
 
 **What is open.**
 
-- **Saves still do not survive the tab**, and hosting this promotes that from a footnote to the
-  most visible defect in the product. MEMFS is ephemeral and `GetUserDataDir()` is `"./"`, so a
-  player who closes the tab loses the run — §9 step 5's IDBFS. The landing page says so plainly
-  rather than letting someone find out at hour two; that line comes out when IDBFS lands.
+- ~~**Saves still do not survive the tab.**~~ Closed by §9.10. The landing page's caveat is gone
+  with it.
 - **The crash endpoint is still inert.** `WASM_CRASH_ENDPOINT` is unset, so a player's crash
   report reaches `localStorage` and nowhere else (§9.6). A Pages Function would be a few lines
   and would turn every stranger's crash into a replayable recording — which is exactly what §9.6
@@ -2887,3 +2900,149 @@ moving just the music is a query parameter rather than a migration.
   numbers, the message templates, the opening text and the key list are all real values lifted
   from `Script/item.dat`, `char.cpp`, `game.cpp` and `command.cpp`. If those change the page is
   wrong, and only a reader would notice.
+
+---
+
+### 9.10 Saves that survive the tab (new)
+
+**Measured 2026-08-16: a game saved in a browser is still there after a reload, and after
+Chrome has been closed and reopened.** Played from the assembled `dist/` tree, seeded with
+`?seed=999` so the run lands where `noncombat.rec` does — Belyer Asu, UT lvl 1, turn 3, HP
+37/37 — the level-entry autosave writes three files, and every one of them comes back
+byte-identical (SHA-256 over each, before and after). Driving the main menu's second entry
+then prints **"Game loaded successfully."** with the same character, HP and gold.
+
+The game did not learn any of this. One line of C++ moved and the rest is a page.
+
+**Where the player's data lives, and why it had to move.** `GetUserDataDir()` answers `/ivan/`
+on this target instead of `PORTABLE_BUILD`'s `"./"` (`save.cpp:822`), and `/ivan` is an IDBFS
+mount. It had to be a different *directory*, not merely a different filesystem: `"./"` resolves
+to `/`, which is where `--preload-file` puts `Graphics/` and `Script/`, and an IDBFS mount
+cannot be laid over a populated MEMFS root. Splitting them is the cut that should have existed
+anyway — read-only game data on one side, the player's on the other — and one mount then covers
+everything the player accumulates: `Save/`, `Bones/`, `ivan.cfg`, the highscore table, the
+answer to the name prompt. `GetDataDir()` is untouched. The node host is untouched: it is
+`NODERAWFS` and writes traces relative to the launch directory, so the branch is behind
+`IVAN_WASM_BROWSER`, a compile definition that exists because nothing else distinguishes the
+two hosts at that level — both are `__EMSCRIPTEN__`.
+
+**IndexedDB rather than localStorage, and this is a measurement rather than a preference.** One
+dungeon level of the non-combat corpus is **3.5MB** of save files natively, of which the level
+file alone is ~1MB. A run visits dozens of levels. localStorage is 5–10MB per origin, holds
+strings (so +33% for base64) and writes synchronously on the main thread; it would run out
+before the player left Under Water Tunnel. Emscripten also has no localStorage filesystem
+backend — the list is MEMFS, NODEFS, IDBFS, WORKERFS, PROXYFS — so it would have meant
+hand-rolling a serializer as well. Three reasons, any one of them sufficient.
+
+**`.bkp` files are off on this target.** `outputfile` copies the previous save to `<name>.bkp`
+before overwriting it (`save.cpp:70`), which on the non-combat corpus is 1,270,887 of the save
+set's 3,647,069 bytes — **35% of what a run costs to keep**, duplicated into IndexedDB. The
+`.tmp` staging beside it still covers a crash during a write, which the constructor's own
+comment calls the useful half. What is given up is the crash-during-level-generation case in
+`iosystem::ContinueMenu`, whose recovery prompt is an `AlertConfirmMsg` — the shape the replay
+harness would rather never meet.
+
+**The sync is debounced, and not only to coalesce.** `outputfile` writes `<name>.tmp` and copies
+it over the final name on close, so a sync taken mid-save pushes a megabyte of temporary file
+into IndexedDB and deletes it again on the next pass. `saves.js` waits for the writes to stop
+and refuses outright while a `.tmp` is on disk.
+
+The wait is free, for a reason worth stating because it is not obvious: **the game blocks inside
+wasm and only returns to the JS event loop when asyncify unwinds it at the input wait**. A timer
+cannot fire until the game is idle, which is exactly when a sync should happen. In practice
+this is so effective that the `.tmp` guard never fired in any measured run — the temporary
+files are always gone before the first timer gets a turn. It stays, because "never observed" is
+not "cannot happen", and the failure it prevents is silent.
+
+**`FS_DEBUG` is not a debug mode.** `saves.js` learns that a save was written from
+`FS.trackingDelegate`, which only exists when the module is linked `-sFS_DEBUG=1`. The name
+suggests a cost that is not there: `settings.js:393` defines the option as exactly "register
+file system callbacks using trackingDelegate in library_fs.js", and `libfs.js` is the only file
+in the whole JS library that mentions it. Counted rather than assumed — **17 `#if FS_DEBUG`
+blocks, of which 14 guard an optional hook call, 1 captures a local for one of them, and 2 guard
+a `dbg()` line in `forceLoadFile`**, a lazy-file path this build does not take because
+`ivan.data` arrives preloaded; the console was clean in every measured run. In the shipped
+`ivan.js` the hooks compile to `FS.trackingDelegate["onWriteToFile"]?.(stream.path,
+bytesWritten)` and eleven more of that shape, which is a property lookup and a short-circuit for
+the ten we do not register. Without the flag there is no failure to see — the mount populates,
+the game plays, and nothing it writes ever leaves MEMFS.
+
+**The first run in a real browser hung on the loading bar, and the bug was in the handling of
+the bug.** `Track()` threw because that build had no `trackingDelegate`, the throw happened
+inside a callback *IndexedDB* invokes rather than inside the promise chain around it, so the
+`.catch()` never saw it and `removeRunDependency` was never called. A page that would not start,
+because of a save feature. The comment above that block said "nothing below may leave the
+dependency held" and the code did not honour it; it is a `try/finally` now, and the test that
+would have caught it exists.
+
+**Four hazards, all with an escape hatch, because persistence creates failures that ephemerality
+could not have.**
+
+- **A poisoned save.** A save the game cannot load now fails on every load, forever, and a
+  player who cannot reach the menu cannot use a console API that lives behind it. `?wipesaves`
+  deletes the database before the mount. A delete that IndexedDB *queues* because another tab
+  holds the database open fires `onblocked`, and the first version of this reported that as
+  success — sending someone straight back into the save they were escaping. It says so now.
+- **Two tabs.** Both mount the same database and each holds its own MEMFS, so whichever syncs
+  last overwrites the other's saves wholesale. An exclusive `navigator.locks` lease is taken for
+  the life of the page; a tab that cannot get it still reads the saves, never writes them, and
+  says which tab to close. Measured: first tab writable, second read-only and warned, first
+  unaffected by the second existing.
+- **Eviction.** `navigator.storage.persist()` is requested once and was **granted** here.
+- **A full disk.** IDBFS's own `autoPersist` discards the error from its sync (`libidbfs.js`,
+  `onPersistComplete`), which is how a full disk becomes a game that quietly stops saving. This
+  drives the sync itself so the failure is counted, kept dirty for the next attempt, printed,
+  and put on the page.
+
+**What is measured.**
+
+| Check | Result |
+|---|---|
+| `node tools/web/saves.test.js` | **57/57** — populate before main, coalescing, `.tmp` deferral, no overlapping syncs, deletions, failure surfacing, second tab, `?wipesaves`, `?saves=off` |
+| Same suite against 12 deliberate mutations | **11 caught**. The survivor is the read-only guard in the write tracker, which three separate layers already prevent — a redundant guard rather than a test gap, recorded rather than papered over |
+| Autosave set written in a browser | 3 files, 1.15MB — `.40` 918,482, `.sav` 171,487, `.wm` 63,667. **No `.bkp`** |
+| Same set after a page reload | **byte-identical**, all three, by SHA-256 |
+| Same set after quitting and reopening Chrome | **byte-identical** |
+| Continue Game, after a reload | **"Game loaded successfully."** — same character, HP 37/37, gold |
+| `S` save-and-flee, then reload | the plain `.sav`/`.40`/`.wm` survive **and** the `AutoSave` set it replaced is **gone** — deletions cross too, which is what stops a dead character reappearing on the Continue menu |
+| Populate cost at startup | **12–25ms** for 4.75–5.9MB, inside a 550–850ms page load |
+| Sync after an autosave | **2–30ms** |
+| Write events per sync | 578–2,336 tracked writes became **4–5 syncs** |
+| `.tmp` files reaching IndexedDB | **0**, and `tempDeferrals` 0 — the debounce alone was enough in every run |
+| IndexedDB usage against files on disk | **0.85MB stored for 5.9MB of saves** — Chrome's LevelDB compresses them ~7× |
+| Quota offered | 618,611MB, and `navigator.storage.persisted()` **true** |
+| `ivan.js` / `ivan.wasm` / `ivan.data` against the same build at `89f7e91` | **+13,898 / +384 / +0 bytes** |
+| `verify-corpora.sh` after the `save.cpp` change | **8 runs self-consistent, matches golden** on both corpora |
+| `compare-targets.sh` | **targets agree** — the node host still resolves `"./"` |
+
+**Two findings that are not about saves.** Both came free with driving the browser this far, and
+both narrow §9.5's open item that input beyond the auto-play set is unexercised:
+
+- **Arrow keys, `>`, `?`, `S` and `y` all cross `GetKey` in a browser.** The command list draws,
+  the descent works, the save prompt appears and answers.
+- **`?seed=999` reproduces the corpus in a browser.** The page turns the query string into argv
+  (§9.6), so the same seven keys land on the same character in the same place — Belyer Asu, UT
+  lvl 1, turn 3, HP 37/37, which is the row §5b gives for `noncombat.rec`. That is not frame
+  equality and is not an oracle, but it makes the browser host steerable to a known state, which
+  it was not before.
+
+A driver detail worth writing down, because it cost a run: **SDL tracks modifier state from real
+Shift key events, not from the `shiftKey` flag on a synthetic one.** `Input.dispatchKeyEvent`
+with `modifiers: 8` is not enough to send a capital `S`; the Shift press has to bracket it the
+way a keyboard would. The first two attempts looked exactly like "the browser build ignores `S`",
+which would have been a much more alarming finding than the truth.
+
+**What is open.**
+
+- **The death path is not tested end to end.** Deletion is proven both ways — in the contract
+  test and by save-and-flee removing the `AutoSave` set — but nobody has actually died in a
+  browser and confirmed `RemoveSaveFile` clears the whole set out of IndexedDB.
+- **Nothing has been played long enough to be big.** Every measurement here is one or two levels.
+  A full run is tens of megabytes, and while the quota is six hundred gigabytes and populate is
+  12ms at 6MB, neither number has been taken at 50MB. `ivanSaves.estimate()` is there for it.
+- **A save cannot be got out of the browser.** `savediff` is the sharpest tool in this repo for
+  anything that does not reach the screen (§5), and a browser save is currently unreachable by
+  it. An `ivanSaves.export()` beside `ivanHarness.saveRecording()` would close that, and would
+  make a crash report carry the state §9.6 records as its one gap.
+- **The mount is one profile deep.** Saves are per-browser and per-origin. Cloud saves are a
+  different problem and are not started.

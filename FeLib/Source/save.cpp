@@ -25,7 +25,17 @@
 
 #include "dbgmsgproj.h"
 
+/* Off in a browser, where every save file is copied into IndexedDB and a .bkp
+   doubles what a run costs to keep. The .tmp below still covers a crash during
+   a write, which is the case the comment in the constructor calls the useful
+   one; what is given up is the crash-during-level-generation case in
+   iosystem::ContinueMenu, whose prompt is also an AlertConfirmMsg the replay
+   harness would rather never see. */
+#if defined(__EMSCRIPTEN__) && defined(IVAN_WASM_BROWSER)
+truth outputfile::bakcupBeforeSaving = false;
+#else
 truth outputfile::bakcupBeforeSaving = true;
+#endif
 truth outputfile::saveOnNewFileAlways = true;
 
 void outputfile::Close() { DBG3(FileNameNewTmp.CStr(),FileName.CStr(),saveOnNewFileAlways);
@@ -811,7 +821,17 @@ void MakePath(cfestring& Path)
 
 festring GetUserDataDir()
 {
-#ifdef PORTABLE_BUILD
+/* The one place a browser build parts company with PORTABLE_BUILD, and it has
+   to be a different directory rather than a different filesystem: "./" is "/",
+   where --preload-file puts Graphics/ and Script/, and an IDBFS mount cannot
+   be laid over a populated MEMFS root. So user data moves to its own mount and
+   GetDataDir() stays "./" -- which is the cut that should have been there
+   anyway, read-only game data on one side and the player's on the other.
+   Mounted and synchronised by tools/web/saves.js. Not for the node host: that
+   one is NODERAWFS and writes its traces relative to the launch directory. */
+#if defined(__EMSCRIPTEN__) && defined(IVAN_WASM_BROWSER)
+  return "/ivan/";
+#elif defined(PORTABLE_BUILD)
   return "./";
 #else
 #ifdef UNIX

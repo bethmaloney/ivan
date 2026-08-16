@@ -12,9 +12,9 @@ A fork of [Attnam/ivan](https://github.com/Attnam/ivan) (`origin`; this fork is 
   to serve it comes out as each piece crosses.
 - **Host it on Cloudflare Pages.** Project name `ivan`; landing page at `/`, game at `/play/`.
 
-Sound effects (§9.7) and music (§9.8) have already crossed and the page owns them.
-Graphics, input and UI have not. `audio/` — RtMidi, the MIDI parser, the playback engine — is
-already excluded from the Emscripten build.
+Sound effects (§9.7), music (§9.8) and saves (§9.10) have already crossed and the page owns
+them. Graphics, input and UI have not. `audio/` — RtMidi, the MIDI parser, the playback engine
+— is already excluded from the Emscripten build.
 
 ## Builds
 
@@ -51,6 +51,7 @@ tools/corpora/verify-corpora.sh          # 8 runs each: self-consistency + golde
 tools/corpora/verify-corpora.sh -n 1     # smoke test
 tools/corpora/compare-targets.sh         # native vs WASM, both corpora
 node tools/web/music.test.js             # music.js contract and mixing arithmetic, no browser
+node tools/web/saves.test.js             # saves.js contract: IndexedDB sync rules, no browser
 ```
 
 **Run `verify-corpora.sh` before and after any change to `Main/`, `FeLib/`, the compiler flags

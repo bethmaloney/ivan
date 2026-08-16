@@ -1,10 +1,11 @@
 # tools/web — the browser frontend
 
-Five things live here, and only the first is about crashes:
+Seven things live here, and only the first is about crashes:
 
 | | |
 |---|---|
 | `harness-pre.js.in` | turns the query string into argv, and collects a crash report |
+| `saves.js` | keeps the player's saves in IndexedDB, so they survive the tab |
 | `sfx.js` | sound effects, played by the page |
 | `music.js` | the soundtrack, played by the page |
 | `shell.html` | the page emcc wraps around the module |
@@ -145,6 +146,75 @@ It sends the whole report as JSON, `keepalive` so it outlives the page — which
 crash is usually followed by. `keepalive` caps a body at 64KB, so a long
 recording is dropped from the POST and kept locally rather than losing the
 report; the key count says so. Nothing is sent when no endpoint is set.
+
+---
+
+# saves.js — the player's data, in IndexedDB
+
+The game writes saves with `fopen` and knows nothing about any of this. What
+changed for it is one line: `GetUserDataDir()` answers `/ivan/` on this target
+rather than `PORTABLE_BUILD`'s `"./"` (`save.cpp:822`), and `/ivan` is an IDBFS
+mount. HARNESS.md §9.10 has the design argument; this is the operating manual.
+
+## What is in the mount
+
+Everything the player accumulates, because it is one mount and not three:
+`Save/`, `Bones/`, `Scrshot/`, `ivan.cfg`, the highscore table and the answer to
+the name prompt. What is *not* in it is `Graphics/` and `Script/`, which are
+read-only and live at the MEMFS root that `ivan.data` populates, and
+`/session.rec`, which is the crash recording and belongs to `harness-pre.js`.
+
+`.bkp` backups are off on this target (`save.cpp:28`) — they are 35% of a save
+set and IndexedDB would keep every byte of them.
+
+## From the console
+
+```js
+ivanSaves.stats()      // mounted, dirty, syncs, failures, populateMs, lastError
+ivanSaves.files()      // what is in the mount, with sizes
+ivanSaves.bytes()      // their total
+ivanSaves.estimate()   // navigator.storage.estimate(), in MB
+ivanSaves.flush()      // sync now; resolves when IndexedDB has it
+ivanSaves.wipe()       // delete every save, then reload
+```
+
+```
+ivan.html?saves=off            do not mount; play in a scratch filesystem
+ivan.html?wipesaves            delete the database before mounting
+```
+
+**`?wipesaves` is the one to know.** Persistent saves mean a save the game
+cannot load fails on every load, and a player who cannot reach the menu cannot
+use a console API that lives behind it. It deletes the database before the mount,
+so there is no open connection to fight. If another tab has the game open,
+IndexedDB queues the delete instead of doing it and the page says so rather than
+claiming success.
+
+## When saves do not persist
+
+In the order worth checking:
+
+1. **`ivanSaves.stats().readOnly` is true.** Three things set it, and all three
+   print: another tab holds the lock, IndexedDB refused (a private window, or
+   third-party storage blocked), or the page was opened with `?saves=off`.
+2. **`stats().writes` stays at 0 while the game plainly saves.** The write
+   tracker is `FS.trackingDelegate`, which only exists when the module is linked
+   `-sFS_DEBUG=1`. Check with `grep -c trackingDelegate build-web/Main/ivan.js`.
+   Without it the mount populates and the game plays, so this fails silently
+   except for the one line `saves.js` prints at boot.
+3. **`stats().failures` is climbing.** Read `stats().lastError`. A full disk
+   arrives here as `QuotaExceededError`; the files stay in MEMFS and every later
+   write retries.
+4. **`stats().dirty` is stuck true with `tempDeferrals` climbing.** A `.tmp` is
+   sitting in the mount and the sync is refusing to run over a half-written
+   save. After ten attempts it gives up waiting and syncs anyway.
+
+## Editing it
+
+`saves.js` is a `--pre-js`, so **re-run `cmake` is not needed but a relink is**,
+and `Main/CMakeLists.txt` lists it in `LINK_DEPENDS` for exactly that reason.
+`node tools/web/saves.test.js` covers the whole contract without a browser and
+runs in about three seconds; it is the first thing to run after a change here.
 
 ---
 

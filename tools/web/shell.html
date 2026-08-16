@@ -139,6 +139,28 @@ button:hover {
   border-color: var(--ash);
 }
 
+/* ---- the notice strip --------------------------------------------------
+   Only ever says that saving is not working, which is a thing a player has to
+   be told while there is still time to do something about it. Under the bar
+   rather than over the canvas, because it can be true for a whole session. */
+
+.notice {
+  flex: none;
+  margin: 0;
+  padding: 0.5rem 1rem;
+  text-align: center;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  line-height: 1.6;
+  color: var(--torch);
+  background: #2a1d10;
+  border-bottom: 1px solid var(--char);
+}
+
+.notice[hidden] { display: none; }
+.notice.bad { color: var(--rubric); background: #2a1412; }
+
 /* ---- the stage -------------------------------------------------------- */
 
 .stage {
@@ -307,6 +329,8 @@ button:hover {
   </div>
 </header>
 
+<p class="notice" id="notice" hidden role="status"></p>
+
 <main class="stage">
   <div class="frame" id="frame">
     <canvas class="screen" id="canvas" tabindex="-1" oncontextmenu="event.preventDefault()"></canvas>
@@ -447,6 +471,32 @@ button:hover {
   addEventListener('error', function (Event) { Fell(Event.message); });
   addEventListener('unhandledrejection', function (Event) {
     Fell((Event.reason && Event.reason.message) || Event.reason);
+  });
+
+  /* ---- saves -----------------------------------------------------------
+     saves.js decides, this displays, the same split the mute button and sfx.js
+     use. Both messages are about the same thing from the player's side -- the
+     run will not be there tomorrow -- and both have to arrive before the run
+     is worth anything, not after. */
+
+  var Notice = document.getElementById('notice');
+
+  var Says = {
+    readonly: 'Another tab has IVAN open, so this one will not save. '
+              + 'Close the other tab and reload to play here.',
+    error: 'Your browser would not store the save. Keep this tab open — '
+           + 'progress is only in it.'
+  };
+
+  addEventListener('ivan-saves', function (Event) {
+    var Text = Says[Event.detail.kind];
+
+    if (!Text)
+      return;
+
+    Notice.textContent = Text;
+    Notice.classList.toggle('bad', Event.detail.kind === 'error');
+    Notice.hidden = false;
   });
 
   /* ---- keys ------------------------------------------------------------

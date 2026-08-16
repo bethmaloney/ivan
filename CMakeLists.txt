@@ -195,7 +195,7 @@ if(EMSCRIPTEN)
   # harness needs -- it reads a recording and Graphics/Script/Music/Sound from
   # disk and writes a trace back, and under MEMFS those writes go nowhere. It is
   # node-only, so a browser build wants this OFF plus --preload-file for the data
-  # directories and IDBFS for saves (§9 step 4).
+  # directories and IDBFS for saves (§9.10).
   if(WASM_NODERAWFS)
     set(IVAN_WASM_LINK_FLAGS "${IVAN_WASM_LINK_FLAGS} -sNODERAWFS=1")
   endif()
@@ -215,8 +215,9 @@ if(EMSCRIPTEN)
   # starts the module with the working directory at "/", so the "./Graphics/..."
   # every call site builds resolves to exactly the /Graphics below.
   #
-  # Saves, screenshots and ivan.cfg land in MEMFS and do not survive a reload.
-  # Making them persist is IDBFS, §9 step 5, and it is not done.
+  # Saves, screenshots and ivan.cfg do not live here. GetUserDataDir() answers
+  # /ivan/ on this target (save.cpp) and that is an IDBFS mount, so the player's
+  # data persists in IndexedDB rather than vanishing with the tab (§9.10).
   if(WASM_BROWSER)
     set(IVAN_WASM_PRELOAD Graphics Script)
     if(WASM_PRELOAD_AUDIO)
@@ -239,11 +240,29 @@ if(EMSCRIPTEN)
           "${IVAN_WASM_LINK_FLAGS} --preload-file ${CMAKE_CURRENT_SOURCE_DIR}/Sound/SoundEffects.cfg@/Sound/SoundEffects.cfg")
     endif()
 
+    # What tells save.cpp this is the browser host rather than the node one.
+    # The two differ in exactly one thing a translation unit can see -- where
+    # GetUserDataDir() points -- and it has to be a compile definition because
+    # nothing else distinguishes them at that level: both are __EMSCRIPTEN__.
+    add_definitions(-DIVAN_WASM_BROWSER)
+
     # tools/web/harness-pre.js turns the query string into argv and collects a
     # crash report. It needs FS on Module to read MEMFS, which is not exported
-    # by default. See tools/web/README.md.
+    # by default. saves.js needs IDBFS beside it for the mount. See
+    # tools/web/README.md.
     set(IVAN_WASM_LINK_FLAGS
-        "${IVAN_WASM_LINK_FLAGS} -sEXPORTED_RUNTIME_METHODS=FS,callMain")
+        "${IVAN_WASM_LINK_FLAGS} -sEXPORTED_RUNTIME_METHODS=FS,IDBFS,callMain")
+
+    # The IndexedDB filesystem backend is a separate JS library and is not
+    # linked in by default.
+    #
+    # FS_DEBUG is not a debug mode despite the name -- settings.js:392 defines
+    # it as exactly "register file system callbacks using trackingDelegate",
+    # and every one of its seventeen uses in libfs.js guards one of those
+    # optional calls and nothing else. It is how saves.js learns that the game
+    # wrote a save. Without it FS.trackingDelegate does not exist at all, which
+    # is not a degraded build: it is a page whose saves never leave MEMFS.
+    set(IVAN_WASM_LINK_FLAGS "${IVAN_WASM_LINK_FLAGS} -lidbfs.js -sFS_DEBUG=1")
 
     # A crash report names the build it came from, because a stack trace is only
     # meaningful against the binary that produced it -- symbolizing last week's
@@ -275,6 +294,13 @@ if(EMSCRIPTEN)
 
     set(IVAN_WASM_LINK_FLAGS
         "${IVAN_WASM_LINK_FLAGS} --pre-js ${CMAKE_CURRENT_BINARY_DIR}/harness-pre.js")
+
+    # Saves, mounted and synchronised by the page (§9.10). Before the two audio
+    # files because this one holds up startup: it adds a run dependency while
+    # IndexedDB is read back into MEMFS, so main() cannot reach the menu and
+    # enumerate an empty Save/ before the saves have arrived.
+    set(IVAN_WASM_LINK_FLAGS
+        "${IVAN_WASM_LINK_FLAGS} --pre-js ${CMAKE_CURRENT_SOURCE_DIR}/tools/web/saves.js")
 
     # Sound effects, played by the page rather than by SDL_mixer (§9.7). No
     # configure_file: nothing in it is substituted, and what would have been
