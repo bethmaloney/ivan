@@ -20,6 +20,10 @@
 
 #include <ctype.h>
 
+#ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+#endif
+
 #include "festring.h"
 #include "felist.h"
 #include "graphics.h"
@@ -85,6 +89,36 @@ festring getstr(FILE *f, truth word)
   }
 }
 
+#ifdef __EMSCRIPTEN__
+
+/* Playback is the browser's on this target (HARNESS.md §9.7). Everything above
+   this line stays in C++ -- SoundEffects.cfg, the patterns, the match, and the
+   choice of which of several files to use -- and what crosses the boundary is
+   the filename it settled on.
+
+   Cutting here rather than above the regex is deliberate. It keeps the config
+   file parsed in one place and one language, so there is no second copy of the
+   pattern table to drift, and it leaves NextSoundRand on this side of the wall
+   where §6.5 put it: which wav plays still cannot perturb the game's stream,
+   for the same reason it could not before.
+
+   Fire and forget. No return value and no callback into wasm, so asyncify has
+   nothing to unwind here and a slow fetch cannot stall the frame that asked
+   for the sound. Everything that can fail -- a missing file, a decode error,
+   a context the autoplay policy has not released yet -- fails on the JS side
+   and is silent, which is what the SDL_mixer path does with a null chunk. */
+
+EM_JS(void, IvanSfxPlay, (const char* Path, int Volume), {
+  var Sfx = globalThis.ivanSfx;
+
+  if(!Sfx)
+    return;
+
+  Sfx.play(UTF8ToString(Path), Volume);
+});
+
+#endif
+
 FILE *debf = NULL;
 void soundeffects::initSound()
 {
@@ -110,6 +144,17 @@ void soundeffects::initSound()
     debf = fopen(fsSndDbgFile.CStr(), "wt"); //"a");
     if(debf)fprintf(debf, "This file can be used to diagnose problems with sound.\n");
 
+#ifdef __EMSCRIPTEN__
+    /* No device to open: the browser owns one and creates it on the first
+       gesture. Skipping the open also skips its failure path below, which
+       draws a dialog and then blocks on GET_KEY -- the same hazard --headless
+       declines to open a device for (§9.3), and one that would be reached far
+       more often here, since the autoplay policy can hold a context suspended
+       through an entire session. There are no mixer channels to allocate
+       either; the cap that replaces them is on the JS side. */
+
+    SoundState = -2;
+#else
     if(Mix_OpenAudio(44100, MIX_DEFAULT_FORMAT, 2, 8000) != 0)
     {
       std::vector<festring> vfsCritMsgs;
@@ -121,6 +166,7 @@ void soundeffects::initSound()
     }
     Mix_AllocateChannels(16);
     SoundState = -2;
+#endif
 
     /**
      * The last matching pattern will win (if more than one matches).
@@ -240,6 +286,13 @@ void soundeffects::initSound()
 
 void soundeffects::deInitSound()
 {
+#ifdef __EMSCRIPTEN__
+  /* Nothing was opened, so there is nothing to close. The AudioContext and
+     everything hanging off it belong to the page and outlive the module. */
+
+  SoundState = 2;
+  return;
+#else
   Mix_AllocateChannels(0);
 
   int freq, chans;
@@ -251,6 +304,7 @@ void soundeffects::deInitSound()
     Mix_Quit();
 
   SoundState = 2;
+#endif
 }
 
 int soundeffects::addFile(festring filename) {
@@ -315,6 +369,18 @@ void soundeffects::playSound(festring Buffer)
     SoundFile *sf = findMatchingSound(Buffer);
     if(!sf) return;
 
+#ifdef __EMSCRIPTEN__
+    /* The same path the SDL_mixer branch builds, and it is usable unchanged as
+       a URL: PORTABLE_BUILD makes fsDataDir "./" (game.cpp:5426), so this is
+       "./Sound/hit3.wav" resolved against the page rather than against MEMFS.
+       Nothing under Sound/ is preloaded any more -- the browser fetches each
+       file the first time it is asked for and caches it thereafter, which is
+       what takes the directory's 26MB off the first load entirely (§9.7). */
+
+    festring sndfile = fsDataDir + "Sound/" + sf->filename;
+    IvanSfxPlay(sndfile.CStr(), lSfxVol);
+    DBG2(lSfxVol,sf->filename.CStr());
+#else
     if(!*sf->chunk)
     {
       festring sndfile = fsDataDir + "Sound/" + sf->filename;
@@ -336,6 +402,7 @@ void soundeffects::playSound(festring Buffer)
         }
       }
     }
+#endif
   }
 }
 

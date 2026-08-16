@@ -89,14 +89,18 @@ if(EMSCRIPTEN)
   option(WASM_NODERAWFS "Use the real filesystem instead of MEMFS (node only, not browsers)" ${IVAN_WASM_NODERAWFS_DEFAULT})
   option(WASM_ASYNCIFY "Unwind the stack around blocking input so interactive play works" ON)
 
-  # Music/ and Sound/ are ~28MB against Graphics/ and Script/'s ~3.5MB, and the
-  # game runs without either: a missing Sound/SoundEffects.cfg leaves initSound
-  # at SoundState = -1 (sfx.cpp:131 -- the ABORT beside it is commented out) and
-  # the wavs load lazily per effect, while audio::LoadMIDIFile only pushes a
-  # filename onto a vector (audio.cpp:449) and RtMidi is a dummy on this target
-  # regardless (§9.3). So the audio data is opt-in: preloading it blocks the
-  # first frame on the whole download for something that may not make a sound.
-  option(WASM_PRELOAD_AUDIO "Preload Music/ and Sound/ too (adds ~28MB to the browser first load)" OFF)
+  # Music/ and Sound/ are ~28MB against Graphics/ and Script/'s ~3.5MB, and
+  # neither belongs in ivan.data.
+  #
+  # Sound/ does not need preloading at all any more, and this option no longer
+  # governs whether effects are audible: §9.7 moved playback to the page, and
+  # tools/web/sfx.js fetches each wav over HTTP the first time the game asks
+  # for it. Preloading it would put 26MB back on the first load to populate a
+  # MEMFS nothing reads. Music/ is still listed here because the MIDI path is
+  # unimplemented on this target -- RtMidi is a dummy (§9.3) -- so the 1.5MB
+  # would buy nothing either. The option is kept for the music work that will
+  # need to decide the same question again.
+  option(WASM_PRELOAD_AUDIO "Preload Music/ and Sound/ into ivan.data (~28MB; effects do not need it, see §9.7)" OFF)
 
   # Function names are not in here: WASM_BROWSER keeps them unconditionally,
   # because a report from a player's crash is worthless without them and cannot
@@ -219,6 +223,18 @@ if(EMSCRIPTEN)
           "${IVAN_WASM_LINK_FLAGS} --preload-file ${CMAKE_CURRENT_SOURCE_DIR}/${PreloadDir}@/${PreloadDir}")
     endforeach()
 
+    # The one file under Sound/ that is not audio. §9.7 moved *playback* to the
+    # page but deliberately left the pattern table in C++, and initSound reads
+    # it with fopen, so SoundEffects.cfg has to exist in MEMFS even though none
+    # of the wavs beside it do. Miss this and there is no failure to see: the
+    # open fails, initSound settles on SoundState = -1 (the ABORT next to it is
+    # commented out), and playSound returns before reaching the bridge -- a
+    # game that is silent for a reason nothing prints. 10KB.
+    if(NOT WASM_PRELOAD_AUDIO)
+      set(IVAN_WASM_LINK_FLAGS
+          "${IVAN_WASM_LINK_FLAGS} --preload-file ${CMAKE_CURRENT_SOURCE_DIR}/Sound/SoundEffects.cfg@/Sound/SoundEffects.cfg")
+    endif()
+
     # tools/web/harness-pre.js turns the query string into argv and collects a
     # crash report. It needs FS on Module to read MEMFS, which is not exported
     # by default. See tools/web/README.md.
@@ -255,6 +271,13 @@ if(EMSCRIPTEN)
 
     set(IVAN_WASM_LINK_FLAGS
         "${IVAN_WASM_LINK_FLAGS} --pre-js ${CMAKE_CURRENT_BINARY_DIR}/harness-pre.js")
+
+    # Sound effects, played by the page rather than by SDL_mixer (§9.7). No
+    # configure_file: nothing in it is substituted, and what would have been
+    # build-time settings are query-string options so they can be changed
+    # without a rebuild, exactly as ?crashlog= is.
+    set(IVAN_WASM_LINK_FLAGS
+        "${IVAN_WASM_LINK_FLAGS} --pre-js ${CMAKE_CURRENT_SOURCE_DIR}/tools/web/sfx.js")
 
     # Function names are kept in *every* browser build, not just a debug one.
     # --profiling-funcs preserves the name section and changes no codegen, so it

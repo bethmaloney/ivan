@@ -129,3 +129,85 @@ It sends the whole report as JSON, `keepalive` so it outlives the page — which
 crash is usually followed by. `keepalive` caps a body at 64KB, so a long
 recording is dropped from the POST and kept locally rather than losing the
 report; the key count says so. Nothing is sent when no endpoint is set.
+
+---
+
+# sfx.js — sound effects, played by the page
+
+`sfx.js` is the other half of the browser build's JavaScript, and it has
+nothing to do with crashes. The wasm module decides *what* to play; this
+decides *how*. HARNESS.md §9.7 has the design argument; this is the operating
+manual.
+
+## Where the boundary is
+
+Everything up to and including the choice of file stays in C++ —
+`Sound/SoundEffects.cfg`, its 153 patterns, the regex match against the message
+text, and the private xorshift that picks between several files for one
+pattern. What crosses is a path, through an `EM_JS` bridge in
+`FeLib/Source/sfx.cpp`:
+
+```
+soundeffects::playSound("The dog bites you!")   [C++]
+  -> findMatchingSound  -> "bark.wav"
+  -> IvanSfxPlay("./Sound/bark.wav", 127)       [bridge]
+  -> ivanSfx.play(...)                          [JS: fetch, decode, schedule]
+```
+
+Fire and forget: no return value, nothing calls back into wasm, so asyncify has
+nothing to unwind and a slow fetch cannot stall the frame that asked for the
+sound. Everything that can fail — a missing file, a decode error, a context the
+autoplay policy has not released — fails on the JS side and is silent, which is
+what the SDL_mixer path does with a null chunk.
+
+## From the console
+
+```js
+ivanSfx.stats()     // {played, dropped, failed, cached, voices}
+ivanSfx.played()    // the last few hundred paths, newest last
+ivanSfx.state()     // AudioContext state, or 'none' before the first sound
+```
+
+```
+ivan.html?sfx=off              never play anything (still records what would have)
+ivan.html?sfxbase=<url>        fetch from somewhere other than the page's Sound/
+```
+
+`played()` is the useful one when something is wrong, because it records the
+call whether or not a sound came out. A path in `played()` with `stats().played`
+not moving means the module and the bridge are fine and the problem is the
+fetch, the decode or the context.
+
+## When it is silent
+
+In the order worth checking:
+
+1. **`ivanSfx.played()` is empty.** Nothing is crossing the bridge, so the
+   problem is in C++, not here. Almost always `SoundState`: `initSound` reads
+   `Sound/SoundEffects.cfg` out of MEMFS, and if the preload is missing it
+   settles on `-1` and `playSound` returns before the bridge. Nothing is
+   printed when this happens. Check the file is in the package:
+   `grep -c SoundEffects.cfg build-web/Main/ivan.js`.
+2. **`stats().failed` is climbing.** The wavs are fetched over HTTP, not read
+   from `ivan.data`, so `Sound/` has to be served beside `ivan.html`. The build
+   symlinks it there; a deploy that copies only the emcc output will not have
+   it. One console line per missing file per session.
+3. **`state()` is `suspended`.** The autoplay policy has not released the
+   context. It resumes on the first `keydown`, `mousedown` or `touchstart`;
+   sounds requested before that are dropped rather than queued, deliberately —
+   a suspended context does not advance `currentTime`, so queued sounds would
+   all fire at once on the first keystroke.
+4. **`state()` is `none`.** No sound has been requested yet, or the browser has
+   no `AudioContext`.
+
+## Editing it
+
+`sfx.js` is a `--pre-js`, which means it is a link input CMake can only see
+through `LINK_DEPENDS` (`Main/CMakeLists.txt`). That is wired, so an edit
+relinks — but if you move or rename the file, wire it again. The failure mode
+is silent: the build reports itself up to date and the page keeps serving the
+previous copy, so the edit looks like it did nothing.
+
+There is no `configure_file` step and nothing is substituted at build time. What
+would have been build-time settings are query-string options instead, so they
+can be changed without a rebuild, exactly as `?crashlog=` is.

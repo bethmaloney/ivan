@@ -32,6 +32,16 @@ if(EMSCRIPTEN)
   # and target_link_options arrived in 3.13.
   set_target_properties(ivan PROPERTIES LINK_FLAGS "${IVAN_WASM_LINK_FLAGS}")
 
+  # --pre-js files are link inputs, but they appear only inside LINK_FLAGS as
+  # far as CMake can see, so nothing reruns the link when one of them changes.
+  # The failure is silent and expensive: the build says it is up to date and
+  # the page keeps the previous copy of the JS, so an edit appears to have no
+  # effect and gets debugged as a code problem.
+  if(WASM_BROWSER)
+    set_target_properties(ivan PROPERTIES
+                          LINK_DEPENDS "${CMAKE_BINARY_DIR}/harness-pre.js;${CMAKE_SOURCE_DIR}/tools/web/sfx.js")
+  endif()
+
   # Emitting .html rather than .js is what makes emcc generate the page and the
   # canvas with it: Emscripten's SDL2 port looks up "#canvas" at video init and
   # has nothing to bind to otherwise. Set as a target property rather than
@@ -39,6 +49,20 @@ if(EMSCRIPTEN)
   # as plain programs.
   if(WASM_BROWSER)
     set_target_properties(ivan PROPERTIES SUFFIX ".html")
+
+    # Sound/ is the one data directory the page fetches over HTTP instead of
+    # reading out of ivan.data (§9.7), so it has to be reachable at a URL
+    # relative to ivan.html. Symlinked rather than copied: it is 26MB, it is
+    # read-only, and a copy would go stale the moment a wav changed. This is
+    # what keeps the documented `emrun --no_browser build-web/Main` serving a
+    # complete game with no extra argument.
+    add_custom_command(TARGET ivan POST_BUILD
+                       COMMAND ${CMAKE_COMMAND} -E remove -f
+                               $<TARGET_FILE_DIR:ivan>/Sound
+                       COMMAND ${CMAKE_COMMAND} -E create_symlink
+                               ${CMAKE_SOURCE_DIR}/Sound
+                               $<TARGET_FILE_DIR:ivan>/Sound
+                       COMMENT "Linking Sound/ beside the page for §9.7 audio")
   endif()
 endif()
 
