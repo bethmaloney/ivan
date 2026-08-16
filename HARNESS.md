@@ -4,11 +4,12 @@
 been offered upstream. The corpora are committed (§5b), the host libm is no longer an input
 (§6.7), and the one known Emscripten build error is fixed (§6.8).
 
-**Seam 1 is open and half proven.** The WASM build runs headless under bare node (§9.3's
-no-video path, now `--headless`), and on the non-combat corpus a native replay and a WASM
-replay produce **byte-identical frame traces, text logs, screenshots, world maps and level
-files**. The auto-play corpus agrees for its first 389 frames and then diverges inside a long
-combat; what is found and fixed, what is left, and how to hunt the rest is §9.4.
+**Seam 1 is open and proven on both committed corpora.** The WASM build runs headless under
+bare node (§9.3's no-video path, now `--headless`), and on *both* corpora a native replay and a
+WASM replay produce **byte-identical frame traces, text logs, screenshots, world maps and level
+files**. The auto-play divergence §9.4 was written around is closed — it was §6.9, a strict
+aliasing violation in `character::Die` that Clang exploited and GCC did not. What that took,
+and how to hunt the rest, is §9.4.
 
 **The game is also playable in a browser.** `-DWASM_BROWSER=ON` produces a page that boots to
 the main menu, generates a world and takes keystrokes — §9.5. That is a second host for the
@@ -18,7 +19,9 @@ is unmeasured against the goldens and is not an oracle.
 **Every browser session records itself and keeps its function names**, so a crash yields a
 report carrying a deterministic reproduction — replay it on the native build and the whole
 native toolchain applies. Neither is opt-in, because neither can be arranged after the crash
-it is for (§9.6). One reported `memory access out of bounds` remains unreproduced.
+it is for (§9.6). **That paid for itself immediately:** the first report to arrive with names
+on it was §6.9, which turned out to be §9.4's open divergence as well.
+
 **Last updated:** 2026-08-16
 
 ---
@@ -93,7 +96,10 @@ validates the *rewrite*. You need both, in that order.
 | WASM binary run under node, `--headless` | **runs both corpora to completion**, 2.4s for non-combat |
 | Native `--headless` vs native windowed, both corpora | trace, text log, screenshot and sidecar **byte-identical** |
 | **Native vs WASM, non-combat corpus** | trace, text log, screenshot, sidecar, `.wm` and level file **all byte-identical**; `.sav` differs by the one `GetTimeSpent` byte |
-| **Native vs WASM, auto-play corpus** | identical for 389 of 593 frames, and `.wm` and the descent level file are byte-identical; then diverges (§9.4) |
+| **Native vs WASM, auto-play corpus**, after §6.9 | trace, text log, screenshot, sidecar, `.wm` and **both** level files byte-identical; `.sav` differs by the one `GetTimeSpent` byte. Was 389 of 593 frames |
+| `compare-targets.sh` with §6.9 reverted, then reapplied | **DISAGREE** then **agree** — the fix is what closes it |
+| Browser crash report of §6.9 replayed on the WASM node build | reproduces the path; **`SAFE_HEAP` aborts in `lsquare::AddItem`**, release does not |
+| Same recording, `-fno-strict-aliasing` vs §6.9's fix | both exit 0 at the **same** RNG count, 2,303,482 |
 | `portmath` output under GCC vs under Emscripten, 14,000 evaluations | **bit-identical** — §6.7's pin holds across compilers, not just across libms |
 | `emcmake cmake -DWASM_BROWSER=ON`, then build | **0 warnings, 0 errors**, exit 0 — `ivan.html` + a 3.3MB `ivan.data` |
 | Node-host defaults after the browser option landed | unchanged: `NODERAWFS=ON`, `ivan.js`, no preload |
@@ -152,8 +158,13 @@ layer can be a golden artifact in CI, not just a debugging aid.
 
 ### Not yet verified
 
-- **The rest of the auto-play corpus, native vs WASM.** It agrees for 389 of 593 frames and then
-  diverges in combat. §9.4 says what has been ruled out and how to continue.
+- **Native vs WASM outside the two committed corpora.** Both now agree completely (§6.9 closed
+  the auto-play divergence), but a 116-key browser recording that enters **New Attnam** diverges
+  at frame 513 — during the town's *generation*, ~1.06M draws into the descent, native taking
+  3,274 more draws than WASM, and long before any of the play that follows. Neither committed
+  corpus generates New Attnam, so this is coverage rather than a regression: it is the §9.4
+  hunt again on a level the corpora never reach. The recording is the one from §6.9's report and
+  reproduces on demand.
 - **Uninitialized reads outside the two corpora.** Both corpora are clean under memcheck as of
   §6.6e; nothing is known-broken and unfixed. What is unverified is everything they do not
   reach — the rest of the world map, and the `.wm` residue of §6.2/§7.6. §6.6e is the second
@@ -1419,6 +1430,72 @@ change, the single exception being one byte of autoplay's `.sav` at offset 17279
 This replaced the `SAVE_COMPATIBILITY` block, which was written for this same problem on
 mingw and was dead code: the macro is defined nowhere, so its `#if` was always false.
 
+### 6.9 A strict aliasing violation decided whether a corpse had a square — FIXED (new)
+
+Reported from a browser session as `memory access out of bounds` in
+`stackslot::SignalVolumeAndWeightChange`, under `stack::AddItem` ← `lsquare::AddItem` ←
+`character::CreateCorpse` ← `dog::CreateCorpse` ← `character::Die`. A pet puppy was kicked to
+death by a banana grower in New Attnam. **This is the crash §9.6 had reported and could not
+reproduce**, and it is the same bug as §9.4's open auto-play divergence.
+
+`character::Die` opened with
+
+```cpp
+square* SquareUnder[MAX_SQUARES_UNDER];
+lsquare** LSquareUnder = reinterpret_cast<lsquare**>(SquareUnder);
+memset(SquareUnder, 0, sizeof(SquareUnder));
+```
+
+then wrote the array through `SquareUnder[c] = GetSquareUnder(c)` and read it back through
+`LSquareUnder[0]` at all seven use sites. Writing an object through one pointer type and
+reading it through another is a strict aliasing violation, so the compiler may assume the
+stores cannot affect the loads. **Clang does, and folds every read back to the `memset`'s
+zero.** `CreateCorpse` was therefore handed a null `lsquare*`, `lsquare::AddItem` loaded
+`Stack` through it, and what the release browser build finally trapped on was several
+dereferences downstream of the null — which is why the reported frame is not the faulting
+line. GCC does not exploit it, so the whole thing was invisible natively.
+
+Fixed by declaring the array as what every read of it already was, `lsquare*`, and filling it
+with the existing `GetLSquareUnder(c)` accessor (`char.h:781`), which is the same cast written
+once and legally. Every dereference was already guarded by `!game::IsInWilderness()`.
+
+**The measurement that identified it, since the trap location did not.** A `printf` of the
+same slot through both names, in the same function:
+
+```
+DIE-DIAG after Remove()      local0=0x206d3d0     <- read as square*
+DIE-DIAG before SignalDeath  local0=0             <- read as lsquare*, same address
+```
+
+Two reads of one address giving two values is aliasing or a miscompile and nothing else. Note
+that adding `&SquareUnder[0]` to the same `printf` **made the bug disappear** — taking the
+address forces the array to memory and defeats the assumption. A Heisenbug that evaporates
+when you take an address is this class's signature; do not conclude from it that the previous
+run was wrong.
+
+Confirmed twice over, on one build differing only in that flag: `-fno-strict-aliasing` clears
+the fault, and the fixed source with strict aliasing on reaches the identical RNG count
+(2,303,482) that `-fno-strict-aliasing` reached on the broken source.
+
+**Three things worth taking from this.**
+
+*A `reinterpret_cast` between two object pointer types is a portability defect, not a style
+one.* It is the only instance of this exact pattern in the tree (`reinterpret_cast<T**>` over
+`Main/` and `FeLib/` finds one other family, `allocate.h`, which only ever reads back through
+the type it wrote and is fine). The `reinterpret_cast<ushort&>(x)` idiom over an `int` in the
+save readers — `stack.cpp:201`, `proto.h:117`, `script.cpp:274`, `cmdswapweap.cpp:114` — is
+the same class and unaudited; it also writes only half of each target.
+
+*A WASM-only crash was a real defect, exactly as §9.6 predicted.* Not an Emscripten problem,
+not a toolchain problem: a latent bug that x86-64 absorbs because the wild pointer still
+lands in a mapped page.
+
+*The second host paid for itself.* This bug was reachable from the committed auto-play corpus
+and had already been measured as a native-vs-WASM divergence in §9.4, where it sat unexplained
+behind a list of correctly-ruled-out causes. What the browser added was a *symptom* — a stack
+with `character::Die` in it — and that was the whole difference between an open item and a
+one-line fix.
+
 ## 7. Open items, roughly in priority order
 
 **§6.6 was what blocked seam 1** — a WASM build shares no allocation pattern with a native one, so
@@ -1435,14 +1512,15 @@ numbers (§6.7), and the `time_t` overload that would have failed the Emscripten
 is fixed along with the container-length width behind it (§6.8). **The Emscripten build itself
 now compiles and links** (§9.3), so the port is past the build-system stage entirely.
 
-**The native-vs-WASM frame comparison exists and runs** — `tools/corpora/compare-targets.sh`,
-on top of the `--headless` path that closed §9.3's DOM blocker. It passes outright on the
-non-combat corpus and gets 389 of 593 frames into the auto-play one. **The single most valuable
-thing to do next is to finish it**: §9.4 names the remaining divergence, what has been ruled out,
-and the four-step technique that localised the nine already fixed. Everything else in this
-section is smaller. CI (§7.3) should wire in `compare-targets.sh` alongside `verify-corpora.sh`
-once it passes on both corpora; the format warnings (§7.8) and §9's step 1 (native scaling) are
-independent of all of it.
+**The native-vs-WASM frame comparison exists, runs and passes** — `tools/corpora/compare-targets.sh`,
+on top of the `--headless` path that closed §9.3's DOM blocker. Both committed corpora now agree
+byte for byte, the last divergence having been §6.9. **The single most valuable thing to do next
+is to widen the corpora**, because that agreement is now a statement about 217 keys and nothing
+else: the browser recording in §6.9 walks into New Attnam and diverges during the town's
+generation (§2), which no committed corpus reaches. §9.4 has the four-step technique that
+localised the twelve already fixed. CI (§7.3) should now wire in `compare-targets.sh` alongside
+`verify-corpora.sh`; the format warnings (§7.8) and §9's step 1 (native scaling) are independent
+of all of it.
 
 The fluid family took one pass (§6.6d, 283 → 0, and 400 bytes → 0) and closed §7.6a with it —
 those were stale heap pointers sitting in uninitialized `trapdata` fields, not pointers anyone
@@ -2008,10 +2086,10 @@ Recommended approach, for context on why the harness is shaped this way:
    menu: **Emscripten compiles with exception throwing disabled**, and IVAN throws as ordinary
    control flow. `-fexceptions`, §3.
 
-4. **Make the game compiler-independent — half done, and where the interesting bugs were.**
-   Eleven defects where the source left a choice to the compiler or the standard library rather
-   than making it. The non-combat corpus now matches native-vs-WASM byte for byte; the auto-play
-   corpus matches for 389 of 593 frames. Findings, technique and what is left: **§9.4**.
+4. **Make the game compiler-independent — done for what the corpora reach, and where the
+   interesting bugs were.** Twelve defects where the source left a choice to the compiler or the
+   standard library rather than making it — or, in §6.9's case, told it a lie. Both committed
+   corpora now match native-vs-WASM byte for byte. Findings, technique and what is left: **§9.4**.
 5. **TinySoundFont** for MIDI (RtMidi cannot work in WASM), IDBFS for saves, touch input.
    **IDBFS is now the one that blocks something real** — the browser build plays but cannot
    save across a reload (§9.5).
@@ -2024,11 +2102,11 @@ both builds and compares the traces. Where that stands:
 
 | | non-combat | auto-play 200 |
 |---|---|---|
-| frame trace | **identical** | identical for 389 of 593 frames |
-| text log, screenshot, sidecar | **identical** | identical to the same point |
+| frame trace | **identical** | **identical** (was 389 of 593 — §6.9) |
+| text log, screenshot, sidecar | **identical** | **identical** |
 | `.wm` | **identical** | **identical** |
-| level file | **identical** | descent level identical; the fought-over one differs |
-| `.sav` | one byte — `GetTimeSpent`, §5 | differs after the divergence |
+| level file | **identical** | **identical**, both the descent and the fought-over one |
+| `.sav` | one byte — `GetTimeSpent`, §5 | one byte — `GetTimeSpent` |
 
 Getting from "it runs" to that table meant fixing eleven distinct defects across some fifty
 sites. Every one is a real bug that has been in IVAN for years, every one is invisible to any
@@ -2101,15 +2179,16 @@ Note how far each of these is from where it hurts. `distancetoattnam` is nine li
 generation and it decided the whole overworld; `svpriorityelement` is a heap of at most ten
 elements and it decided which leg a hedgehog bit.
 
-**What is still open.** On the auto-play corpus the two builds agree exactly — same frame
-hashes, same RNG count, same text — through world generation, dungeon generation, the descent
-and the first ~190 auto-play turns, and then diverge at frame 390 during a long fight with a
-hedgehog in which the player dies and insta-resurrects. At the divergence the RNG counts part
-company by 18 draws, so it is game state and not rendering. Ruled out so far: the pinned math
-(§6.7, now measured across compilers), `long` width in the fluid and volume paths,
-uninitialized memory (§6.6e, both corpora valgrind-clean), and pointer-ordered container
-iteration (§6.3 still holds — every `std::map` in the tree is keyed by an ID, a `v2` or a
-`configid`).
+**The auto-play divergence this section left open is closed — it was §6.9.** It was described
+here as a divergence at frame 390 during a long fight with a hedgehog in which the player dies
+and insta-resurrects, with the RNG counts parting company by 18 draws. The death was the clue
+and it was not read as one: `character::Die` punned a `square*` array through an `lsquare**`,
+Clang folded the read back to zero and the WASM build gave every corpse a null square. A
+twelfth defect, of a fourth class — not an unsequenced draw and not a library tie, but
+undefined behaviour the two compilers exploit differently. `compare-targets.sh` now reports
+`targets agree` on both corpora, frames, text and screenshot alike. What had been ruled out
+was correctly ruled out; the list simply did not include "the program is lying to the
+optimizer".
 
 **How to pick it up.** The technique that localised every one of the nine is worth following
 rather than reinventing:
@@ -2282,13 +2361,29 @@ So a crash that will not reproduce natively usually means a real latent defect t
 testing structurally cannot see — the class §6.6 and §9.4 were about, and an argument for
 keeping the second host rather than a reason to distrust it.
 
-**One crash is reported and unreproduced.** A `memory access out of bounds` during ordinary
-interactive play, against a build with no name section, so its trace is unsymbolizable per the
-above and nothing can be recovered from it. **400 turns of auto-play under `WASM_DEBUG` did not
-reproduce it** — clean run, no trap, no assertion — which rules out the auto-play path. It is the
-crash that prompted all of the above, and the reason none of it is opt-in: the next occurrence
-needs no preparation from whoever hits it, only that they still have the tab or the
-`localStorage` behind it.
+**The crash that prompted all of the above is found and fixed — §6.9.** It was reported twice.
+The first report came from a build with no name section, so its trace was unsymbolizable per
+the above and nothing could be recovered from it; 400 turns of auto-play under `WASM_DEBUG`
+did not reproduce it. The second came from a build with names, and that report alone was
+enough: it named `character::Die` → `dog::CreateCorpse` → `lsquare::AddItem`, and its recording
+replayed the path on the node build first go. The difference between the two reports is
+exactly the 800KB of `--profiling-funcs` this section argues for, and it was worth it — the
+same defect had been sitting in §9.4 as an unexplained divergence for the whole of §9.4.
+
+**What the second report needed, in order.** Worth recording because only the first step was
+foreseen. The recording reproduced the *path* on the WASM node build (the RNG stream matches
+the report's key-by-key `rng` column exactly) but **not the trap** — release WASM absorbed the
+wild pointer that the browser build happened to fault on, since the two have different heap
+layouts. `WASM_SAFE_HEAP=ON` is what turned that back into a hard failure, at the first bad
+access rather than several dereferences later, and this is the case the option was added for.
+Relink it with `--profiling-funcs` as well (`-DCMAKE_EXE_LINKER_FLAGS=--profiling-funcs`, which
+`WASM_BROWSER` sets and the node host does not) or the names are gone again.
+
+**And the native build could not reproduce it, which was itself the second finding.** The same
+recording replays natively without crashing because native and WASM generate a *different New
+Attnam* — §2's newly-open item. So the "replay it natively and the whole native toolchain
+applies" promise above held only after the WASM run had been used to localise the bug. Do not
+assume a browser recording lands in the same game state natively; check the frame trace first.
 
 **What is still missing from a report.** Nothing carries game state — dungeon, level, turn,
 character — so a report says where the program stopped and how to get back there, but not what
@@ -2296,3 +2391,4 @@ the game thought was happening. The recording makes that recoverable rather than
 replaying it reconstructs the state exactly, so this is a convenience rather than a gap. Worth
 adding only if a crash turns up that the recording cannot reproduce, which would be a more
 interesting problem than the one it solves.
+
