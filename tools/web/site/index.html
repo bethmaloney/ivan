@@ -1,0 +1,939 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>IVAN — Iter Vehemens ad Necem</title>
+<meta name="description" content="A roguelike that models your body one limb at a time. Limbs come off. Severed limbs are food. Playable in the browser, no install.">
+<link rel="icon" href="/icon.png" type="image/png">
+<link rel="stylesheet" href="/fonts/fonts.css">
+
+<meta property="og:title" content="IVAN — Iter Vehemens ad Necem">
+<meta property="og:description" content="A roguelike that models your body one limb at a time. Limbs come off. Severed limbs are food.">
+<meta property="og:image" content="/screenshot.webp">
+<meta property="og:type" content="website">
+<meta name="twitter:card" content="summary_large_image">
+
+<style>
+/* ------------------------------------------------------------------------
+   IVAN, on the web.
+
+   The palette is a lit dungeon rather than a dark theme: the ground is warm
+   because IVAN's caves are browns, and there are three light colours rather
+   than one accent because multi-coloured lighting is something the renderer
+   actually does. Torch for what you can act on, rubric for damage, ichor for
+   data. Nothing else gets a colour.
+
+   Shared with tools/web/shell.html, which is the page the game itself lives
+   in. Change a token in one and change it in the other.
+   ------------------------------------------------------------------------ */
+
+:root {
+  color-scheme: dark;
+
+  --soil:   #14100c;
+  --loam:   #1c1610;
+  --char:   #2b2119;
+  --bone:   #e6dcc8;
+  --ash:    #978b76;
+  --torch:  #e89a3c;
+  --rubric: #c4392e;
+  --ichor:  #6fb3a0;
+
+  --measure: 34rem;
+  --gutter: clamp(1.25rem, 5vw, 4rem);
+}
+
+* { box-sizing: border-box; }
+
+html { scroll-behavior: smooth; }
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  * { animation-duration: 0.001ms !important; transition-duration: 0.001ms !important; }
+}
+
+body {
+  margin: 0;
+  background: var(--soil);
+  color: var(--bone);
+  font-family: 'Spectral', Georgia, serif;
+  font-size: 1.0625rem;
+  line-height: 1.7;
+  -webkit-font-smoothing: antialiased;
+}
+
+a { color: var(--torch); text-underline-offset: 0.2em; }
+a:hover { color: var(--bone); }
+
+:focus-visible {
+  outline: 2px solid var(--torch);
+  outline-offset: 3px;
+}
+
+h1, h2, h3 {
+  font-family: 'Grenze', Georgia, serif;
+  font-weight: 700;
+  line-height: 1.08;
+  margin: 0;
+}
+
+/* The utility face carries every label, number and key in the page. Its job is
+   to say "this is a value read out of the game", so it never sets prose. */
+.mono {
+  font-family: 'IBM Plex Mono', ui-monospace, monospace;
+  font-size: 0.72rem;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--ash);
+}
+
+.wrap {
+  max-width: 68rem;
+  margin: 0 auto;
+  padding-inline: var(--gutter);
+}
+
+.rule { border-top: 1px solid var(--char); }
+
+kbd {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 0.78rem;
+  color: var(--bone);
+  background: var(--loam);
+  border: 1px solid var(--char);
+  border-bottom-width: 2px;
+  border-radius: 2px;
+  padding: 0.1rem 0.42rem;
+}
+
+code {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 0.85em;
+  color: var(--ichor);
+}
+
+/* ---- header ------------------------------------------------------------ */
+
+.top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding-block: 1.1rem;
+}
+
+.wordmark {
+  font-family: 'Grenze', Georgia, serif;
+  font-weight: 700;
+  font-size: 1.4rem;
+  letter-spacing: 0.16em;
+  color: var(--bone);
+  text-decoration: none;
+}
+
+.top nav {
+  display: flex;
+  gap: 1.4rem;
+  align-items: center;
+}
+
+.top nav a {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 0.72rem;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--ash);
+  text-decoration: none;
+}
+
+.top nav a:hover { color: var(--bone); }
+
+/* ---- hero -------------------------------------------------------------- */
+
+.hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(22rem, 1fr);
+  gap: clamp(2rem, 5vw, 3.5rem);
+  align-items: center;
+  padding-block: clamp(3rem, 9vw, 6.5rem) clamp(3rem, 8vw, 5.5rem);
+}
+
+@media (max-width: 56rem) {
+  .hero { grid-template-columns: minmax(0, 1fr); }
+}
+
+.hero h1 {
+  font-size: clamp(2.6rem, 7.5vw, 4.6rem);
+  letter-spacing: -0.005em;
+  margin-block: 0.5rem 0.7rem;
+  text-wrap: balance;
+}
+
+.gloss {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 0.8rem;
+  letter-spacing: 0.05em;
+  color: var(--rubric);
+  margin: 0 0 1.6rem;
+}
+
+.lead {
+  font-size: 1.2rem;
+  line-height: 1.62;
+  max-width: var(--measure);
+  margin: 0 0 2rem;
+}
+
+.lead strong {
+  font-weight: 600;
+  color: var(--torch);
+}
+
+/* ---- the call to action ------------------------------------------------- */
+
+.play {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.85rem;
+  font-family: 'Grenze', Georgia, serif;
+  font-weight: 700;
+  font-size: 1.35rem;
+  letter-spacing: 0.06em;
+  text-decoration: none;
+  color: var(--soil);
+  background: var(--torch);
+  padding: 0.75rem 1.9rem;
+  border: 1px solid var(--torch);
+  transition: background 160ms ease, color 160ms ease;
+}
+
+.play:hover, .play:focus-visible {
+  background: transparent;
+  color: var(--torch);
+}
+
+.play::after { content: "\2192"; }
+
+.terms {
+  margin: 1.1rem 0 0;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 0.75rem;
+  letter-spacing: 0.04em;
+  color: var(--ash);
+  line-height: 1.9;
+}
+
+/* Said plainly rather than buried, because a player who loses a two-hour run
+   to a closed tab was misled by the page, not by the game. */
+.caveat {
+  margin: 0.85rem 0 0;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 0.75rem;
+  letter-spacing: 0.01em;
+  line-height: 1.8;
+  color: #d4655a;
+  max-width: 30rem;
+}
+
+/* ---- the plate ---------------------------------------------------------- */
+
+.plate {
+  border: 1px solid var(--char);
+  background: var(--loam);
+  padding: 1.6rem 1.7rem 1.4rem;
+}
+
+@media (max-width: 30rem) {
+  .plate { padding: 1.2rem; }
+}
+
+.figure {
+  width: 100%;
+  max-width: 25rem;
+  height: auto;
+  display: block;
+  margin: 0 auto 1.2rem;
+}
+
+/* A part is a group: the shape, its leader line and its label all light
+   together, because they are one thing being pointed at. */
+.part { cursor: pointer; }
+
+.part rect, .part ellipse {
+  fill: #241c15;
+  stroke: #4a3a2b;
+  stroke-width: 1.5;
+  transition: fill 140ms ease, stroke 140ms ease;
+}
+
+.part line {
+  stroke: #4a3a2b;
+  stroke-width: 1;
+  transition: stroke 140ms ease;
+}
+
+.part text {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  fill: var(--ash);
+  transition: fill 140ms ease;
+}
+
+.part:hover rect, .part:hover ellipse { fill: #3b2d21; stroke: var(--ash); }
+.part:hover text { fill: var(--bone); }
+
+/* Lit and bleeding, not merely highlighted: the deep red reads as the part
+   that has just been hit, which is what the readout below is describing. */
+.part.on rect, .part.on ellipse {
+  fill: #7d2b22;
+  stroke: var(--torch);
+  stroke-width: 2;
+}
+
+.part.on line { stroke: var(--torch); }
+.part.on text { fill: var(--torch); }
+
+.figure:focus-visible { outline: none; }
+.part:focus-visible { stroke: var(--torch); stroke-width: 2.5; }
+
+/* ---- the readout beside it ---------------------------------------------- */
+
+.readout h3 {
+  font-size: 1.5rem;
+  letter-spacing: 0.02em;
+  margin-bottom: 0.9rem;
+  color: var(--bone);
+}
+
+.stats {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 1rem;
+}
+
+.stats th, .stats td {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  text-align: left;
+  padding: 0.28rem 0;
+  border-bottom: 1px solid var(--char);
+  font-weight: 400;
+}
+
+.stats th { color: var(--ash); }
+.stats td { color: var(--ichor); text-align: right; }
+
+.said {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 0.78rem;
+  line-height: 1.7;
+  letter-spacing: 0.01em;
+  color: var(--bone);
+  border-left: 2px solid var(--rubric);
+  padding-left: 0.8rem;
+  margin: 0;
+  min-height: 4.2em;
+}
+
+.cite {
+  display: block;
+  margin-top: 1.4rem;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 0.66rem;
+  letter-spacing: 0.04em;
+  color: var(--ash);
+  line-height: 1.8;
+}
+
+.cite b { color: var(--torch); font-weight: 400; }
+
+/* ---- generic section ---------------------------------------------------- */
+
+.band { padding-block: clamp(3rem, 8vw, 5.5rem); }
+
+.band > .wrap > h2 {
+  font-size: clamp(1.9rem, 4vw, 2.6rem);
+  margin-bottom: 1.6rem;
+  text-wrap: balance;
+}
+
+.eyebrow {
+  display: block;
+  margin-bottom: 0.9rem;
+}
+
+.prose {
+  max-width: var(--measure);
+  margin: 0 0 1.2rem;
+  color: #cdc3ae;
+}
+
+/* ---- the premise -------------------------------------------------------- */
+
+.premise {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: clamp(2rem, 6vw, 4rem);
+  align-items: start;
+}
+
+@media (max-width: 52rem) {
+  .premise { grid-template-columns: minmax(0, 1fr); }
+}
+
+.quote {
+  margin: 0;
+  font-size: 1.05rem;
+  line-height: 1.85;
+  color: #cdc3ae;
+  border-left: 2px solid var(--char);
+  padding-left: clamp(1rem, 3vw, 1.8rem);
+}
+
+.quote p { margin: 0 0 1.1rem; }
+.quote p:last-of-type { margin-bottom: 0; }
+.quote em { color: var(--bone); font-style: italic; }
+
+/* ---- the picture -------------------------------------------------------- */
+
+/* Capped at its own 800px rather than stretched to the column, so it is shown
+   1:1 and never blown up past its resolution.
+   Deliberately NOT image-rendering: pixelated. That is the right mode when
+   scaling pixel art up -- as the game canvas in shell.html does -- but this
+   image is capped at native size, so the only scaling it ever gets is down, on
+   a narrow screen, where nearest-neighbour drops whole pixel rows and aliases
+   the tiles. Smooth downscaling is the better picture here. */
+.shot {
+  display: block;
+  width: 100%;
+  max-width: 800px;
+  height: auto;
+  border: 1px solid var(--char);
+  background: #000;
+}
+
+.shot-note {
+  margin: 0.9rem 0 0;
+  line-height: 1.9;
+}
+
+/* ---- the systems -------------------------------------------------------- */
+
+/* Explicit rather than auto-fit: there are exactly four of these, and auto-fit
+   settles on three at this container width, which leaves the fourth alone in a
+   row beside a hole. */
+.systems {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1px;
+  background: var(--char);
+  border: 1px solid var(--char);
+}
+
+@media (max-width: 62rem) {
+  .systems { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 32rem) {
+  .systems { grid-template-columns: minmax(0, 1fr); }
+}
+
+.system {
+  background: var(--soil);
+  padding: 1.6rem 1.4rem;
+}
+
+.system .figure-number {
+  display: block;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 1.9rem;
+  letter-spacing: -0.01em;
+  color: var(--ichor);
+  line-height: 1;
+  margin-bottom: 0.15rem;
+}
+
+.system .unit {
+  display: block;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 0.66rem;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--ash);
+  margin-bottom: 0.9rem;
+}
+
+.system p {
+  margin: 0;
+  font-size: 0.95rem;
+  line-height: 1.68;
+  color: #cdc3ae;
+}
+
+/* ---- controls ----------------------------------------------------------- */
+
+.keys {
+  width: 100%;
+  border-collapse: collapse;
+  max-width: 44rem;
+}
+
+.keys td {
+  padding: 0.42rem 0;
+  border-bottom: 1px solid var(--char);
+  font-size: 0.95rem;
+  color: #cdc3ae;
+}
+
+.keys td:first-child {
+  width: 4.5rem;
+  white-space: nowrap;
+}
+
+/* ---- colophon ----------------------------------------------------------- */
+
+/* Two, not four: at this container width four columns are 192px wide, which is
+   too narrow for prose and leaves the last one orphaned on its own row. */
+.colophon {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 2.4rem clamp(2rem, 6vw, 4rem);
+}
+
+@media (max-width: 40rem) {
+  .colophon { grid-template-columns: minmax(0, 1fr); }
+}
+
+.colophon h3 {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 0.72rem;
+  font-weight: 400;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--ash);
+  margin-bottom: 0.8rem;
+}
+
+.colophon p, .colophon li {
+  font-size: 0.95rem;
+  line-height: 1.75;
+  color: #cdc3ae;
+  margin: 0 0 0.6rem;
+}
+
+.colophon ul { list-style: none; padding: 0; margin: 0; }
+
+footer {
+  padding-block: 2.5rem 3.5rem;
+  color: var(--ash);
+}
+
+footer p { margin: 0 0 0.4rem; }
+</style>
+</head>
+
+<body>
+
+<div class="wrap">
+  <header class="top">
+    <a class="wordmark" href="/">IVAN</a>
+    <nav>
+      <a href="/play/">Play</a>
+      <a href="#controls">Controls</a>
+      <a href="https://github.com/bethmaloney/ivan">Source</a>
+    </nav>
+  </header>
+</div>
+
+<!-- ---- hero ---------------------------------------------------------- -->
+
+<div class="wrap">
+  <section class="hero">
+    <div>
+      <span class="mono">Roguelike &middot; v0.59 &middot; free and open source</span>
+      <h1>Iter Vehemens ad Necem</h1>
+      <p class="gloss">“a vehement journey to death”</p>
+
+      <p class="lead">
+        IVAN models your body one part at a time. Parts come off. A severed part
+        is <strong>food</strong> — so when you try to eat your own arm, the game
+        stops and asks whether you are sure, because you may still be able to
+        put it back.
+      </p>
+
+      <a class="play" href="/play/">Play in your browser</a>
+
+      <p class="terms">
+        5 MB &middot; nothing to install &middot; no account<br>
+        Chrome 85+, Firefox 79+ or Safari 15+
+      </p>
+
+      <p class="caveat">
+        Your run lives in the tab. Closing it loses the game — saving to the
+        browser is not wired up yet.
+      </p>
+    </div>
+
+    <!-- The signature. Seven parts, the numbers the game actually gives them,
+         and a sentence it actually prints when something bites one. -->
+    <div class="plate">
+      <svg class="figure" viewBox="0 0 320 300" role="group"
+           aria-label="The seven body parts IVAN models. Choose one to read its values.">
+        <defs>
+          <radialGradient id="lamp" cx="50%" cy="32%" r="58%">
+            <stop offset="0%" stop-color="#e89a3c" stop-opacity="0.12"/>
+            <stop offset="100%" stop-color="#e89a3c" stop-opacity="0"/>
+          </radialGradient>
+        </defs>
+
+        <rect x="0" y="0" width="320" height="300" fill="url(#lamp)"/>
+
+        <g class="part" data-part="head" tabindex="0" role="button" aria-label="head">
+          <ellipse cx="160" cy="38" rx="21" ry="24"/>
+          <line x1="216" y1="38" x2="183" y2="38"/>
+          <text x="222" y="41" text-anchor="start">head</text>
+        </g>
+
+        <!-- The arms start below the top of the torso on purpose. A horizontal
+             leader to the torso at any height the arms also occupy would run
+             straight through one of them, and a leader line that crosses the
+             part it is not pointing at is a diagram that lies. Shoulders solve
+             it: the band at y=74 belongs to the torso alone. -->
+        <g class="part" data-part="rightarm" tabindex="0" role="button" aria-label="right arm">
+          <rect x="108" y="82" width="19" height="70" rx="9"/>
+          <line x1="104" y1="117" x2="98" y2="117"/>
+          <text x="94" y="120" text-anchor="end">right arm</text>
+        </g>
+
+        <g class="part" data-part="torso" tabindex="0" role="button" aria-label="torso">
+          <rect x="134" y="68" width="52" height="84" rx="10"/>
+          <line x1="216" y1="74" x2="188" y2="74"/>
+          <text x="222" y="77" text-anchor="start">torso</text>
+        </g>
+
+        <g class="part" data-part="leftarm" tabindex="0" role="button" aria-label="left arm">
+          <rect x="193" y="82" width="19" height="70" rx="9"/>
+          <line x1="222" y1="117" x2="214" y2="117"/>
+          <text x="228" y="120" text-anchor="start">left arm</text>
+        </g>
+
+        <g class="part" data-part="groin" tabindex="0" role="button" aria-label="groin">
+          <rect x="139" y="153" width="42" height="25" rx="8"/>
+          <line x1="104" y1="166" x2="137" y2="166"/>
+          <text x="94" y="169" text-anchor="end">groin</text>
+        </g>
+
+        <g class="part" data-part="rightleg" tabindex="0" role="button" aria-label="right leg">
+          <rect x="139" y="183" width="20" height="90" rx="9"/>
+          <line x1="104" y1="232" x2="137" y2="232"/>
+          <text x="94" y="235" text-anchor="end">right leg</text>
+        </g>
+
+        <g class="part" data-part="leftleg" tabindex="0" role="button" aria-label="left leg">
+          <rect x="161" y="183" width="20" height="90" rx="9"/>
+          <line x1="216" y1="248" x2="183" y2="248"/>
+          <text x="222" y="251" text-anchor="start">left leg</text>
+        </g>
+      </svg>
+
+      <div class="readout">
+        <h3 id="part-name">head</h3>
+
+        <table class="stats">
+          <tbody>
+            <tr><th scope="row">StrengthModifier</th><td id="part-str">200</td></tr>
+            <tr><th scope="row">Roundness</th><td id="part-round">70</td></tr>
+          </tbody>
+        </table>
+
+        <p class="said" id="part-said" aria-live="polite">
+          The large hedgehog bites you in the head! You feel quite happy.
+        </p>
+
+        <span class="cite">
+          Every one of them is <b>Category = FOOD</b> and
+          <b>IsSadistWeapon = true</b>.<br>
+          Script/item.dat:4859
+        </span>
+      </div>
+    </div>
+  </section>
+</div>
+
+<!-- ---- the premise --------------------------------------------------- -->
+
+<div class="rule"></div>
+
+<section class="band">
+  <div class="wrap">
+    <div class="premise">
+      <div>
+        <span class="mono eyebrow">The job</span>
+        <h2>Deliver a letter.</h2>
+        <p class="prose">
+          You gather bananas for a living. The viceroy of the colony needs a
+          message carried to high priest Petrus in Attnam, and the only route is
+          an underwater tunnel he describes as infested with monsters but
+          probably fine.
+        </p>
+        <p class="prose">
+          This is the whole plot, and the game means all of it sincerely. What
+          follows is the part where you lose an arm to a hedgehog.
+        </p>
+      </div>
+
+      <blockquote class="quote">
+        <p>
+          You couldn’t possibly have guessed this day would differ from any
+          other. It began just as always. <em>You woke up at dawn and drove off
+          the giant spider resting on your face.</em> On your way to work you had
+          serious trouble avoiding the lions and pythons roaming wild around the
+          village.
+        </p>
+        <p>
+          After getting kicked by colony masters for being late you performed
+          your twelve-hour routine of climbing trees, gathering bananas,
+          climbing trees, gathering bananas, chasing monkeys that stole the
+          first gathered bananas, carrying bananas to the village and trying to
+          look happy when real food was distributed.
+        </p>
+        <span class="cite">The game’s opening screen &middot; Main/Source/game.cpp:790</span>
+      </blockquote>
+    </div>
+  </div>
+</section>
+
+<!-- ---- the picture --------------------------------------------------- -->
+
+<div class="rule"></div>
+
+<section class="band">
+  <div class="wrap">
+    <span class="mono eyebrow">Underwater Tunnel, level 1, turn 161</span>
+    <h2>What it looks like from inside.</h2>
+
+    <img class="shot" src="/screenshot.webp" width="800" height="600" loading="lazy"
+         alt="IVAN in play: a brown cave corridor lit unevenly, the player beside a zombie,
+              a stat panel reading HP 24 of 35 in red, and a message log recording the fight.">
+
+    <p class="mono shot-note">
+      Frame 594 of a recorded session, replayed to the same pixel every time.<br>
+      The red HP is not a coincidence — the zombie is still there.
+    </p>
+  </div>
+</section>
+
+<!-- ---- systems -------------------------------------------------------- -->
+
+<div class="rule"></div>
+
+<section class="band">
+  <div class="wrap">
+    <span class="mono eyebrow">Under it</span>
+    <h2>Simulation, not scenery.</h2>
+    <p class="prose">
+      Everything in IVAN is made of something, and the something has opinions.
+      These are counts out of the game’s own data files.
+    </p>
+
+    <div class="systems">
+      <div class="system">
+        <span class="figure-number">411</span>
+        <span class="unit">materials</span>
+        <p>
+          Each with a strength, a density, a colour and a patron god. A sword’s
+          material decides whether it bends. A banana peel has
+          <code>Flexibility = 10</code>, which is why you slip on it.
+        </p>
+      </div>
+
+      <div class="system">
+        <span class="figure-number">186</span>
+        <span class="unit">kinds of creature</span>
+        <p>
+          They have bodyparts too, and the same rules apply to theirs. This is
+          why you can end a fight holding something that used to belong to the
+          other party.
+        </p>
+      </div>
+
+      <div class="system">
+        <span class="figure-number">7</span>
+        <span class="unit">parts of you</span>
+        <p>
+          Tracked separately, damaged separately, lost separately. Losing a leg
+          is not a number going down; it is a leg on the floor.
+        </p>
+      </div>
+
+      <div class="system">
+        <span class="figure-number">62%</span>
+        <span class="unit">of notes, silent</span>
+        <p>
+          The soundtrack is adaptive: instruments fade in as your worst body
+          part gets worse. At full health most of the notes are silent. Getting
+          hurt is how you hear the rest of the song.
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ---- controls -------------------------------------------------------- -->
+
+<div class="rule"></div>
+
+<section class="band" id="controls">
+  <div class="wrap">
+    <span class="mono eyebrow">Enough to start</span>
+    <h2>Controls.</h2>
+    <p class="prose">
+      Move with the arrow or numpad keys. Press <kbd>?</kbd> in the game for the
+      full list — there are forty-odd commands and these are the ones you need
+      in the first ten minutes.
+    </p>
+
+    <table class="keys">
+      <tbody>
+        <tr><td><kbd>&larr;&uarr;&darr;&rarr;</kbd></td><td>move, or attack whatever is in the way</td></tr>
+        <tr><td><kbd>&gt;</kbd></td><td>go down, or enter an area</td></tr>
+        <tr><td><kbd>&lt;</kbd></td><td>go up</td></tr>
+        <tr><td><kbd>,</kbd></td><td>pick up item</td></tr>
+        <tr><td><kbd>i</kbd></td><td>inventory menu</td></tr>
+        <tr><td><kbd>E</kbd></td><td>equipment menu</td></tr>
+        <tr><td><kbd>e</kbd></td><td>eat</td></tr>
+        <tr><td><kbd>a</kbd></td><td>apply item</td></tr>
+        <tr><td><kbd>h</kbd></td><td>rest and heal</td></tr>
+        <tr><td><kbd>p</kbd></td><td>pray to gods</td></tr>
+        <tr><td><kbd>?</kbd></td><td>show key layout</td></tr>
+        <tr><td><kbd>S</kbd></td><td>save and quit</td></tr>
+      </tbody>
+    </table>
+
+    <p class="mono shot-note">Main/Source/command.cpp:92</p>
+  </div>
+</section>
+
+<!-- ---- colophon -------------------------------------------------------- -->
+
+<div class="rule"></div>
+
+<section class="band">
+  <div class="wrap">
+    <span class="mono eyebrow">Colophon</span>
+    <h2>How it got here.</h2>
+
+    <div class="colophon">
+      <div>
+        <h3>The port</h3>
+        <p>
+          106,232 lines of C++ compiled to WebAssembly with Emscripten. The game
+          logic is unchanged — the same code, on a different target.
+        </p>
+        <p>
+          Sound and music are the exception: those are played by the page rather
+          than by the module, which keeps 60 MB of audio off the first load.
+        </p>
+      </div>
+
+      <div>
+        <h3>Correctness</h3>
+        <p>
+          IVAN shipped with no tests. Before any of this, the fork grew a
+          differential harness: record a session, replay it, hash every frame.
+          Native and WebAssembly builds now produce byte-identical traces,
+          screenshots and save files on both committed corpora.
+        </p>
+      </div>
+
+      <div>
+        <h3>Credits</h3>
+        <ul>
+          <li>Created 1999 by Timo Kiviluoto.</li>
+          <li>Continued by <a href="https://attnam.com/">the Cathedral of Attnam</a>.</li>
+          <li>Released under the <a href="https://github.com/Attnam/ivan/blob/master/COPYING">GNU GPL</a>.</li>
+        </ul>
+      </div>
+
+      <div>
+        <h3>Source</h3>
+        <ul>
+          <li><a href="https://github.com/bethmaloney/ivan">This fork, with the web build</a></li>
+          <li><a href="https://github.com/Attnam/ivan">Upstream IVAN</a></li>
+          <li><a href="https://github.com/bethmaloney/ivan/issues">Report a bug</a></li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="rule"></div>
+
+<footer class="wrap">
+  <p class="mono">Iter Vehemens ad Necem &middot; you die</p>
+</footer>
+
+<script>
+(function () {
+  'use strict';
+
+  /* Numbers straight out of Script/item.dat:4859-4950. The sentences are the
+     game's own: char.cpp:2005 builds "<attacker> bites you in the <part>!" from
+     the part's NameSingular, so each of these is a line IVAN prints. The head
+     one is verbatim from a recorded session -- it really does say that. */
+
+  var Parts = {
+    head:     ['head',      200, 70, 'The large hedgehog bites you in the head! You feel quite happy.'],
+    torso:    ['torso',     250, 60, 'The zombie hits you! Your torso bleeds very badly.'],
+    rightarm: ['right arm', 100, 15, 'The large hedgehog bites you in the right arm!'],
+    leftarm:  ['left arm',  100, 15, 'The large hedgehog bites you in the left arm!'],
+    groin:    ['groin',     150, 40, 'The kobold makes vulgar gestures in your general direction.'],
+    rightleg: ['right leg', 125, 20, 'The large hedgehog bites you in the right leg!'],
+    leftleg:  ['left leg',  125, 20, 'Bodypart severed!']
+  };
+
+  var Name = document.getElementById('part-name');
+  var Str = document.getElementById('part-str');
+  var Round = document.getElementById('part-round');
+  var Said = document.getElementById('part-said');
+  var Shapes = document.querySelectorAll('.part');
+
+  function Show(Shape) {
+    var Part = Parts[Shape.getAttribute('data-part')];
+
+    if (!Part)
+      return;
+
+    Shapes.forEach(function (Other) { Other.classList.remove('on'); });
+    Shape.classList.add('on');
+
+    Name.textContent = Part[0];
+    Str.textContent = Part[1];
+    Round.textContent = Part[2];
+    Said.textContent = Part[3];
+  }
+
+  Shapes.forEach(function (Shape) {
+    Shape.addEventListener('mouseenter', function () { Show(Shape); });
+    Shape.addEventListener('focus', function () { Show(Shape); });
+    Shape.addEventListener('click', function () { Show(Shape); });
+
+    /* role="button" promises the keyboard behaviour of one, and an SVG shape
+       gives none of it for free. */
+    Shape.addEventListener('keydown', function (Event) {
+      if (Event.key === 'Enter' || Event.key === ' ') {
+        Event.preventDefault();
+        Show(Shape);
+      }
+    });
+  });
+
+  Show(document.querySelector('[data-part="head"]'));
+})();
+</script>
+
+</body>
+</html>
