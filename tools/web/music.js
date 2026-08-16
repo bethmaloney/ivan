@@ -78,19 +78,43 @@
 
   var UsPerVolumeChange = 15000;
 
-  /* How far a stem may drift from the leader before it is corrected, and how
-     hard to pull it back. Both are in seconds; the rate nudge is a fraction.
+  /* How long to wait for every stem to be playable before starting any of
+     them. This is the thing that actually keeps them together: media elements
+     begin when they individually have data, so calling play() on three at once
+     starts the smallest one first. Measured in a real session before this
+     barrier existed, the fade-out stem -- the largest of the three -- came in
+     **166ms** behind the other two, which is a flam on every attack.
+
+     The timeout is a fallback, not the plan: a stem that will not load must not
+     hold the other two silent forever. Starting a thinner mix late beats
+     starting nothing. */
+
+  var ReadyTimeoutMs = 5000;
+
+  /* One hard alignment shortly after the start, because play() on several
+     elements is not sample-synchronous even once they are all ready. A seek is
+     cheap here and nowhere else: nothing musical has been established yet, so
+     the gap it costs lands in the first moment of the track rather than in the
+     middle of a phrase. */
+
+  var AlignAfterMs = 400;
+  var AlignTolerance = 0.010;
+
+  /* Steady-state correction, in seconds; the rate nudge is a fraction.
 
      5ms is comfortably under the ~10ms where a doubled attack starts to sound
-     like a flam rather than one instrument, and 0.2% of playback rate is about
-     3.5 cents of pitch -- inaudible on its own, and it only ever runs while a
-     correction is outstanding. Seeking would be exact and is what the last
-     resort below does, but a seek on a media element is an audible gap, so it
-     is kept for the case where something has gone properly wrong. */
+     like a flam rather than one instrument. 0.5% of playback rate is about 9
+     cents of pitch, brief and only while a correction is outstanding.
+
+     The seek threshold is what the 166ms measurement moved. It used to be
+     250ms, which was far too generous to ever fire: closing 166ms at the old
+     0.2% takes 83 seconds, so the nudge was not a correction, it was a
+     rounding error with a counter attached. Anything past 50ms is now seeked,
+     because one gap beats ten seconds of flam. */
 
   var DriftTolerance = 0.005;
-  var DriftMaxRate = 0.002;
-  var DriftHopeless = 0.25;
+  var DriftMaxRate = 0.005;
+  var DriftSeek = 0.050;
   var DriftCheckMs = 500;
 
   var Ctx = null;
@@ -312,7 +336,7 @@
 
       var Drift = Stem.Media.currentTime - Leader.currentTime;
 
-      if(Math.abs(Drift) > DriftHopeless) {
+      if(Math.abs(Drift) > DriftSeek) {
         Stem.Media.currentTime = Leader.currentTime;
         Stem.Media.playbackRate = 1;
         Counts.seeks++;
@@ -407,25 +431,91 @@
     });
   }
 
+  /* HAVE_FUTURE_DATA: enough buffered to start and keep going. Waiting for
+     HAVE_ENOUGH_DATA instead would be stricter than needed and would hold the
+     start behind a whole-file estimate the browser is free to be pessimistic
+     about. */
+
+  var HaveFutureData = 3;
+
+  function Ready(Stem) {
+    return new Promise(function (Resolve) {
+      if(Stem.Media.readyState >= HaveFutureData) {
+        Resolve();
+        return;
+      }
+
+      var Done = false;
+
+      function Finish() {
+        if(Done)
+          return;
+
+        Done = true;
+        Resolve();
+      }
+
+      Stem.Media.addEventListener('canplay', Finish);
+      Stem.Media.addEventListener('error', Finish);
+      setTimeout(Finish, ReadyTimeoutMs);
+    });
+  }
+
+  /* One pass to put them on the same sample, once they are all running. See
+     AlignAfterMs: play() is not synchronous across elements even when every
+     one of them is ready, and a few milliseconds here is worth more than the
+     nudge can earn back in a minute. */
+
+  function Align(Track) {
+    if(Current !== Track || Track.Stems.length < 2)
+      return;
+
+    var Leader = Track.Stems[0].Media;
+
+    if(Leader.paused)
+      return;
+
+    Track.Stems.slice(1).forEach(function (Stem) {
+      if(Stem.Media.paused)
+        return;
+
+      if(Math.abs(Stem.Media.currentTime - Leader.currentTime) > AlignTolerance) {
+        Stem.Media.currentTime = Leader.currentTime;
+        Counts.seeks++;
+      }
+    });
+  }
+
   function Play(Track) {
     Counts.started++;
 
-    Track.Stems.forEach(function (Stem) {
-      var Started = Stem.Media.play();
+    /* Every stem ready, then all of them started in one tick. Starting them as
+       each becomes ready is what put the largest stem 166ms behind the others,
+       and no amount of correction afterwards is as good as not doing it. */
 
-      if(!Started || !Started.catch)
+    Promise.all(Track.Stems.map(Ready)).then(function () {
+      if(Current !== Track)
         return;
 
-      Started.catch(function () {
-        /* Almost always the autoplay policy: the context has not been released
-           by a gesture yet. sfx.js registers the resume listeners on the shared
-           context; Resume below picks the music back up once they fire, so
-           nothing further is needed here. */
-      });
-    });
+      Track.Stems.forEach(function (Stem) {
+        var Started = Stem.Media.play();
 
-    if(!Timer)
-      Timer = setInterval(Sync, DriftCheckMs);
+        if(!Started || !Started.catch)
+          return;
+
+        Started.catch(function () {
+          /* Almost always the autoplay policy: the context has not been
+             released by a gesture yet. sfx.js registers the resume listeners on
+             the shared context; Resume below picks the music back up once they
+             fire, so nothing further is needed here. */
+        });
+      });
+
+      setTimeout(function () { Align(Track); }, AlignAfterMs);
+
+      if(!Timer)
+        Timer = setInterval(Sync, DriftCheckMs);
+    });
   }
 
   function Resume() {

@@ -2600,10 +2600,34 @@ a `MediaElementAudioSourceNode`: memory stays flat and playback starts on the fi
 rather than after a multi-megabyte fetch completes.
 
 The cost is that three elements keep three clocks, and these stems are the same piece of music,
-so drift is heard as a doubled attack rather than as a timing error. They are pulled back with a
-0.2% playback-rate nudge — about 3.5 cents, inaudible, and no gap in the audio. A seek is the
-fallback for an element that has fallen a quarter second behind, and it is counted separately in
-`ivanMusic.stats()` because if it ever happens routinely this design is the wrong one.
+so drift is heard as a doubled attack rather than as a timing error.
+
+**The first real session found that the drift was not drift, and that the first design was wrong
+about which half of the problem mattered.** `ivanMusic.stats().drift` in a browser reported
+`[-0.166, 0.0001]`: the fade-in stem locked to the leader within **0.1ms**, and the fade-out stem
+— the largest of the three files — sitting **166ms behind**. Two of three staying exact says the
+clocks were never the problem. The *start* was: `Play` called `play()` on all three at once, and
+a media element begins when it individually has data, so the biggest file started last.
+
+166ms is a flam on every attack, and the correction as first written could not have recovered it.
+It was under the 250ms seek threshold, so only the 0.2% nudge applied — which closes 166ms in
+**83 seconds**. That was not a correction, it was a rounding error with a counter attached.
+
+Three changes, in the order they matter:
+
+- **A readiness barrier.** Nothing plays until every stem reports `HAVE_FUTURE_DATA`, and then
+  all of them start in one tick. This is the actual fix; the rest is a safety net. A stem that
+  errors, or a five-second timeout, releases the barrier too — a thinner mix late beats silence.
+- **One hard alignment 400ms in**, on a 10ms tolerance. `play()` is not sample-synchronous across
+  elements even when all are ready, and a seek is cheap only here: the gap lands in the first
+  moment of the track rather than mid-phrase.
+- **Thresholds that can converge.** Seek past 50ms rather than 250ms, and nudge up to 0.5% rather
+  than 0.2%. One gap beats ten seconds of flam.
+
+Seeks are still counted separately in `ivanMusic.stats()`, because routine seeks in steady state
+would mean this design is the wrong one. What was learned is narrower than that and worth keeping:
+**with the stems started together they stay together**, which is what the 0.1ms reading already
+proved before the fix existed.
 
 **The two files share one `AudioContext` but not one gain, and both halves of that matter.**
 Sharing the context is the easy half: browsers cap how many a page may have, each costs a device
@@ -2661,8 +2685,9 @@ run on a path that then pushes the result across a boundary.
 | Objects in `libFeAudio.a` on Emscripten | **`audio.cpp.o` only** — RtMidi, parser, playback engine and helpers not compiled |
 | Both corpora, 8 runs each vs golden | **self-consistent and matching golden** |
 | `compare-targets.sh`, both corpora | **targets agree** — frames, text and screen all match |
-| `node tools/web/music.test.js` | **43/43** — playlist, index readback, restart-or-keep, intensity→gains, slew rate, volume routing, silent tracks |
-| Same suite against 6 deliberate mutations | **all 6 caught** (swapped curves, pinned index, always-restart, dropped slew, volume on the shared master, volume not applied at node creation) |
+| `node tools/web/music.test.js` | **61/61** — playlist, index readback, restart-or-keep, intensity→gains, slew rate, volume routing, silent tracks, readiness barrier, alignment, drift correction |
+| Same suite against 9 deliberate mutations | **8 caught** (swapped curves, pinned index, always-restart, dropped slew, volume on the shared master, volume not applied at node creation, no readiness barrier, no Align pass, old seek threshold). The one that survives is the nudge *magnitude*, a tuning constant rather than an invariant — recorded rather than papered over |
+| Stem drift in a browser, before the barrier | `[-0.166, 0.0001]` — one stem 166ms late, one exact |
 | `touch tools/web/music.js` then rebuild | **relinks** — `LINK_DEPENDS` is wired, the §9.7 stale-pre-js trap is not reopened |
 
 **What is open.**
@@ -2678,8 +2703,9 @@ run on a path that then pushes the result across a boundary.
 - **Total size is unmeasured.** 51.6 stem-minutes nominal, but the stems are sparse and Vorbis
   is cheap on silence, so the linear estimate is an upper bound worth replacing with a
   measurement before deciding the quality setting.
-- **Drift is unmeasured.** The rate-nudge correction is the standard fix and `stats().drift`
-  reports it, but three-element sync has only been reasoned about, not observed in a browser.
+- **Drift after the barrier is unmeasured.** The 166ms above was the *start*, and it is fixed;
+  what steady-state drift looks like over a full seven-minute track with the stems actually
+  aligned has not been watched yet. `stats().drift`, `corrections` and `seeks` are the readout.
 - **`-sUSE_SDL_MIXER=2` is still dead weight**, and now more so: `FeAudio` no longer links it on
   this target either, leaving `sfx.h`'s `Mix_Chunk*` as the only reason it is on the command
   line.

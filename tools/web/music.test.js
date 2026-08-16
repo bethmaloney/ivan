@@ -68,10 +68,15 @@ function LastRamp() {
 
 var Elements = [];
 
+/* Set to make the next elements start unbuffered, so the readiness barrier can
+   be exercised. 4 is HAVE_ENOUGH_DATA, 0 is HAVE_NOTHING. */
+var NextReadyState = 4;
+
 global.Audio = function () {
   var Self = {
     src: '', preload: '', loop: false, paused: true,
     currentTime: 0, duration: 100, playbackRate: 1,
+    readyState: NextReadyState,
     Listeners: {}
   };
 
@@ -296,6 +301,144 @@ function Gains() {
   Check('and counted', Music.stats().finished, 1);
   Check('with the only track available', Music.stats().track, 'Dungeon.mid');
 
+  /* The readiness barrier, and the reason it exists. Measured in a real
+     session before it did: the fade-out stem, the largest of the three, began
+     166ms behind the other two, because play() on three elements starts
+     whichever has data first. Two of the three stayed locked to 0.1ms, so the
+     clocks were never the problem -- the start was.
+
+     Nothing may play until every stem can, and then all of them in one tick. */
+
+  Music.setPlaying(false);
+  Music.setPlaylist('');
+  await Settle();
+
+  NextReadyState = 0;                      /* nothing buffered yet */
+  Elements.length = 0;
+  Music.setPlaylist('Dungeon2.mid');
+  Music.setPlaying(true);
+  await Settle();
+
+  Check('three stems were created', Elements.length, 3);
+  Check('but none started while one is unbuffered',
+        Elements.filter(function (E) { return !E.paused; }).length, 0);
+
+  /* Two of the three arrive. Still nothing, because a partial start is exactly
+     the 166ms bug. */
+  Elements[0].readyState = 4;
+  Elements[0].Fire('canplay');
+  Elements[1].readyState = 4;
+  Elements[1].Fire('canplay');
+  await Settle();
+
+  Check('two ready is still not enough',
+        Elements.filter(function (E) { return !E.paused; }).length, 0);
+
+  /* The last one lands and they go together. */
+  Elements[2].readyState = 4;
+  Elements[2].Fire('canplay');
+  await Settle();
+
+  Check('all three start once the last is ready',
+        Elements.filter(function (E) { return !E.paused; }).length, 3);
+
+  /* The barrier gets them started together but play() is still not synchronous
+     across three elements, so a small skew survives it. That is what the one
+     Align pass is for, and 30ms is the shape of it: too small for Sync to seek
+     (it nudges below 50ms) and far too big to leave in place, since a nudge
+     would take six seconds to walk it back. Only Align fixes this one. */
+
+  var Skewed = Elements[1];
+  var BeforeAlign = Music.stats().seeks;
+
+  Skewed.currentTime = 0.03;
+  await new Promise(function (R) { setTimeout(R, 600); });
+
+  Check('a small start skew is aligned out', Music.stats().seeks, BeforeAlign + 1);
+  Check('onto the leader', Skewed.currentTime, Elements[0].currentTime);
+
+  NextReadyState = 4;
+
+  /* A stem that errors must not hold the other two silent forever -- a thinner
+     mix beats none, and the barrier must release on failure as well as on
+     success. */
+  Music.setPlaying(false);
+  NextReadyState = 0;
+  Elements.length = 0;
+  Music.setPlaylist('Dungeon.mid');
+  Music.setPlaying(true);
+  await Settle();
+
+  var Warned = [];
+  var RealWarn = console.warn;
+  console.warn = function (Message) { Warned.push(Message); };
+
+  Elements[0].readyState = 4;
+  Elements[0].Fire('canplay');
+  Elements[1].readyState = 4;
+  Elements[1].Fire('canplay');
+  await Settle();
+
+  Check('a stem still loading holds the start',
+        Elements.filter(function (E) { return !E.paused; }).length, 0);
+
+  Elements[2].Fire('error');               /* never loads */
+  await Settle();
+
+  console.warn = RealWarn;
+
+  /* The two good ones are what matter. music.js calls play() on the broken one
+     too, which a real browser rejects and this swallows; the stub cannot model
+     that, so the check is on the stems that were supposed to work. */
+  Check('the good stems started anyway',
+        [Elements[0].paused, Elements[1].paused], [false, false]);
+  Check('and the broken one was reported once', Warned.length, 1);
+  Check('by name', /Dungeon\.mid\.fadein/.test(Warned[0] || ''), true);
+
+  var Faults = Music.stats().failed;
+
+  Check('a stem in the manifest that will not load is a fault', Faults, 1);
+
+  NextReadyState = 4;
+  Music.setPlaying(false);
+  Music.setPlaylist('Dungeon.mid');
+  Music.setPlaying(true);
+  await Settle();
+
+  /* Steady-state drift correction. The thresholds here are the ones the 166ms
+     measurement moved, so the case is written with that number in it: a gap
+     that large has to be seeked, because closing it with the old 0.2% nudge
+     would have taken 83 seconds. Waits out one real Sync tick. */
+
+  var Live = Elements.slice(-3);
+
+  /* Let the one-time Align pass fire and be done first. Without this wait the
+     checks below catch Align rather than Sync -- it seeks on a 10ms tolerance,
+     so it swallows any gap injected before it runs, and the steady-state
+     thresholds these cases exist for are never reached at all. */
+  await new Promise(function (R) { setTimeout(R, 600); });
+
+  var Seeks = Music.stats().seeks;
+
+  Live[1].currentTime = 0.166;             /* what the fade-out stem actually did */
+  await new Promise(function (R) { setTimeout(R, 700); });
+
+  Check('a gap the nudge cannot close is seeked', Music.stats().seeks, Seeks + 1);
+  Check('and lands on the leader', Live[1].currentTime, Live[0].currentTime);
+  Check('at normal rate', Live[1].playbackRate, 1);
+
+  /* Small enough to pull back without a gap. */
+  var Corrections = Music.stats().corrections;
+
+  Live[2].currentTime = 0.02;
+  await new Promise(function (R) { setTimeout(R, 700); });
+
+  Check('a small gap is nudged, not seeked', Music.stats().seeks, Seeks + 1);
+  Check('and counted', Music.stats().corrections > Corrections, true);
+  /* Ahead of the leader, so it slows down and lets the leader come to it. */
+  Check('by easing off the rate', Live[2].playbackRate < 1, true);
+  Check('but only slightly', Live[2].playbackRate >= 0.995, true);
+
   /* SetPlaybackStatus(0) from ChangeMIDIOutputDevice(0) -- the player turning
      the soundtrack off in the options menu. */
   Music.setPlaying(false);
@@ -308,7 +451,7 @@ function Gains() {
   await Settle();
 
   Check('an empty playlist plays nothing', Music.stats().track, null);
-  Check('and does not fault', Music.stats().failed, 0);
+  Check('and adds no new fault', Music.stats().failed, Faults);
 
   console.log((Failures ? 'FAILED ' : 'ok ') + (Checks - Failures) + '/' + Checks +
               ' checks');
