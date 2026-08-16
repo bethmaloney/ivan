@@ -23,7 +23,7 @@ two intro screens. Each is a prefix of the next.
 |---|---|---|---|
 | `noncombat.rec` | 7 | UT lvl 1, turn 3, HP 37/37 | world gen, character creation, level gen, descent |
 | `autoplay-200.rec` | 210 | UT lvl 1, turn 161, HP 24/35 | the above plus combat, item use, equipment, hunger, death |
-| `autoplay-2000.rec` | 2010 | UT lvl 2, turn 1750, HP 41/43 | the above plus a **second dungeon level** — level 2 generation, both directions of the stairs, and seventeen turn-boundary autosaves |
+| `autoplay-2000.rec` | 2010 | UT lvl 2, turn 1763, HP 43/43 | the above plus a **second dungeon level** — level 2 generation, both directions of the stairs, and seventeen turn-boundary autosaves |
 
 `down left >` is **specific to seed 999**: it walks onto the cave mouth one tile
 west of the start and enters. Another seed generates another island.
@@ -48,10 +48,10 @@ are recorded across HARNESS.md §6.6a–d as the check values for those fixes.
 
 | | noncombat | autoplay-200 | autoplay-2000 |
 |---|---|---|---|
-| trace frames | 365 | 592 | 2,698 |
-| cumulative RNG draws | 1,075,023 | 1,517,713 | 5,038,226 |
-| final HP | 37/37 | **24/35** | **41/43** |
-| final turn | 3 | 161 | 1,750 |
+| trace frames | 365 | 592 | 2,675 |
+| cumulative RNG draws | 1,075,023 | 1,517,713 | 6,329,412 |
+| final HP | 37/37 | **24/35** | **43/43** |
+| final turn | 3 | 161 | 1,763 |
 
 These moved once, deliberately, in the commit that made the game compiler
 independent (HARNESS.md §9.4). The key sequences did not change and neither did
@@ -60,6 +60,13 @@ decide which random draw went where, so the world these 210 keys generate is
 now the same world under GCC and under Clang instead of two different ones. The
 old values (441 / 679 frames, 1,670,383 draws, HP 29/37, turn 202) are the
 GCC 13 reading of the same corpus and appear throughout §6.6a-d.
+
+The `autoplay-2000` column moved a second time, in the commit that fixed the two
+defects in §9.11 below. Only that column moved — both fixes are on the reload
+path and neither shorter corpus ever reloads a level, which is the check that
+says the fixes were as narrow as they claimed. Its old values (2,698 frames,
+5,038,226 draws, HP 41/43, turn 1,750) describe a run in which a room read its
+no-monster-generation flag out of freed heap.
 
 `nest` must be 0 on every frame of both. If it ever goes positive the single
 `mtb` backup slot is corrupting the game stream — HARNESS.md §6.5a.
@@ -97,48 +104,28 @@ pays for the long replay twice.
 
 Check the HP against the table above before trusting a regenerated corpus.
 
-## Two divergences past key 1559, both found by `autoplay-2000`
+## The two divergences past key 1559 — both found here, both closed
 
-**`compare-targets.sh` fails on `autoplay-2000` today, and both causes are real.**
-`verify-corpora.sh` passes — that is the check CI runs, and every configuration
-below is deterministic *on its own* (8 native runs, 3 native trace-only runs, and
-repeated WASM runs each agree with themselves). They disagree with each other,
-and for two independent reasons.
+Recording this corpus produced two disagreements that no earlier corpus could
+reach, because both live on the *reload* path and neither shorter corpus ever
+reloads a level. They are written up in HARNESS.md §9.11; the short version is
+that one was `--text` changing the native run and the other was native and WASM
+parting company by 1,600 draws, and both turned out to be reads of memory the
+program never wrote. Neither was an unsequenced RNG draw, which is what the
+1,600 first suggested.
 
-Read the table as: replay the corpus in these four ways and compare traces.
+`compare-targets.sh` now reports `targets agree` on all three corpora, and all
+four ways of replaying this one — native and WASM, with and without `--text` —
+produce byte-identical traces. That last check is the one worth re-running after
+any change near saving, level entry or the auto-play AI:
 
-| | frames | first disagreement |
-|---|---|---|
-| native, `--trace --text --shot` (the golden) | 2,699 | — |
-| native, `--trace` only | 2,676 | vs golden: frame 1562, **7 draws** |
-| WASM, `--trace --text --shot` | 2,681 | vs golden: frame 1562, **7 draws** |
-| WASM, `--trace` only | 2,681 | byte-identical to WASM `+text` |
+```bash
+tools/corpora/compare-targets.sh
+```
 
-**Cause A — `--text` changes the native run.** This is the harness perturbing
-what it measures. Native with text capture and native without it diverge at frame
-1562 / key index 1559 — the descent to UT 2 — with the native `+text` run having
-drawn **seven more random numbers**. The rendered frame is identical
-(`9b6be20a49c85220` either way); only the draw count differs. WASM is *not*
-affected: its trace is byte-identical with and without `--text`. So the committed
-golden encodes a run that only happens when text capture is on. That is harmless
-for `verify-corpora.sh`, because `run-corpus.sh` pins the same flags every time —
-but it means the golden is not "what the game does", it is "what the game does
-while being watched".
-
-**Cause B — a genuine native/WASM divergence, much later.** Take `--text` out of
-both and the two targets agree all the way to frame 2199, then diverge at frame
-2200 / key index 2197 by **1,600 draws**. That one is a real cross-target
-difference and has the signature of the bug class HARNESS.md §9.4 closed on the
-first dungeon level: sub-expressions that each draw from the RNG, with the
-evaluation order left to the compiler. §9.4 fixed the ones the 210-key corpus
-reaches; nothing had ever replayed this far on both targets before.
-
-The first *visible* symptom of either is the insult in "The door is already open,
-%s." (`game::Insult`, `game.cpp:1226`) landing on a different word.
-
-Neither is a regression, and neither affects the browser game's determinism
-against itself — only the native-vs-WASM oracle, on the second level, and only
-past key 1559.
+A `--text`-only difference is the harness perturbing what it measures, and it
+is worth taking as seriously as a cross-target one: it means the golden is not
+"what the game does", it is "what the game does while being watched".
 
 ## Two things that will bite you
 
@@ -166,7 +153,10 @@ wall-clock second. On `autoplay-200` that byte reads 2 or 3 depending on machine
 load, which is 2 distinct `.sav` files across 8 runs and is expected. Use
 `savediff --ignore-timespent` for save comparison; it pairs files by role rather
 than by name, which matters because `game::SaveName` stamps the stem with a
-timestamp.
+timestamp. `compare-targets.sh` runs it across the two targets and reports it
+without letting it decide the exit status; since §9.11 every level file and `.wm`
+of all three corpora is byte-identical there, and `GetTimeSpent` is the only
+thing left that differs.
 
 **Anything outside these three corpora.** Every determinism number in HARNESS.md
 is a property of the levels these key sequences generate. `autoplay-2000` reaches
