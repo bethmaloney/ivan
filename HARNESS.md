@@ -22,6 +22,13 @@ native toolchain applies. Neither is opt-in, because neither can be arranged aft
 it is for (§9.6). **That paid for itself immediately:** the first report to arrive with names
 on it was §6.9, which turned out to be §9.4's open divergence as well.
 
+**The browser build has sound effects, and they are played by the page rather than by the
+module** — §9.7. The wasm still decides what to play; JavaScript fetches and plays it, which is
+the first piece of presentation to cross to the frontend side of §1's boundary and takes 26MB of
+wav off the first load. Music is not done. The cut was placed below the pattern matching on
+purpose, because the matching is the part that should not exist at all: the game has no sound
+events, only sentences with regexes pointed at them
+([issue #1](https://github.com/bethmaloney/ivan/issues/1)).
 **Last updated:** 2026-08-16
 
 ---
@@ -99,6 +106,11 @@ validates the *rewrite*. You need both, in that order.
 | **Native vs WASM, auto-play corpus**, after §6.9 | trace, text log, screenshot, sidecar, `.wm` and **both** level files byte-identical; `.sav` differs by the one `GetTimeSpent` byte. Was 389 of 593 frames |
 | `compare-targets.sh` with §6.9 reverted, then reapplied | **DISAGREE** then **agree** — the fix is what closes it |
 | Browser crash report of §6.9 replayed on the WASM node build | reproduces the path; **`SAFE_HEAP` aborts in `lsquare::AddItem`**, release does not |
+| Browser effects after §9.7, 130 keys of auto-play in headless Chrome | **5 distinct wavs fetched, decoded and played**, 0 dropped, chosen by the game's own patterns |
+| A wav that does not exist, same run | **one console line, no exception** — silent like a null `Mix_Chunk` |
+| `Sound/` bytes in `ivan.data` after §9.7 | **0** of 26MB; `SoundEffects.cfg` alone is preloaded, 10KB |
+| Both corpora, `compare-targets.sh`, after §9.7 | **targets agree** — the node host compiles the same `__EMSCRIPTEN__` branches |
+| Both corpora, `verify-corpora.sh`, after §9.7 | **8 runs self-consistent, matches golden** on each |
 | Same recording, `-fno-strict-aliasing` vs §6.9's fix | both exit 0 at the **same** RNG count, 2,303,482 |
 | `portmath` output under GCC vs under Emscripten, 14,000 evaluations | **bit-identical** — §6.7's pin holds across compilers, not just across libms |
 | `emcmake cmake -DWASM_BROWSER=ON`, then build | **0 warnings, 0 errors**, exit 0 — `ivan.html` + a 3.3MB `ivan.data` |
@@ -260,11 +272,18 @@ The preload paths are absolute because `PORTABLE_BUILD` makes `game::GetDataDir(
 with its working directory at `/`, so the `"./Graphics/..."` every call site builds resolves to
 exactly the `/Graphics` in the package.
 
-`WASM_PRELOAD_AUDIO` (OFF) adds `Music/` and `Sound/`. They are ~28MB against the other two
-directories' 3.5MB and the game runs without either — a missing `Sound/SoundEffects.cfg` leaves
-`initSound` at `SoundState = -1` (`sfx.cpp:131`; the `ABORT` beside it is commented out) and the
-wavs load lazily per effect, while `audio::LoadMIDIFile` only pushes a filename onto a vector
-(`audio.cpp:449`) and RtMidi is a dummy on this target regardless. Untested with it ON.
+`WASM_PRELOAD_AUDIO` (OFF) adds `Music/` and `Sound/`, and **it no longer governs whether the
+game makes a sound**. §9.7 moved effect playback to the page: `tools/web/sfx.js` fetches each
+wav over HTTP at first use, and the build symlinks `Sound/` beside `ivan.html` so `emrun` serves
+it. Turning this ON would put 26MB back into `ivan.data` to populate a MEMFS nothing reads.
+`Music/` is listed alongside it only because the MIDI path is unimplemented here — RtMidi is a
+dummy on this target — so its 1.5MB would buy nothing either. Untested with it ON.
+
+The one file under `Sound/` that *is* preloaded, unconditionally and on its own, is
+`SoundEffects.cfg`. The pattern table stays in C++ by design (§9.7), so `initSound` still opens
+it with `fopen`; without it the open fails, `initSound` settles on `SoundState = -1`
+(`sfx.cpp`; the `ABORT` beside it is commented out) and the game goes quiet with nothing
+printed. 10KB.
 
 A browser build also records every session and keeps its function names, both unconditionally,
 because neither can be arranged after the crash they are for — §9.6 has the argument and
@@ -1916,6 +1935,7 @@ uninitialised     Main/Include/script.h        Main/Include/igraph.h
                   Main/Include/lterras.h
 headless          FeLib/Source/graphics.cpp    FeLib/Source/whandler.cpp
                   FeLib/Source/sfx.cpp
+browser audio     FeLib/Source/sfx.cpp         tools/web/sfx.js
 draw order        FeLib/Include/femath.h       FeLib/Include/typedef.h
                   Main/Source/char.cpp         Main/Source/human.cpp
                   Main/Source/nonhuman.cpp     Main/Source/bodypart.cpp
@@ -2254,8 +2274,8 @@ run and both were wrong, which is worth recording as plainly as the successes:
   is now the item blocking something a player would notice rather than a theoretical one.
 - **`ASYNCIFY=1` instruments the whole binary**, all 7.5MB of it. Nothing has been measured
   against a native frame time; `ASYNCIFY_ONLY` or JSPI is the tuning knob if it needs one.
-- **Audio is unexercised.** Headless Chrome has no audio device, so `WASM_PRELOAD_AUDIO=ON`
-  needs a human with speakers, not another CDP script.
+- ~~**Audio is unexercised.**~~ Effects now play, and not through SDL_mixer — §9.7 moved
+  playback to the page. Still unexercised by anything with a speaker.
 - **Input beyond the auto-play set is unexercised.** `` ` ``, `y`, `~` and 400 `.` have all
   crossed `GetKey` in a browser (§9.6). Direction keys, `>` and the rest of the command set go
   the same way, so there is no reason to expect trouble, but "no reason to expect trouble" is
@@ -2392,3 +2412,97 @@ replaying it reconstructs the state exactly, so this is a convenience rather tha
 adding only if a crash turns up that the recording cannot reproduce, which would be a more
 interesting problem than the one it solves.
 
+---
+
+### 9.7 Sound effects, played by the page (new)
+
+**Measured 2026-08-16: the browser build makes sound, and the wav files are no longer part of
+the download.** Driven over CDP in headless Chrome 143 — ten `ENTER`, then `` ` ``, `y`, `~`
+and 120 `.` of wizard auto-play — the page fetched, decoded and played five distinct effects
+chosen by the game itself: `dooropen.wav`, `DoorResists1.wav`, `DoorResists3.wav`, `bark.wav`
+and `howl1.wav`. Zero dropped, one deliberate 404 reported as one console line and nothing
+else.
+
+**Audio moved out of the wasm module rather than into it.** SDL_mixer is still what plays sound
+on every other target; on Emscripten `soundeffects` now opens no device, allocates no channels
+and loads no wav. It matches the message, picks the file, and hands the filename to
+`tools/web/sfx.js` through an `EM_JS` bridge. That file owns the `AudioContext`, the fetch, the
+decode cache and the voice cap.
+
+**The boundary is deliberately below the regex, and that is the whole design decision.**
+Everything upstream of the filename stays in C++: `Sound/SoundEffects.cfg`, its 153 patterns,
+`findMatchingSound`, and the private xorshift that chooses between several files for one
+pattern. Two reasons, and neither is about effort:
+
+- **One copy of the pattern table.** Moving matching to JS would put a second copy of 153
+  regexes in a second engine, and the thing they are matched against is English prose that
+  changes. §9.2 needed `tools/regexdiff` and 111,342 comparisons to prove PCRE and `std::regex`
+  agreed on these patterns; a third engine is a third thing to keep proving.
+- **`NextSoundRand` stays on the C++ side of the wall.** §6.5 made it a private stream so that
+  which sounds are installed cannot shift the game's RNG. Cutting here preserves that property
+  literally unchanged rather than re-establishing it in JavaScript.
+
+The right fix for the underlying design — the game has no sound *events*, only sentences that
+regexes are matched against — is [issue #1](https://github.com/bethmaloney/ivan/issues/1). This
+change was placed where it is so as not to entrench the string matching by exporting it.
+
+**What the page does that SDL_mixer could not.**
+
+- **Nothing under `Sound/` is preloaded.** It is 26MB of wav against the 3.3MB of `Graphics/`
+  and `Script/` in `ivan.data`, so preloading it would have made first load an order of
+  magnitude slower for audio that may never play. Each file is fetched at first use and cached
+  by the browser thereafter. `Sound/` is symlinked beside `ivan.html` at build time so the
+  documented `emrun --no_browser build-web/Main` still serves a complete game.
+- **Latency is a buffer rather than a mixer chunk.** `Mix_OpenAudio`'s 8000-sample request
+  rounds up to 8192 (`SDL_audio.c:1431`), about 186ms between a blow landing and the sound of
+  it. WebAudio schedules on the sample.
+- **The autoplay policy is handled where it lives.** SDL2's backend registers emscripten's
+  `autoResumeAudioContext` on the context *SDL* opened (`SDL_emscriptenaudio.c:233`), and SDL
+  now opens none, so `sfx.js` registers the same three listeners for its own.
+
+**`Sound/SoundEffects.cfg` is preloaded on its own, and missing that is a silent failure.** The
+pattern table stays in C++, so `initSound` still reads the file with `fopen` — out of a MEMFS
+that no longer contains the directory it lives in. When the open fails, `initSound` settles on
+`SoundState = -1` (the `ABORT` beside it is commented out) and `playSound` returns before
+reaching the bridge. Nothing is printed and nothing traps: the game is simply silent, and the
+JS layer looks broken because it is never called. It is 10KB and it is preloaded explicitly.
+This was a real bug in the first version of this change, found by the CDP run above.
+
+**A `--pre-js` file is a link input CMake cannot see**, because it appears only inside
+`LINK_FLAGS`. Editing `sfx.js` did not relink, the build reported itself up to date, and the
+page kept serving the previous copy — an edit that appears to do nothing and gets debugged as a
+code problem. `LINK_DEPENDS` on both pre-js files fixes it (`Main/CMakeLists.txt`).
+
+**A first sound is played late rather than dropped.** The first use of an effect has to fetch
+and decode, and the first version dropped it and warmed the cache instead, on the theory that a
+late sound is worse than none. That was wrong for this game: it made the first door of every
+session silent, which is exactly when a player is deciding whether the game has sound. IVAN is
+turn-based and the message is still on screen, so it now plays on arrival within a 250ms bound.
+The bound is what still rules out the case the rule was written for — a stalled fetch landing
+over an unrelated turn — and the *suspended context* case, where `currentTime` does not advance
+and queued sounds do not play late but all at once on the first keystroke.
+
+**The oracle is untouched, and it is the same `__EMSCRIPTEN__`.** The node host compiles every
+branch above, so this was verified rather than assumed: `compare-targets.sh` reports **targets
+agree** on both corpora after the change, and `verify-corpora.sh` reports 8 runs self-consistent
+and matching golden on both. Nothing reaches the new code there because `--headless` returns
+from `initSound` before it (§9.3), which is also why the seam-1 measurement never hears anything.
+
+**What is open.**
+
+- **Nobody has listened to it.** Headless Chrome has no audio device. Every claim above is
+  about fetch, decode and WebAudio scheduling succeeding, which is not the same as the right
+  sound coming out of a speaker at the right moment.
+- **The wavs are still wavs.** 26MB across 153 files, now fetched individually rather than in
+  one lump. Converting them to OGG is a data-only change — `Mix_LoadWAV_RW` falls through to
+  `Mix_LoadMusic_RW` for non-RIFF magic (`mixer.c:822`) so the native path takes them too, and
+  only the filenames in `SoundEffects.cfg` change. Expect roughly 26MB → 2MB.
+- **Music is not done.** RtMidi is still a dummy and `audio::Loop` still never runs, so the
+  browser is silent between messages. The same argument as this section applies to it and is
+  cheaper there: the page can play a pre-rendered OGG with no synth, no soundfont and no thread,
+  which is what makes the whole `audio/` directory skippable on this target rather than
+  something to port.
+- **`-sUSE_SDL_MIXER=2` is now dead weight on the browser build.** Nothing calls `Mix_*` there
+  any more; `sfx.h` includes `SDL_mixer.h` for the `Mix_Chunk*` in `SoundFile` and that is all.
+  Dropping the port is a link-level change with a wider blast radius than it looks — `FeAudio`
+  links it too — so it is left alone deliberately.
