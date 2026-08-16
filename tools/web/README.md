@@ -558,8 +558,19 @@ game's assets do.
 
 ```bash
 tools/web/dist.py
-npx wrangler pages deploy dist --project-name=ivan
+npx wrangler pages deploy dist --project-name=playivan --branch main
 ```
+
+**Both of those arguments are load-bearing and this file used to have the first
+one wrong.** The project is `playivan`, not `ivan`; `wrangler pages project
+list` is the authority, and the wrong name fails loudly. `--branch` fails
+quietly, which is worse: the project's production branch is `main`, the git
+branch here is `master`, and wrangler labels a deployment with the branch it
+thinks you are on. Without `--branch main` the deploy succeeds, prints a URL
+that serves the new build, and leaves `playivan.pages.dev` on the previous
+production deployment — a deploy that looks done and changed nothing anyone
+visits. `wrangler pages deployment list --project-name=playivan` shows the
+Environment column that gives it away.
 
 `wrangler pages deploy` will not create the project for you; run
 `wrangler pages project create <name> --production-branch=main` first. Uploads

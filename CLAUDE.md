@@ -10,7 +10,8 @@ A fork of [Attnam/ivan](https://github.com/Attnam/ivan) (`origin`; this fork is 
 - **Replace the presentation.** Graphics, sound, music, input, UI and config are being moved
   out of C++/SDL and into native JavaScript on the page. SDL and everything that exists only
   to serve it comes out as each piece crosses.
-- **Host it on Cloudflare Pages.** Project name `ivan`; landing page at `/`, game at `/play/`.
+- **Host it on Cloudflare Pages.** Project `playivan`, live at
+  [playivan.pages.dev](https://playivan.pages.dev); landing page at `/`, game at `/play/`.
 
 Sound effects (§9.7), music (§9.8) and saves (§9.10) have already crossed and the page owns
 them. Graphics, input and UI have not. `audio/` — RtMidi, the MIDI parser, the playback engine
@@ -72,7 +73,9 @@ python3 tools/play/play.py auto 200
 ```bash
 tools/web/dist.py                      # -> dist/ (rebuilt from scratch), from build-web/Main
 tools/web/serve.py 8113 dist           # check it locally first
-npx wrangler pages deploy dist --project-name=ivan
+# --branch main is not optional: the Pages production branch is main, the git
+# branch is master, and without it the deploy is a preview nobody visits.
+npx wrangler pages deploy dist --project-name=playivan --branch main
 ```
 
 ## Working conventions

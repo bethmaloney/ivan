@@ -3032,6 +3032,29 @@ with `modifiers: 8` is not enough to send a capital `S`; the Shift press has to 
 way a keyboard would. The first two attempts looked exactly like "the browser build ignores `S`",
 which would have been a much more alarming finding than the truth.
 
+**It is live, and deploying it found two things wrong with the deploy recipe.** The same run on
+[playivan.pages.dev](https://playivan.pages.dev) — 4 keys, down, left, `>`, reload, Continue —
+prints "Game loaded successfully." over the CDN, with populate at **9–26ms** and the same 5
+syncs. The save set that arrives at `?seed=999` is `AutoSave.40` 922,739, `AutoSave.sav` 171,540
+and `.wm` 63,848, which are the **same three sizes** `compare-targets.sh` reports for the native
+and node hosts on `noncombat.rec`. That is not byte equality — nothing has compared them — but
+it is the first sign the browser host lands where the corpus does at the file level, and it is
+what an `ivanSaves.export()` would settle.
+
+- **The project is `playivan`, not `ivan`.** §9.9 and `CLAUDE.md` both said `ivan`, which is not
+  a project in this account. This one fails loudly and cost a minute.
+- **`--branch main` is not optional, and it fails silently.** The Pages project's production
+  branch is `main`; the git branch here is `master`. Without it, wrangler labels the upload
+  `Preview`, prints a URL that serves the new build perfectly, and leaves `playivan.pages.dev`
+  on the previous production deployment. A deploy that looks finished and changed nothing anyone
+  visits — verified by fetching the live `ivan.js` and finding the old size and no `IDBFS` in it.
+  The Environment column of `wrangler pages deployment list` is what says so.
+
+Both are corrected in `tools/web/README.md` and `CLAUDE.md`. The lesson is the general one:
+**check the deployed bytes, not the deploy command's exit code.** `curl` the live `ivan.js` for
+the build id — `--profiling-funcs` and the git-describe stamp of §9.6 make that a one-line
+check, and it is the only thing that distinguishes a deploy from an upload.
+
 **What is open.**
 
 - **The death path is not tested end to end.** Deletion is proven both ways — in the contract
