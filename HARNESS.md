@@ -2629,6 +2629,27 @@ would mean this design is the wrong one. What was learned is narrower than that 
 **with the stems started together they stay together**, which is what the 0.1ms reading already
 proved before the fix existed.
 
+**Measured again after the fix, in the same way**, sampling `stats().drift` by hand over about a
+minute of a three-stem track:
+
+```
+[-0.0203, 0.0029]   [-0.0098, 0.0029]   [-0.0048, 0.0029]   [-0.0032, 0]
+[-0.0032, 0]        [-0.0032, 0.0029]   [-0.0003, 0.0029]
+```
+
+Start skew is **166ms → ~20ms**, and the nudge closes the rest to sub-millisecond over a few
+seconds at almost exactly the 0.5% cap — 5ms per second of playback, which is what those first
+four readings are. No seek fires; the whole correction is inaudible.
+
+The fade-in stem's `0.0029` is not drift. It is ~128 samples at 44.1kHz, one render quantum, and
+it alternates with `0` rather than growing — the floor of what `currentTime` reports, not motion.
+
+**The residual 20ms is deliberately left to the nudge.** Tightening `Align` to seek it out would
+trade a convergence nobody can hear for a gap everybody can, and 20ms decays below the flam
+threshold within about three seconds. The single `Align` pass evidently does not catch this one —
+the skew appears after its 400ms check, which is why the convergence above is gradual rather than
+a step — so it earns its place only against a large early skew. Left in for that.
+
 **The two files share one `AudioContext` but not one gain, and both halves of that matter.**
 Sharing the context is the easy half: browsers cap how many a page may have, each costs a device
 connection, and two would need two resumes off the same gesture — so `sfx.js` exposes the one it
@@ -2688,6 +2709,7 @@ run on a path that then pushes the result across a boundary.
 | `node tools/web/music.test.js` | **61/61** — playlist, index readback, restart-or-keep, intensity→gains, slew rate, volume routing, silent tracks, readiness barrier, alignment, drift correction |
 | Same suite against 9 deliberate mutations | **8 caught** (swapped curves, pinned index, always-restart, dropped slew, volume on the shared master, volume not applied at node creation, no readiness barrier, no Align pass, old seek threshold). The one that survives is the nudge *magnitude*, a tuning constant rather than an invariant — recorded rather than papered over |
 | Stem drift in a browser, before the barrier | `[-0.166, 0.0001]` — one stem 166ms late, one exact |
+| Stem drift after the barrier, ~1 minute of playback | start skew **20ms**, nudged to **0.3ms**; no seeks, nothing audible. Other stem at one render quantum throughout |
 | `touch tools/web/music.js` then rebuild | **relinks** — `LINK_DEPENDS` is wired, the §9.7 stale-pre-js trap is not reopened |
 
 **What is open.**
@@ -2703,9 +2725,9 @@ run on a path that then pushes the result across a boundary.
 - **Total size is unmeasured.** 51.6 stem-minutes nominal, but the stems are sparse and Vorbis
   is cheap on silence, so the linear estimate is an upper bound worth replacing with a
   measurement before deciding the quality setting.
-- **Drift after the barrier is unmeasured.** The 166ms above was the *start*, and it is fixed;
-  what steady-state drift looks like over a full seven-minute track with the stems actually
-  aligned has not been watched yet. `stats().drift`, `corrections` and `seeks` are the readout.
+- **Long-run drift is still unwatched.** Steady state is measured (below) but only over a minute
+  or so; what a full seven-minute Dungeon3 does has not been sat through. `stats().seeks` is the
+  number that would matter — it should stay put.
 - **`-sUSE_SDL_MIXER=2` is still dead weight**, and now more so: `FeAudio` no longer links it on
   this target either, leaving `sfx.h`'s `Mix_Chunk*` as the only reason it is on the command
   line.
