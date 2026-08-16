@@ -1,0 +1,162 @@
+# Build the browser game and publish it to Cloudflare Pages.
+#
+# The four jobs are the four things that can be wrong, and they are separate so
+# that a failure names one of them:
+#
+#   corpora   the game still plays the way it did      (native build + goldens)
+#   modules   the page's own JS still holds its end     (node, no browser)
+#   package   the WASM build produces a complete site   (emsdk + dist.py)
+#   publish   the site reaches playivan.pages.dev
+#
+# corpora, modules and package are independent and run at once; publish waits
+# for all three and runs only on a push to main. The Cloudflare token is
+# therefore touched by exactly one job, which does nothing but download an
+# already-built artifact and upload it -- no build step ever sees it.
+#
+# Golden traces travel: HARNESS.md §1 records native (gcc) and WASM (clang)
+# producing byte-identical traces, so a runner's compiler differing from a
+# developer's does not move the goldens. If this job ever fails on a trace diff,
+# suspect the change, not the runner.
+
+name: deploy
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  # HARNESS.md §9.9: the toolchain is pinned, because "latest" is not a
+  # toolchain. Bumping this is a deliberate act -- rebuild locally and re-run
+  # tools/corpora/compare-targets.sh before changing it here.
+  EMSDK_VERSION: 6.0.6
+
+jobs:
+  corpora:
+    name: corpora
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install SDL2, libpng and ccache
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            libsdl2-dev libsdl2-mixer-dev libpng-dev ccache
+
+      - name: Restore ccache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ccache
+          key: ccache-native-${{ github.sha }}
+          restore-keys: ccache-native-
+
+      # PORTABLE_BUILD is not optional here: without it DATADIR is baked in and
+      # the binary aborts with "Script/define.dat not found" before it replays
+      # anything.
+      - name: Build native
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release \
+            -DWIZARD=ON -DPORTABLE_BUILD=ON \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+          cmake --build build -j"$(nproc)"
+
+      - name: Replay the corpora
+        run: tools/corpora/verify-corpora.sh
+
+      # A trace diff is only diagnosable with the run that produced it, and
+      # verify-corpora.sh leaves those behind on failure.
+      - name: Keep the divergent runs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: corpus-verify
+          path: build/corpus-verify/
+          retention-days: 7
+
+  modules:
+    name: modules
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: music.js
+        run: node tools/web/music.test.js
+
+      - name: saves.js
+        run: node tools/web/saves.test.js
+
+  package:
+    name: package
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      # Covers the SDK and the compiled ports (SDL2, SDL2_mixer, libpng), which
+      # live inside it. Keyed on the version alone -- nothing else in the repo
+      # changes what an emsdk install contains.
+      - name: Restore emsdk
+        id: emsdk-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/emsdk
+          key: emsdk-${{ env.EMSDK_VERSION }}-${{ runner.os }}
+
+      - name: Install emsdk ${{ env.EMSDK_VERSION }}
+        if: steps.emsdk-cache.outputs.cache-hit != 'true'
+        run: |
+          git clone --depth 1 https://github.com/emscripten-core/emsdk.git ~/emsdk
+          ~/emsdk/emsdk install "$EMSDK_VERSION"
+          ~/emsdk/emsdk activate "$EMSDK_VERSION"
+
+      # One step, because emsdk_env.sh exports EMSDK and a PATH that emcmake
+      # needs and that does not survive the step boundary.
+      - name: Build for the browser
+        run: |
+          . ~/emsdk/emsdk_env.sh
+          emcmake cmake -S . -B build-web -DCMAKE_BUILD_TYPE=Release \
+            -DWIZARD=ON -DPORTABLE_BUILD=ON -DWASM_BROWSER=ON
+          cmake --build build-web -j"$(nproc)"
+
+      # Fails the job if anything SoundEffects.cfg or stems.json can ask for is
+      # not in the tree -- a missing one is silent at runtime.
+      - name: Assemble the site
+        run: tools/web/dist.py
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+          retention-days: 7
+
+  publish:
+    name: publish
+    needs: [corpora, modules, package]
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist
+
+      # --branch main stays explicit. wrangler labels an upload with whatever
+      # branch it is told, and anything other than the project's production
+      # branch becomes a preview deployment nobody visits.
+      - name: Deploy to Cloudflare Pages
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: npx --yes wrangler@4 pages deploy dist --project-name=playivan --branch main
