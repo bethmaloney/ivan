@@ -53,6 +53,14 @@ and after the browser has been closed: byte-identical save files, and "Game load
 from the menu. That was the most visible defect in the product and the landing page's caveat has
 gone with it. IndexedDB rather than localStorage because one dungeon level is 3.5MB of save
 files; `.bkp` backups are off here because they are another 35% on top.
+
+**A third corpus reaches the second dungeon level, and found two bugs there** — §9.11.
+`autoplay-2000` is the first recording to leave UT 1, and it broke `compare-targets.sh` twice
+over. Both turned out to be reads of memory the program never wrote, on the path a level takes
+when it is saved and read back — an area-change test that compared raw pointers and lost the
+race to the allocator, and `room::Flags` (which carries `NO_MONSTER_GENERATION`) initialised
+nowhere and saved nowhere. Neither is about Emscripten; the second has been silently deciding
+where monsters spawn in reloaded levels for years. `SAVE_FILE_VERSION` is 138 for the fix.
 **Last updated:** 2026-08-16
 
 ---
@@ -157,6 +165,9 @@ validates the *rewrite*. You need both, in that order.
 | Tracked writes per sync, one autosave | 578–2,336 writes became **4–5 syncs**; **0** `.tmp` files reached IndexedDB |
 | `node tools/web/saves.test.js` | **57/57**, and **11 of 12** deliberate mutations caught |
 | Both corpora after the `save.cpp` change of §9.10 | `verify-corpora.sh` **matches golden**, `compare-targets.sh` **targets agree** |
+| All three corpora after the two fixes of §9.11 | `verify-corpora.sh` **matches golden**, `compare-targets.sh` **targets agree** |
+| `autoplay-2000` replayed four ways — native/WASM x with/without `--text` | **byte-identical**, 2,676-line traces; was four different runs (§9.11) |
+| `autoplay-2000` save set across targets, after §9.11 | every level file and `.wm` **SAME**; one `.sav` SUSPECT on `GetTimeSpent`. Three level files and a `.wm` were DIFF |
 | Level file across 4 ordinary runs, after §6.6e | **1 distinct** on both corpora; was 4 |
 | Uninitialized bytes reaching a level file, after §6.6e | **0** on both corpora, `MALLOC_PERTURB_` 42 vs 99 |
 | `valgrind` uninitialized reads, after §6.6e | **0 / 0** on both corpora |
@@ -3070,3 +3081,105 @@ check, and it is the only thing that distinguishes a deploy from an upload.
   make a crash report carry the state §9.6 records as its one gap.
 - **The mount is one profile deep.** Saves are per-browser and per-origin. Cloud saves are a
   different problem and are not started.
+
+---
+
+### 9.11 Two reads of memory the program never wrote (new)
+
+Adding a third corpus that reaches the second dungeon level (`autoplay-2000`, `tools/corpora/`)
+immediately broke `compare-targets.sh`, in two independent ways and both past key 1559. Neither
+was a regression and neither was reachable by the 210-key corpus, because both live on the path
+a level takes when it is saved and read back, and neither shorter corpus ever reloads a level.
+
+Read the starting position as: replay the corpus four ways and compare traces.
+
+| | frames | first disagreement |
+|---|---|---|
+| native, `--trace --text --shot` | 2,699 | — |
+| native, `--trace` only | 2,676 | frame 1562, **7 draws** |
+| WASM, `--trace --text --shot` | 2,681 | frame 1562, **7 draws** |
+| WASM, `--trace` only | 2,681 | byte-identical to WASM `+text` |
+
+Every one of those four is deterministic *against itself*. They disagree with each other.
+
+**The 1,600 draws were not an unsequenced expression.** The native/WASM split is at frame 2200,
+and 1,600 is exactly one 80x20 level, so the first reading was §9.4(a) again — sub-expressions
+drawing from the RNG in an order the compiler picks. It is not. Dumping `__builtin_return_address`
+for every draw in the window and resolving the histogram put 3,200 of the 4,114 draws at one
+site: `char.cpp:3391`, the loop in `character::AutoPlayAINavigateDungeon` that drains every
+square of the level looking for one it can path to, one draw per square. Native drained 3,200
+squares, WASM drained 1,600.
+
+The cause is four lines away, in `character::AutoPlayAICheckAreaLevelChangedAndReset`:
+
+```cpp
+static area* areaPrevious=NULL;
+area* Area = game::GetCurrentArea();
+if(Area != areaPrevious){          // "am I somewhere new?"
+```
+
+Leaving a level deletes it, and the next level is free to land on the address the last one just
+freed. Under Emscripten's dlmalloc it does: descending to UT 2 reused the address UT 1 had
+released, this test saw no change, and the cached `vv2AllDungeonSquares` kept **1,600 dangling
+`lsquare*` into the deleted level**. Native's glibc handed back a different address, took the
+branch, and refilled the vector with UT 2's real 3,200 squares — UT 2 is 160x20, which is where
+the second 1,600 came from. So the two targets were not disagreeing about randomness at all:
+one of them was walking a freed level. Fixed by asking the dungeon and level indices, which do
+not depend on the allocator, and keeping the pointer test as well so a reloaded game — every
+address new, no index changed — still resets.
+
+**`--text` was the same shape of bug, one level up.** With that closed, three of the four rows
+above agreed and native `+text` still did not. `harness::RecordText` only copies strings, so the
+suspicion was again an unsequenced draw; again it was not. The extra draws were retries inside
+`level::GetRandomSquare` called from `GenerateNewMonsters`, and logging the decision showed both
+runs proposing the *same* square (36,14) for the *same* monster (a mushroom) in the *same* room
+(6) — and `room::DontGenerateMonsters()` answering `0` in one run and `1` in the other.
+
+```cpp
+room() : LastMasterSearchTick(0), MasterID(0) { }              // Flags uninitialised
+void room::Save(outputfile& F) const { F << Pos << Size << Index << DivineMaster << MasterID; }
+void room::Load(inputfile& F)        { F >> Pos >> Size >> Index >> DivineMaster >> MasterID; }
+```
+
+`Flags` — which carries `NO_MONSTER_GENERATION`, and which four rooms of the Underwater Tunnel
+script set — is initialised nowhere, written by nothing, and read by `DontGenerateMonsters()`.
+It is set once at generation (`level.cpp:471`) and lost the first time the level round-trips
+through a save. Every reloaded room has been reading that word out of whatever the allocator
+last left there, and `--text`'s extra `festring` allocations were enough to change the answer.
+Fixed by initialising it and by putting it in `Save`/`Load`, which is a save format change:
+**`SAVE_FILE_VERSION` 137 to 138**.
+
+`Master` got an initialiser in the same constructor. It is guarded by `LastMasterSearchTick`,
+which is 0, and `game::GetTick()` is also 0 on the tick a replay starts on.
+
+**What it is now.** `compare-targets.sh` reports `targets agree` on all three corpora, and all
+four rows of the table above are byte-identical at 2,676 frames. Of the three corpora only
+`autoplay-2000`'s goldens moved, which is the check that the fixes are as narrow as they claim:
+the other two never reload a level, so nothing on the reload path can touch them.
+
+The save set crossed with it, and that is the sharper result — `savediff` had been reporting
+every level file on `autoplay-2000` as divergent between the targets:
+
+| `autoplay-2000` save set, native vs WASM | before | after |
+|---|---|---|
+| `40`, `AutoSave.40`, `AutoSave.41` (level files) | **DIFF**, up to 537 of 537 blocks | **SAME** |
+| `AutoSave.wm`, `wm` | `AutoSave.wm` **DIFF**, 22 of 27 blocks | **SAME** |
+| `sav` | SUSPECT, 1 block | **SAME** |
+| `AutoSave.sav` | **DIFF**, 12 of 45 blocks | SUSPECT, 1 block — `GetTimeSpent`, §5 |
+
+The one survivor is the wall-clock second boundary §5 records and no determinism work removes.
+Everything else that had been different is now byte-identical, which is what says the two
+defects above were the whole of it rather than the first two of several.
+
+**What to take from it.** §9.4 sorted cross-target defects into unsequenced draws, library ties
+and one piece of undefined behaviour, and offered a technique for finding them. Both of these
+are that fourth class and neither yields to the first instinct the numbers invite:
+
+- **An exact multiple of the level size is not proof of an unsequenced draw.** It was the size
+  of a cache nobody had invalidated. Get the call-site histogram before believing the arithmetic.
+- **A raw pointer is not an identity.** `ptr != previous` answers "is this a different object?"
+  only while the old object is alive. Across a free it asks the allocator, and the two targets
+  have different ones. Anything that survives a delete needs a name the allocator does not pick.
+- **A `--text`-only difference deserves the same alarm as a cross-target one.** It says the
+  golden is not what the game does, it is what the game does while being watched — and here it
+  was pointing at a real bug in the game, not at the harness.

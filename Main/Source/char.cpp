@@ -2873,10 +2873,23 @@ int iVisitAgainCount=iVisitAgainMax;
 std::vector<lsquare*> vv2AllDungeonSquares;
 bool character::AutoPlayAICheckAreaLevelChangedAndReset()
 {
+  /* Not the pointer alone: leaving a level deletes it and the next one may land
+     on the same address, which under Emscripten left vv2AllDungeonSquares full
+     of dangling squares (HARNESS.md §9.11). The pointer stays for reloads. */
+
   static area* areaPrevious=NULL;
+  static int iDungeonPrevious=-1, iLevelPrevious=-1;
+  static truth bWildernessPrevious=false;
   area* Area = game::GetCurrentArea();
-  if(Area != areaPrevious){
+  cint iDungeon = game::GetCurrentDungeonIndex();
+  cint iLevel = game::GetCurrentLevelIndex();
+  ctruth bWilderness = game::IsInWilderness();
+  if(Area != areaPrevious || iDungeon != iDungeonPrevious
+     || iLevel != iLevelPrevious || bWilderness != bWildernessPrevious){
     areaPrevious=Area;
+    iDungeonPrevious=iDungeon;
+    iLevelPrevious=iLevel;
+    bWildernessPrevious=bWilderness;
 
     iVisitAgainCount=iVisitAgainMax;
 
