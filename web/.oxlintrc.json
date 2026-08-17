@@ -1,0 +1,36 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": ["typescript", "import", "promise"],
+  "categories": {
+    "correctness": "error",
+    "suspicious": "warn",
+    "perf": "warn"
+  },
+  "env": {
+    "browser": true,
+    "es2024": true
+  },
+  "ignorePatterns": ["dist"],
+  "rules": {
+    "eqeqeq": ["error", "always"],
+    "no-var": "error",
+    "prefer-const": "error"
+  },
+  "overrides": [
+    {
+      "files": ["test/**", "e2e/**", "build.mjs", "playwright.config.ts"],
+      "env": { "node": true },
+      "rules": {
+        // A browser test walks its assertions in order on purpose; the game has
+        // one canvas and one IndexedDB origin, so there is nothing to parallelise.
+        "no-await-in-loop": "off"
+      }
+    },
+    {
+      // `declare var` is the only form that puts a name on globalThis, which is
+      // where an EM_JS body and a page.evaluate() both look for it.
+      "files": ["**/*.d.ts"],
+      "rules": { "no-var": "off" }
+    }
+  ]
+}

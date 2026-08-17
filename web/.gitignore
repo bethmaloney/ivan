@@ -1,0 +1,4 @@
+# The bundle. The repo root already ignores dist/ and node_modules/; these are
+# Playwright's, and it writes them beside the config rather than in dist/.
+playwright-report/
+test-results/

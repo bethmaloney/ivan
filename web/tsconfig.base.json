@@ -1,0 +1,29 @@
+{
+  "compilerOptions": {
+    "target": "es2020",
+
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "exactOptionalPropertyTypes": true,
+
+    "noEmit": true,
+    "isolatedModules": true,
+    "verbatimModuleSyntax": true,
+    "skipLibCheck": true,
+
+    // Node 22.18+ strips types rather than compiling them, so a relative import
+    // has to name the file that is actually on disk -- ./query.ts, not ./query.js.
+    // rewriteRelativeImportExtensions is what stops tsc rejecting that.
+    "allowImportingTsExtensions": true,
+    "rewriteRelativeImportExtensions": true,
+
+    // Confines the source to TypeScript that erases to nothing: no enums, no
+    // parameter properties, no namespaces. Anything else needs a compiler, and
+    // both things that read this tree (node --test, esbuild) only strip.
+    "erasableSyntaxOnly": true
+  }
+}

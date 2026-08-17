@@ -1,0 +1,23 @@
+{
+  "name": "ivan-web",
+  "version": "0.0.0",
+  "private": true,
+  "description": "The browser frontend for IVAN: everything the page owns rather than the wasm module (HARNESS.md §9)",
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs",
+    "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.test.json",
+    "lint": "oxlint",
+    "test": "node --test 'test/**/*.test.ts'",
+    "check": "npm run typecheck && npm run lint && npm test",
+    "e2e": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.50.0",
+    "@types/emscripten": "^1.40.0",
+    "@types/node": "^22.13.0",
+    "esbuild": "^0.25.0",
+    "oxlint": "^1.0.0",
+    "typescript": "^5.8.0"
+  }
+}
