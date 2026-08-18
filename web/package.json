@@ -13,11 +13,12 @@
     "e2e": "playwright test"
   },
   "devDependencies": {
-    "@playwright/test": "^1.50.0",
-    "@types/emscripten": "^1.40.0",
-    "@types/node": "^22.13.0",
-    "esbuild": "^0.25.0",
-    "oxlint": "^1.0.0",
-    "typescript": "^5.8.0"
-  }
+    "@playwright/test": "^1.62.1",
+    "@types/emscripten": "^1.41.5",
+    "@types/node": "^22.20.1",
+    "esbuild": "^0.28.2",
+    "oxlint": "^1.78.0",
+    "typescript": "^7.0.2"
+  },
+  "//": "@types/node tracks the runtime, not npm: 26.x is current but this is pinned to 22.x because Node 22 is what CI installs and what strips the types. Newer would describe APIs the runtime does not have."
 }
