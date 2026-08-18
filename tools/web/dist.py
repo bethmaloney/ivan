@@ -18,7 +18,7 @@ The layout it writes, and why it is this shape:
         ivan.js  ivan.wasm  ivan.data
         ivan-page.js      the page's own JavaScript, bundled from web/
         Sound/*.wav       fetched on demand by web/src/audio/sfx.ts
-        Music/*.ogg       streamed by music.js, plus stems.json
+        Music/*.ogg       streamed by web/src/audio/music.ts, plus stems.json
 
 The game lives under /play/ rather than at the root so that the front door
 stays a 30KB page instead of a 5MB one -- 11MB on disk, but the CDN serves the
@@ -186,7 +186,7 @@ def wanted_stems():
     """The ogg files stems.json promises, as `Track.stem.ogg`.
 
     A track with an empty list is not a fault -- six of the eleven have no
-    notes at all, and music.js relies on "no stems" being a normal answer
+    notes at all, and the page relies on "no stems" being a normal answer
     rather than probing for a file that was never rendered.
     """
 

@@ -174,7 +174,7 @@ EM_JS(int, IvanMusicCurrentIndex, (), {
 /* Pushed whole on every change rather than as add/remove deltas, because the
    list is at most a handful of names and a single authoritative copy cannot
    fall out of step with this one. dungeon::PrepareMusic mutates it several
-   times per level change; music.js compares against what it already has and
+   times per level change; the page compares against what it already has and
    does nothing when they match, so the repeats cost nothing and the music does
    not restart. */
 
@@ -337,7 +337,7 @@ cfestring& audio::GetCurrentlyPlayedFile()
       (dungeon.cpp:174) -- so an answer that is merely plausible would restart
       the music at every staircase.
 
-      Resolved through the playlist by index: music.js holds the name it picked
+      Resolved through the playlist by index: the page holds the name it picked
       and looks it up in the list this side last pushed, which stays right
       across the reorder ClearMIDIPlaylist performs. Out of range means nothing
       is playing, and an empty string is what PrepareMusic already handles. */
@@ -602,7 +602,7 @@ void audio::IntensityLevel(int intensity)
 #ifdef __EMSCRIPTEN__
       /* character::Be recomputes this every turn from the player's worst body
          part (char.cpp:1062), so it arrives often and mostly unchanged. Only
-         the changes are worth a call across the boundary, and music.js ramps
+         the changes are worth a call across the boundary, and the page ramps
          to the new value over the same 15ms-per-step the native mixer takes
          (US_PER_VOLUME_CHANGE) rather than jumping. */
 

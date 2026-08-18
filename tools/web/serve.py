@@ -10,7 +10,7 @@ this exists instead. Three things it does that http.server does not:
 - **Byte ranges.** The music is streamed through <audio> elements (§9.8), and a
   server that cannot answer `Range` makes that degrade quietly rather than
   fail: the element has to pull the whole file before it knows its duration, so
-  it starts late, cannot seek, and the drift correction in music.js sits out
+  it starts late, cannot seek, and the page's drift correction sits out
   until the download finishes because it waits on `duration`. Nothing errors.
   It just behaves worse than it will in production, which is the wrong thing
   for a server you are testing against.

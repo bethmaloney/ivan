@@ -18,11 +18,12 @@ them. Graphics, input and UI have not. `audio/` — RtMidi, the MIDI parser, the
 — is already excluded from the Emscripten build.
 
 **`web/` is where the page's own code is going** — TypeScript, esbuild, oxlint, `node --test`
-and Playwright, §9.12. Sound effects have crossed: `web/src/audio/sfx.ts` is bundled by esbuild
-and loaded by the shell from its own `<script>`, not linked. The three JavaScript files left in
-`tools/web/` — `music.js`, `saves.js`, `harness-pre.js.in` — are still emcc `--pre-js` inputs and
-still what ships. `tools/web/` keeps the build tooling (`dist.py`, `serve.py`) and the landing
-page either way.
+and Playwright, §9.12. Sound effects and music have crossed: `web/src/audio/sfx.ts` and
+`web/src/audio/music.ts` are bundled by esbuild and loaded by the shell from its own `<script>`,
+not linked. The two JavaScript files left in `tools/web/` — `saves.js`, `harness-pre.js.in` — are
+still emcc `--pre-js` inputs and still what ships, and both reach for things that only exist
+inside `ivan.js`'s scope, which is why they have not moved. `tools/web/` keeps the build tooling
+(`dist.py`, `serve.py`) and the landing page either way.
 
 **A browser build now needs node and `web/node_modules`.** Both are checked when CMake
 configures, so run `cd web && npm ci` once before `-DWASM_BROWSER=ON`.
@@ -61,9 +62,8 @@ traces, text logs and screenshots.
 tools/corpora/verify-corpora.sh          # 8 runs each: self-consistency + golden. ~12s
 tools/corpora/verify-corpora.sh -n 1     # smoke test
 tools/corpora/compare-targets.sh         # native vs WASM, both corpora
-node tools/web/music.test.js             # music.js contract and mixing arithmetic, no browser
 node tools/web/saves.test.js             # saves.js contract: IndexedDB sync rules, no browser
-# sfx has crossed: its tests are web/src/audio/sfx.test.ts, run by `npm run check`
+# sfx and music have crossed: their tests are web/src/audio/*.test.ts, run by `npm run check`
 ```
 
 The page's own half is tested from `web/`, which needs **Node 24** — `.nvmrc` says so, and
@@ -71,8 +71,8 @@ The page's own half is tested from `web/`, which needs **Node 24** — `.nvmrc` 
 
 ```bash
 cd web && npm ci
-npm run check          # tsc + oxlint + node --test. No browser, 0.74s
-npm run e2e            # Playwright against an assembled dist/. ~7s, needs the two steps below
+npm run check          # tsc + oxlint + node --test. No browser, 3.8s
+npm run e2e            # Playwright against an assembled dist/. ~8s, needs the two steps below
 ```
 
 `npm run check` includes the bridge contract test, which parses the `EM_JS` blocks out of

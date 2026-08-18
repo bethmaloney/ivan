@@ -92,7 +92,7 @@ if(EMSCRIPTEN)
   # Music/ and Sound/ are ~28MB against Graphics/ and Script/'s ~3.5MB, and
   # neither belongs in ivan.data. Neither is needed there either, now that both
   # are played by the page and fetched over HTTP: effects by web/src/audio/sfx.ts
-  # (§9.7), music by tools/web/music.js (§9.8). Preloading would put 28MB back
+  # (§9.7), music by web/src/audio/music.ts (§9.8). Preloading would put 28MB back
   # on the first load to populate a MEMFS nothing reads.
   #
   # For Music/ it would be worse than useless. What the page fetches is the
@@ -295,23 +295,18 @@ if(EMSCRIPTEN)
     set(IVAN_WASM_LINK_FLAGS
         "${IVAN_WASM_LINK_FLAGS} --pre-js ${CMAKE_CURRENT_BINARY_DIR}/harness-pre.js")
 
-    # Saves, mounted and synchronised by the page (§9.10). Before music.js
-    # because this one holds up startup: it adds a run dependency while
-    # IndexedDB is read back into MEMFS, so main() cannot reach the menu and
-    # enumerate an empty Save/ before the saves have arrived.
+    # Saves, mounted and synchronised by the page (§9.10). It holds up startup:
+    # it adds a run dependency while IndexedDB is read back into MEMFS, so
+    # main() cannot reach the menu and enumerate an empty Save/ before the saves
+    # have arrived. That run dependency is the whole of what keeps this one a
+    # --pre-js while the rest of the page moves into web/.
+    #
+    # The last of the two audio flags went with music (§9.8), which is now
+    # web/src/audio/music.ts. It borrows the AudioContext the sfx module owns,
+    # and both are in the same bundle, so an import states that dependency where
+    # the order of two --pre-js arguments used to imply it.
     set(IVAN_WASM_LINK_FLAGS
         "${IVAN_WASM_LINK_FLAGS} --pre-js ${CMAKE_CURRENT_SOURCE_DIR}/tools/web/saves.js")
-
-    # Music, played by the page (§9.8). It borrows the AudioContext that the
-    # page's sfx module owns rather than opening a second one, and that module
-    # is no longer a --pre-js: it is in the web/ bundle, which the shell loads
-    # from its own <script> tag before ivan.js. So the dependency is satisfied
-    # by the page's load order rather than by the order of these flags, and
-    # music.js reads globalThis.ivanSfx lazily (music.js:141) rather than at
-    # load. Plain --pre-js with nothing substituted; its options are
-    # query-string rather than build-time for the same reason ?crashlog= is.
-    set(IVAN_WASM_LINK_FLAGS
-        "${IVAN_WASM_LINK_FLAGS} --pre-js ${CMAKE_CURRENT_SOURCE_DIR}/tools/web/music.js")
 
     # The page emcc wraps around the module. Without this it emits
     # shell_minimal.html, which is an emscripten.org logo, a "Resize canvas"

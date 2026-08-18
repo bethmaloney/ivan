@@ -526,7 +526,7 @@ button:hover {
 
   /* ---- the two buttons -------------------------------------------------
      Mute goes through the master gain web/src/audio/sfx.ts owns, which is also
-     what music.js connects its stems to (music.js:149), so the one node covers
+     what web/src/audio/music.ts connects its stems to, so the one node covers
      both. Calling
      ivanSfx.context() here is safe and deliberate: this is a click, so it is
      exactly the user gesture the autoplay policy is waiting for. */
@@ -561,7 +561,7 @@ button:hover {
 
   /* ---- the module ------------------------------------------------------
      Global on purpose: ivan.js opens by picking up an existing Module, and
-     harness-pre.js and music.js both attach to the same object. */
+     harness-pre.js and saves.js both attach to the same object. */
 
   globalThis.Module = {
     canvas: Canvas,
