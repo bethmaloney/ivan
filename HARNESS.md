@@ -3183,3 +3183,148 @@ are that fourth class and neither yields to the first instinct the numbers invit
 - **A `--text`-only difference deserves the same alarm as a cross-target one.** It says the
   golden is not what the game does, it is what the game does while being watched — and here it
   was pointing at a real bug in the game, not at the harness.
+
+---
+
+### 9.12 A build for the page's own half, and a browser to test it in (new)
+
+The four JavaScript files in `tools/web/` were 1,795 lines with no build, no type checker, no
+linter and no lockfile, plus 221 more inside `shell.html` that nothing could even lint. That was
+survivable while the page owned three features. It stops being survivable at the next step,
+because graphics, input and the UI are a different order of magnitude — §9.1 puts the SDL
+surface alone at ~1,800 lines — and because of what those files *are*: emcc `--pre-js` link
+inputs.
+
+**Being a link input costs three things.** Every edit to one of them costs a full relink, and
+CMake can only see them through a hand-maintained `LINK_DEPENDS` string whose failure mode is
+silent — the build reports itself up to date and the page keeps serving the previous copy. The
+module graph is the *order of the flags*: `music.js` borrows the `AudioContext` that `sfx.js`
+owns, and nothing but the order of two `--pre-js` arguments in `CMakeLists.txt` enforced it. And
+no bundler can exist, so there is no TypeScript, no npm library, no source map, and no
+content-hashed filename — which is why `dist.py` has to send `no-cache` on the JS it deploys.
+
+`web/` is that half as a project. esbuild bundles and strips types, `tsc --noEmit` is the only
+checker, oxlint replaces eslint (one binary, no plugin tree), and `node --test` needs no runner
+at all because Node 24 strips TypeScript itself and expands its own globs. Thirteen packages on
+disk; the lockfile lists 75, nearly all of them per-platform binaries for oxlint and Playwright
+that this host does not install. `npm run check` — both tsconfig projects, the linter and the
+tests — is **0.74s**, of which the type check is 0.24s.
+
+**No Prettier, deliberately.** This tree is hand-formatted, with aligned comment blocks and
+PascalCase locals matching the C++ house style. A formatter would churn all of it and then fight
+it forever. `.editorconfig` stays the authority.
+
+**Two tsconfigs, and the split is the point.** `src/` gets `lib: es2020 + dom` and **no node
+types**, so an `import 'node:fs'` in page code is a compile error rather than something a bundle
+discovers. `test/`, `e2e/` and `build.mjs` get node and a newer lib. `erasableSyntaxOnly`
+confines the whole tree to TypeScript that erases to nothing — no enums, no parameter
+properties — because both things that read it only strip types rather than compiling them.
+
+TypeScript 7, the native compiler, and that was checked rather than assumed: JSDoc-driven
+checking was the last thing to land in the native port and `build.mjs` depends on it. Three
+probes that must fail and do — a type error in `src/`, a bad member access in `build.mjs`, and a
+call violating its JSDoc `@param`. A checker that silently checks nothing also exits 0.
+
+Turning `checkJs` on for the second project immediately found a real defect in the build script
+it had just been pointed at: `node build.mjs --outdir` with no value called `resolve(undefined)`
+and threw from inside `path`, naming neither the flag nor the script.
+
+#### The bridge was undocumented and nothing checked it
+
+An `EM_JS` body is a string of JavaScript pasted into `ivan.js`. Nothing type-checks it, so
+`Music.setVolume(Level)` resolving to `undefined` is a **silent no-op**, not an error — and the
+corpora structurally cannot see it, because a headless replay makes no sound. This is the same
+class of failure §9.7 and §9.9 kept running into, and the reason `dist.py` parses
+`SoundEffects.cfg` instead of globbing `Sound/`.
+
+So the six targets are declared once in `web/src/bridge/contract.ts` and checked from both ends:
+`web/test/bridge.test.ts` parses the `EM_JS` blocks out of `FeLib/Source`, `audio/` and
+`Main/Source` — brace-counting, not a regex that stops at the first `}` — and diffs them against
+the declaration **in both directions**, so a call that is not declared fails and a declaration
+nothing calls any more fails too. `web/e2e/boot.spec.ts` asserts the live page has each one.
+
+Its first run found two bridges that `tools/web/README.md` did not mention at all:
+`IvanMusicVolume` (`audio.cpp:587`) and `IvanMusicPlaying` (`audio.cpp:628`). The table said
+three; the answer is six. That doc is corrected.
+
+**There is a second contract, and it is still the weaker one.** `ivanSfx` has six methods and
+three consumers wanting different subsets: the C++ calls only `play`, while `music.js:144,149`
+and `shell.html:539,541` call `context()` and `master()` — music borrows the context rather than
+opening a second one, and the mute button drives the shared master gain. `contract.ts` covers
+the C++ → page direction only, so dropping or renaming `context` or `master` during a port would
+silence the music and break mute with no error and no failing test. Worth closing before
+`sfx.js` moves.
+
+#### The browser suite exists because the goldens are about to stop covering the screen
+
+Nothing in this repo had ever tested a browser. The two node suites in `tools/web/` are contract
+tests against stubs, `shell.html` was untested, and §9.10 says outright that "a save survives a
+reload" needs one.
+
+That gap was tolerable while rendering was C++. It will not stay tolerable, and the reason is
+structural rather than a matter of diligence: the golden traces work because rendering is
+software into a `bitmap` double buffer and `TraceFrame()` hashes it *before* `PrepareBuffer()`
+(§6.3, §9.3). **As graphics and the UI cross into `web/`, the subject of that hash crosses with
+them.** `verify-corpora.sh` will keep passing and will stop being evidence about what a player
+sees. It is not being weakened; it is being narrowed, silently, by work happening elsewhere.
+
+`web/e2e/` runs against an assembled `dist/` behind `serve.py` rather than a dev server, so what
+it exercises is what gets deployed: real wasm, real IDBFS, real autoplay policy. `serve.py` is
+the more forgiving of the two hosts because it answers byte ranges where Cloudflare Pages does
+not (§9.9), so a range-related failure there would be a real one in production too.
+
+Seven assertions, **about 7s locally (6.7–8.5s across runs) and ~1m in CI**: the page boots with
+no page error, the canvas
+keeps its 800×600 backing store, it draws more than one colour, every bridge is present, the
+console APIs exist, the first gesture releases the audio context, the saves mount writable — and
+**a keystroke reaches the C++ input path**, asserted through `ivanHarness.text()`, the live
+recording, so that one covers the browser, the shell's key handling, asyncify and `GET_KEY`
+rather than an event listener firing.
+
+Not a pixel comparison, yet. The main menu fades in and the seed varies, so a golden image needs
+a fixed seed and a settled frame first. That is the obvious next assertion and it is the one that
+would actually replace what the traces are losing.
+
+**CI is five jobs now** (see the workflow header): `browser` depends on `package` and tests *its*
+artifact rather than building its own, so it is asserting against the bytes `publish` is about to
+upload.
+
+That dependency does cost wall-clock, and the first estimate written here was wrong. On a cold
+cache `corpora` dominates — 3m50s of native build against `package`'s 1m49s — and `browser` hides
+behind it. On a warm ccache and emsdk cache the run is 2m46s: `corpora` drops to 1m17s,
+`package` becomes the longest single job at 1m27s, and `browser` cannot start until it finishes,
+so it extends the run by roughly its own minute. The steady state is therefore *package then
+browser*, about 2m30s of the 2m46s, and `corpora` is no longer the critical path.
+
+Node 24, the current LTS, pinned in `.nvmrc` and in both jobs. `@types/node` is held at 24.x
+rather than npm's `latest` 26.x on purpose, with a comment in `package.json` saying so: those
+majors track node's, so 26 would describe APIs the runtime running the tests does not have. One
+behavioural difference between 22 and 24 worth knowing and harmless here — `--test` defaults to
+the spec reporter rather than TAP, so the summary reads `i tests 12` where 22 wrote `# tests 12`.
+Nothing parses it; both jobs gate on the exit code.
+
+**What is open.**
+
+- **The page's four files have not moved.** `web/` is the toolchain and the harnesses; `sfx.js`,
+  `music.js`, `saves.js` and `harness-pre.js.in` are still `--pre-js` and still exactly what
+  ships. The bundle is built and tested but is not in the deploy.
+- **`sfx.js` is the intended first mover** — 265 lines, zero Emscripten internals, and no test
+  to port because it has never had one. Every rule in it is a comment today: the 16-voice cap,
+  the 250ms latency bound, and the one that matters most, that a suspended context *drops*
+  rather than queues, because `currentTime` does not advance while suspended and a queue would
+  fire together on the first keystroke.
+- **Moving it touches CMake, contrary to the first plan written here.** A `.ts` file cannot be a
+  `--pre-js`; the bundle is. So the swap happens at the first crossing, not at the last: the
+  bundle takes `sfx.js`'s position on the command line — before `music.js`, which reads
+  `globalThis.ivanSfx` — and node becomes a build dependency of `WASM_BROWSER`, which today
+  needs only emsdk. Fail configure with a clear message rather than at link time.
+- **The full flip is still separate**: dropping `--pre-js` for a `<script>` in the shell needs
+  `addRunDependency` and `removeRunDependency` added to `EXPORTED_RUNTIME_METHODS`, which is the
+  whole of `saves.js`'s dependency on being inlined into `ivan.js`'s scope. `sfx.js` and
+  `music.js` reference no Emscripten internals at all.
+- **`shell.html`'s 221 lines are still unlintable and untested**, and they hold the key handling,
+  the progress bar, the crash panel and mute.
+- **The actions are a release behind.** `checkout`, `setup-node`, `cache` and `upload-artifact`
+  are all `@v4`, target Node 20 and are being force-run on Node 24 with a deprecation warning on
+  every run. Pre-existing, unrelated to anything above, and worth its own commit so a failure
+  points at the right cause.

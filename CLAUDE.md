@@ -17,6 +17,11 @@ Sound effects (§9.7), music (§9.8) and saves (§9.10) have already crossed and
 them. Graphics, input and UI have not. `audio/` — RtMidi, the MIDI parser, the playback engine
 — is already excluded from the Emscripten build.
 
+**`web/` is where the page's own code is going** — TypeScript, esbuild, oxlint, `node --test`
+and Playwright, §9.12. It holds the toolchain and both test harnesses today; the four
+JavaScript files in `tools/web/` have not moved yet and are still what ships. `tools/web/`
+keeps the build tooling (`dist.py`, `serve.py`) and the landing page either way.
+
 ## Builds
 
 Three targets, three build dirs, all needing `-DWIZARD=ON -DPORTABLE_BUILD=ON`.
@@ -55,6 +60,27 @@ node tools/web/music.test.js             # music.js contract and mixing arithmet
 node tools/web/saves.test.js             # saves.js contract: IndexedDB sync rules, no browser
 ```
 
+The page's own half is tested from `web/`, which needs **Node 24** — `.nvmrc` says so, and
+`nvm use` reads it. See `web/README.md`.
+
+```bash
+cd web && npm ci
+npm run check          # tsc + oxlint + node --test. No browser, 0.74s
+npm run e2e            # Playwright against an assembled dist/. ~7s, needs the two steps below
+```
+
+`npm run check` includes the bridge contract test, which parses the `EM_JS` blocks out of
+`FeLib/Source` and `audio/` — **so a renamed `EM_JS` fails a JavaScript test.** That is
+deliberate: an `EM_JS` body is a string pasted into `ivan.js`, so a method that no longer
+exists is a silent no-op rather than an error, and the corpora cannot see it because a headless
+replay makes no sound.
+
+`npm run e2e` needs a browser build assembled first (`-DWASM_BROWSER=ON`, then
+`tools/web/dist.py`) because it runs against `dist/` rather than a dev server. It is the only
+thing here that tests a browser, and it matters more as the port continues: the golden traces
+hash the C++ double buffer, so as graphics and input cross into `web/` they keep passing and
+cover less. HARNESS.md §9.12.
+
 **Run `verify-corpora.sh` before and after any change to `Main/`, `FeLib/`, the compiler flags
 or the build.** A change that moves the goldens has changed the game; that may be correct, but
 it is never incidental and `--update` is a deliberate act with a written reason.
@@ -70,10 +96,13 @@ python3 tools/play/play.py auto 200
 
 ## Deploying
 
-**A push to `main` deploys.** `.github/workflows/deploy.yml` builds native and replays the
-corpora, runs the two node tests, builds the browser target with the pinned emsdk and runs
-`dist.py`, then publishes to Cloudflare Pages. A pull request runs everything except the
-publish. It needs two repo secrets, `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`.
+**A push to `main` deploys.** `.github/workflows/deploy.yml` is five jobs, named after the five
+things that can be wrong: `corpora` (native build, replay the goldens), `modules` (`npm run
+check` plus the two legacy node suites), `package` (browser build with the pinned emsdk, then
+`dist.py`), `browser` (Playwright against `package`'s artifact, so it tests the bytes that are
+about to be uploaded) and `publish`. A pull request runs everything except the publish, which
+waits on the other four and needs two repo secrets, `CLOUDFLARE_API_TOKEN` and
+`CLOUDFLARE_ACCOUNT_ID` — touched by that one job and no build step.
 
 The manual path is still the one to use when checking a build by hand:
 
