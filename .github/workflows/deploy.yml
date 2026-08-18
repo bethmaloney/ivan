@@ -94,12 +94,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # 22 is not a floor, it is the version the tests are written against:
-      # web/ relies on node stripping TypeScript itself (22.18+) and on --test
-      # expanding its own globs, so neither suite needs a runner or a transform.
+      # 24 is not a floor, it is the version the tests are written against, and
+      # it matches .nvmrc so a developer and this runner agree. web/ relies on
+      # node stripping TypeScript itself and on --test expanding its own globs,
+      # so neither suite needs a runner or a transform. 24 is the current LTS
+      # (Krypton); @types/node is held at 24.x to describe exactly this runtime.
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
           cache: npm
           cache-dependency-path: web/package-lock.json
 
@@ -177,7 +179,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
           cache: npm
           cache-dependency-path: web/package-lock.json
 

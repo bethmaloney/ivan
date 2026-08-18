@@ -15,10 +15,13 @@
   "devDependencies": {
     "@playwright/test": "^1.62.1",
     "@types/emscripten": "^1.41.5",
-    "@types/node": "^22.20.1",
+    "@types/node": "^24.13.3",
     "esbuild": "^0.28.2",
     "oxlint": "^1.78.0",
     "typescript": "^7.0.2"
   },
-  "//": "@types/node tracks the runtime, not npm: 26.x is current but this is pinned to 22.x because Node 22 is what CI installs and what strips the types. Newer would describe APIs the runtime does not have."
+  "engines": {
+    "node": ">=24"
+  },
+  "//": "@types/node tracks the runtime, not npm: its majors follow node's, so 24.x goes with the Node 24 in .nvmrc and in CI. 26.x is npm's latest and would describe APIs this runtime does not have."
 }

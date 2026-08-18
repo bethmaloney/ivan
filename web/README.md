@@ -5,10 +5,17 @@ what the player sees, hears and types. `tools/web/` is the build tooling that
 assembles and serves it (`dist.py`, `serve.py`); everything the browser actually
 runs lives here.
 
+Node 24, pinned in `.nvmrc` at the repo root and in CI. With nvm:
+
+```bash
+nvm install 24       # once
+nvm use              # in the repo; reads .nvmrc
+```
+
 ```bash
 cd web
 npm ci
-npm run check        # typecheck + lint + tests. No browser, ~2s
+npm run check        # typecheck + lint + tests. No browser, 0.74s
 npm run build        # -> dist/ivan-page.js
 npm run e2e          # the browser suite. Needs an assembled ../dist (below)
 ```
@@ -42,7 +49,7 @@ inlined-scope internals.
 | **esbuild** | bundles and strips types. No config file, sub-100ms. Vite's value is a dev server with HMR, and a game that boots through a multi-megabyte wasm download cannot usefully hot-reload. |
 | **tsc `--noEmit`** | the only type checker. esbuild does not check, and oxlint does not either. TypeScript 7, which is the native compiler — both projects check in 0.24s. |
 | **oxlint** | one binary, no plugin tree. Correctness rules only. |
-| **`node --test`** | built into Node 22, which also strips the types — so the contract tests need no runner, no transform and no dependency. |
+| **`node --test`** | built into Node 24, which also strips the types — so the contract tests need no runner, no transform and no dependency. |
 | **Playwright** | the only thing in the repo that tests a browser. |
 
 **No Prettier, and that is not an oversight.** This tree is hand-formatted —
