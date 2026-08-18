@@ -30,11 +30,30 @@ link inputs, which had three costs:
   wrong is silent — the build reports itself up to date and the page keeps
   serving the previous copy.
 - **The module graph was the order of flags in `CMakeLists.txt`.** `music.js`
-  borrows the `AudioContext` that `sfx.js` owns, and nothing but the order of two
-  `--pre-js` arguments enforced it. It is an `import` now.
+  borrows the `AudioContext` that the sfx module owns, and nothing but the order
+  of two `--pre-js` arguments enforced it. Within `src/` that is an `import` now;
+  while `music.js` is still a `--pre-js` it reads `globalThis.ivanSfx` lazily
+  (`music.js:141`), and the shell's `<script>` tag runs before `ivan.js`, so the
+  page's load order carries what the flag order used to.
 - **No bundler could exist**, so no TypeScript, no npm library, no source map,
   and no content-hashed filename — which is why `dist.py` has to send `no-cache`
   on the JS it deploys.
+
+## How the bundle reaches the page
+
+`Main/CMakeLists.txt` runs `build.mjs` into the build directory beside
+`ivan.html`, and `tools/web/shell.html` loads it with an ordinary
+`<script src="ivan-page.js">` placed after the `Module` literal and before
+emcc's own script tag. Both halves of that position matter: the bundle assigns
+the globals an `EM_JS` body looks up, so they must exist before `ivan.js` runs,
+and the modules still to cross need `Module` to already be there to hang a run
+dependency on. `dist.py` copies it like any other build output.
+
+The target is `ALL` and always runs rather than being dependency-tracked —
+esbuild takes single-digit milliseconds, and the failure that buys off is the
+one `LINK_DEPENDS` exists for: a stale bundle is silent. A browser build now
+needs node and `web/node_modules`; both are checked when CMake configures, so a
+missing one names itself rather than failing inside a custom command.
 
 What is left of the coupling is small and deliberate: the bundle is an IIFE that
 assigns a handful of globals, because the wasm side reaches them by name out of
@@ -137,6 +156,72 @@ gesture releases the audio context, and that the saves are mounted writable.
 Not a pixel comparison: the main menu fades in and the seed varies, so a golden
 image needs a fixed seed and a settled frame first. That is the obvious next one.
 
+## Sound effects — the first module across
+
+`src/audio/sfx.ts` was `tools/web/sfx.js`. The design argument is HARNESS.md
+§9.7 and has not changed; this is the operating manual, which moved with the
+code.
+
+The wasm module decides *what* to play, this decides *how*. Everything up to and
+including the choice of file stays in C++ — `Sound/SoundEffects.cfg`, its 153
+patterns, the regex match against the message text, and the private xorshift
+that picks between several files for one pattern. What crosses is a path:
+
+```
+soundeffects::playSound("The dog bites you!")   [C++]
+  -> findMatchingSound  -> "bark.wav"
+  -> IvanSfxPlay("./Sound/bark.wav", 127)       [bridge]
+  -> ivanSfx.play(...)                          [JS: fetch, decode, schedule]
+```
+
+Fire and forget: no return value, nothing calls back into wasm, so asyncify has
+nothing to unwind and a slow fetch cannot stall the frame that asked for the
+sound. Everything that can fail — a missing file, a decode error, a context the
+autoplay policy has not released — fails on the JS side and is silent, which is
+what the SDL_mixer path does with a null chunk.
+
+```js
+ivanSfx.stats()     // {played, dropped, failed, cached, voices}
+ivanSfx.played()    // the last few hundred paths, newest last
+ivanSfx.state()     // AudioContext state, or 'none' before the first sound
+```
+
+```
+?sfx=off              never play anything (still records what would have)
+?sfxbase=<url>        fetch from somewhere other than the page's own Sound/
+```
+
+`played()` is the useful one when something is wrong, because it records the
+call whether or not a sound came out. A path in `played()` with `stats().played`
+not moving means the module and the bridge are fine and the problem is the
+fetch, the decode or the context.
+
+**When it is silent**, in the order worth checking:
+
+1. **`ivanSfx.played()` is empty.** Nothing is crossing the bridge, so the
+   problem is in C++, not here. Almost always `SoundState`: `initSound` reads
+   `Sound/SoundEffects.cfg` out of MEMFS, and if the preload is missing it
+   settles on `-1` and `playSound` returns before the bridge. Nothing is printed
+   when this happens. Check the file is in the package:
+   `grep -c SoundEffects.cfg build-web/Main/ivan.js`.
+2. **`stats().failed` is climbing.** The wavs are fetched over HTTP, not read
+   from `ivan.data`, so `Sound/` has to be served beside `ivan.html`. The build
+   symlinks it there; a deploy that copies only the emcc output will not have
+   it. One console line per missing file per session.
+3. **`state()` is `suspended`.** The autoplay policy has not released the
+   context. It resumes on the first `keydown`, `mousedown` or `touchstart`;
+   sounds requested before that are dropped rather than queued, deliberately — a
+   suspended context does not advance `currentTime`, so queued sounds would all
+   fire at once on the first keystroke.
+4. **`state()` is `none`.** No sound has been requested yet, or the browser has
+   no `AudioContext`.
+
+`sfx.test.ts` pins the parts that are deliberate rather than incidental and that
+a reader would otherwise be free to "fix": the 16-voice cap drops rather than
+mixes, a failed fetch is cached as a failure so one missing file is one console
+line per session, a sound arriving more than 250ms late is thrown away, and a
+suspended context drops instead of queueing.
+
 ## What is here
 
 ```
@@ -144,6 +229,9 @@ web/
   src/
     main.ts                 the entry point, and the only place a global is assigned
     env.d.ts                IVAN_BUILD_ID and IVAN_CRASH_ENDPOINT, esbuild --define
+    audio/
+      sfx.ts                sound effects (§9.7) -- the first module to cross
+      sfx.test.ts
     platform/
       query.ts              the query string, once, for ?sfx=off ... ?wipesaves
       query.test.ts

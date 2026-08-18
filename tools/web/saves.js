@@ -105,7 +105,7 @@
   var PopulateMs = 0;
 
   /* ---- talking to the page ---------------------------------------------
-     saves.js decides, shell.html displays, the same split sfx.js and the mute
+     saves.js decides, shell.html displays, the same split the sfx module and the mute
      button use. Nothing here touches the DOM. */
 
   function Announce(Kind, Detail) {

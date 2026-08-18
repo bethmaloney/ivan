@@ -91,7 +91,7 @@ if(EMSCRIPTEN)
 
   # Music/ and Sound/ are ~28MB against Graphics/ and Script/'s ~3.5MB, and
   # neither belongs in ivan.data. Neither is needed there either, now that both
-  # are played by the page and fetched over HTTP: effects by tools/web/sfx.js
+  # are played by the page and fetched over HTTP: effects by web/src/audio/sfx.ts
   # (§9.7), music by tools/web/music.js (§9.8). Preloading would put 28MB back
   # on the first load to populate a MEMFS nothing reads.
   #
@@ -295,26 +295,21 @@ if(EMSCRIPTEN)
     set(IVAN_WASM_LINK_FLAGS
         "${IVAN_WASM_LINK_FLAGS} --pre-js ${CMAKE_CURRENT_BINARY_DIR}/harness-pre.js")
 
-    # Saves, mounted and synchronised by the page (§9.10). Before the two audio
-    # files because this one holds up startup: it adds a run dependency while
+    # Saves, mounted and synchronised by the page (§9.10). Before music.js
+    # because this one holds up startup: it adds a run dependency while
     # IndexedDB is read back into MEMFS, so main() cannot reach the menu and
     # enumerate an empty Save/ before the saves have arrived.
     set(IVAN_WASM_LINK_FLAGS
         "${IVAN_WASM_LINK_FLAGS} --pre-js ${CMAKE_CURRENT_SOURCE_DIR}/tools/web/saves.js")
 
-    # Sound effects, played by the page rather than by SDL_mixer (§9.7). No
-    # configure_file: nothing in it is substituted, and what would have been
-    # build-time settings are query-string options so they can be changed
-    # without a rebuild, exactly as ?crashlog= is.
-    set(IVAN_WASM_LINK_FLAGS
-        "${IVAN_WASM_LINK_FLAGS} --pre-js ${CMAKE_CURRENT_SOURCE_DIR}/tools/web/sfx.js")
-
-    # Music, likewise played by the page (§9.8). After sfx.js, and that order
-    # matters: music.js borrows the AudioContext sfx.js owns rather than
-    # opening a second one, so the object it looks for has to exist by the time
-    # it runs. Both are plain --pre-js with nothing substituted, and their
-    # options are query-string rather than build-time for the same reason
-    # ?crashlog= is.
+    # Music, played by the page (§9.8). It borrows the AudioContext that the
+    # page's sfx module owns rather than opening a second one, and that module
+    # is no longer a --pre-js: it is in the web/ bundle, which the shell loads
+    # from its own <script> tag before ivan.js. So the dependency is satisfied
+    # by the page's load order rather than by the order of these flags, and
+    # music.js reads globalThis.ivanSfx lazily (music.js:141) rather than at
+    # load. Plain --pre-js with nothing substituted; its options are
+    # query-string rather than build-time for the same reason ?crashlog= is.
     set(IVAN_WASM_LINK_FLAGS
         "${IVAN_WASM_LINK_FLAGS} --pre-js ${CMAKE_CURRENT_SOURCE_DIR}/tools/web/music.js")
 
@@ -337,6 +332,25 @@ if(EMSCRIPTEN)
     # asymmetry is the point: the cost is paid once at build time, the loss is
     # paid on a crash that cannot be reproduced to order.
     set(IVAN_WASM_LINK_FLAGS "${IVAN_WASM_LINK_FLAGS} --profiling-funcs")
+
+    # The page's own JavaScript (web/) is bundled by esbuild and loaded by the
+    # shell from its own <script> tag, so it is not a link input at all -- see
+    # web/README.md for why it stopped being one. Both checks are here rather
+    # than at build time so that a missing toolchain names itself at configure
+    # time instead of failing inside a custom command.
+    find_program(IVAN_NODE NAMES node nodejs)
+
+    if(NOT IVAN_NODE)
+      message(FATAL_ERROR
+              "A browser build needs node to bundle web/. Install Node 24 (see "
+              ".nvmrc) or configure without -DWASM_BROWSER=ON.")
+    endif()
+
+    if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/web/node_modules/esbuild")
+      message(FATAL_ERROR
+              "web/node_modules is missing or incomplete. Run:\n"
+              "  cd ${CMAKE_CURRENT_SOURCE_DIR}/web && npm ci")
+    endif()
   endif()
 
   if(WASM_DEBUG)

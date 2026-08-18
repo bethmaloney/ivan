@@ -11,6 +11,7 @@
  */
 
 import * as Query from './platform/query.ts';
+import * as Sfx from './audio/sfx.ts';
 
 declare global {
   /* `var` is not a style choice here: it is the only declaration form that
@@ -35,3 +36,11 @@ globalThis.ivanPage = {
 
 if(!Query.Enabled('page'))
   console.warn('ivanPage: everything the page owns is off (?page=off)');
+
+/* Sound effects (HARNESS.md §9.7). Assigned unconditionally, including under
+   ?sfx=off: the module still records what it would have played, and sfx.cpp's
+   EM_JS body reaches the object either way -- a missing global would be a
+   silent no-op rather than a quiet game. */
+
+globalThis.ivanSfx = Sfx.Api;
+Loaded.push('sfx');

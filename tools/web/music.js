@@ -1,7 +1,8 @@
 /*
  * Browser-side music (HARNESS.md §9.8).
  *
- * The companion to sfx.js, and it splits the work the same way: the wasm
+ * The companion to the sfx module (web/src/audio/sfx.ts, which has crossed into the
+ * bundle and is no longer a --pre-js), and it splits the work the same way: the wasm
  * module decides *what* should be playing and this decides *how*. What crosses
  * the boundary is a playlist of MIDI filenames -- the same strings the level
  * scripts name and audio.cpp keeps in `Tracks` -- plus master volume and the
@@ -28,9 +29,9 @@
  * a third of the piece. Rendering one flat mix would have shipped music that
  * was missing most of itself.
  *
- * ---- why this streams and sfx.js does not ----
+ * ---- why this streams and the sfx module does not ----
  *
- * The one real structural difference from sfx.js. Effects are decoded into
+ * The one real structural difference from the sfx module. Effects are decoded into
  * AudioBuffers and cached, which is right for a few hundred KB of wav. Music
  * cannot be: decoded audio is float32 at the context rate, about 23MB per
  * minute per stereo stem, and Dungeon3 is 7.3 minutes -- half a gigabyte for
@@ -66,7 +67,7 @@
 
   var StemNames = ['const', 'fadeout', 'fadein'];
 
-  /* ivanconfig's scale, as sfx.js uses. iconf.cpp:314 offers 0..127. */
+  /* ivanconfig's scale, as the sfx module uses. iconf.cpp:314 offers 0..127. */
 
   var MaxVolume = 127;
 
@@ -118,7 +119,7 @@
   var DriftCheckMs = 500;
 
   var Ctx = null;
-  var Master = null;            /* shared with sfx.js; effects pass through it too */
+  var Master = null;            /* shared with the sfx module; effects pass through it too */
   var MusicGain = null;         /* ours alone, and where the music volume lives */
   var Manifest = null;         /* name -> [stem, ...]; null until fetched */
   var Playlist = [];           /* filenames, in the module's order */
@@ -130,7 +131,7 @@
   var Counts = { started: 0, finished: 0, failed: 0, corrections: 0, seeks: 0 };
 
   /* ---- context ----------------------------------------------------------
-     Borrowed from sfx.js so the page has one AudioContext and one autoplay
+     Borrowed from the sfx module so the page has one AudioContext and one autoplay
      resume path. Only if it is actually there: the two files are independent
      --pre-js inputs and either could be dropped from a build. */
 
@@ -154,7 +155,7 @@
 
          - the master is shared, so writing the music volume there would scale
            the sound effects by it as well. They have their own setting
-           (SfxVolume) applied per sound in sfx.js.
+           (SfxVolume) applied per sound in the sfx module.
          - ivanconfig::Initialize calls audio::SetVolumeLevel long before any
            gesture has let a context exist (iconf.cpp:1343), so the volume is
            almost always set before there is anywhere to put it. Applying the
@@ -505,7 +506,7 @@
 
         Started.catch(function () {
           /* Almost always the autoplay policy: the context has not been
-             released by a gesture yet. sfx.js registers the resume listeners on
+             released by a gesture yet. the sfx module registers the resume listeners on
              the shared context; Resume below picks the music back up once they
              fire, so nothing further is needed here. */
         });
@@ -660,7 +661,7 @@
     }
   };
 
-  /* The autoplay listeners sfx.js installs resume the context but know nothing
+  /* The autoplay listeners the sfx module installs resume the context but know nothing
      about media elements, which stay paused after a rejected play(). One more
      listener on the same three gestures picks the music up when that happens.
      Registered on load rather than on first use, because unlike an effect the

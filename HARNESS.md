@@ -318,7 +318,7 @@ links `-lidbfs.js` and `-sFS_DEBUG=1`, the second of which registers the filesys
 `tools/web/saves.js` needs and is not a debug mode despite the name.
 
 `WASM_PRELOAD_AUDIO` (OFF) adds `Music/` and `Sound/`, and **it no longer governs whether the
-game makes a sound**. §9.7 moved effect playback to the page: `tools/web/sfx.js` fetches each
+game makes a sound**. §9.7 moved effect playback to the page: `web/src/audio/sfx.ts` fetches each
 wav over HTTP at first use, and the build symlinks `Sound/` beside `ivan.html` so `emrun` serves
 it. Turning this ON would put 26MB back into `ivan.data` to populate a MEMFS nothing reads.
 `Music/` is listed alongside it only because the MIDI path is unimplemented here — RtMidi is a
@@ -1980,7 +1980,7 @@ uninitialised     Main/Include/script.h        Main/Include/igraph.h
                   Main/Include/lterras.h
 headless          FeLib/Source/graphics.cpp    FeLib/Source/whandler.cpp
                   FeLib/Source/sfx.cpp
-browser audio     FeLib/Source/sfx.cpp         tools/web/sfx.js
+browser audio     FeLib/Source/sfx.cpp         web/src/audio/sfx.ts
 draw order        FeLib/Include/femath.h       FeLib/Include/typedef.h
                   Main/Source/char.cpp         Main/Source/human.cpp
                   Main/Source/nonhuman.cpp     Main/Source/bodypart.cpp
@@ -2471,8 +2471,9 @@ else.
 **Audio moved out of the wasm module rather than into it.** SDL_mixer is still what plays sound
 on every other target; on Emscripten `soundeffects` now opens no device, allocates no channels
 and loads no wav. It matches the message, picks the file, and hands the filename to
-`tools/web/sfx.js` through an `EM_JS` bridge. That file owns the `AudioContext`, the fetch, the
-decode cache and the voice cap.
+`web/src/audio/sfx.ts` through an `EM_JS` bridge. That file owns the `AudioContext`, the fetch,
+the decode cache and the voice cap. (It was `tools/web/sfx.js`, a `--pre-js`, until §9.12 moved
+it into the bundle; the design below is unchanged by the move.)
 
 **The boundary is deliberately below the regex, and that is the whole design decision.**
 Everything upstream of the filename stays in C++: `Sound/SoundEffects.cfg`, its 153 patterns,
@@ -2503,7 +2504,7 @@ change was placed where it is so as not to entrench the string matching by expor
   it. WebAudio schedules on the sample.
 - **The autoplay policy is handled where it lives.** SDL2's backend registers emscripten's
   `autoResumeAudioContext` on the context *SDL* opened (`SDL_emscriptenaudio.c:233`), and SDL
-  now opens none, so `sfx.js` registers the same three listeners for its own.
+  now opens none, so the sfx module registers the same three listeners for its own.
 
 **`Sound/SoundEffects.cfg` is preloaded on its own, and missing that is a silent failure.** The
 pattern table stays in C++, so `initSound` still reads the file with `fopen` — out of a MEMFS
@@ -2690,8 +2691,8 @@ a step — so it earns its place only against a large early skew. Left in for th
 
 **The two files share one `AudioContext` but not one gain, and both halves of that matter.**
 Sharing the context is the easy half: browsers cap how many a page may have, each costs a device
-connection, and two would need two resumes off the same gesture — so `sfx.js` exposes the one it
-already owns and `music.js` joins it. Not sharing the *gain* is the half that was a bug first:
+connection, and two would need two resumes off the same gesture — so the sfx module exposes the
+one it already owns and `music.js` joins it. Not sharing the *gain* is the half that was a bug first:
 the music volume went onto the shared master, where it would have scaled the sound effects by it
 as well, since effects pass through the same node with their own `SfxVolume` applied per sound.
 Music now hangs its own gain off the master and puts the volume there.
@@ -3262,8 +3263,10 @@ three consumers wanting different subsets: the C++ calls only `play`, while `mus
 and `shell.html:539,541` call `context()` and `master()` — music borrows the context rather than
 opening a second one, and the mute button drives the shared master gain. `contract.ts` covers
 the C++ → page direction only, so dropping or renaming `context` or `master` during a port would
-silence the music and break mute with no error and no failing test. Worth closing before
-`sfx.js` moves.
+silence the music and break mute with no error and no failing test. Half closed when `sfx.js`
+moved: both are now declared on `IvanSfx` in `web/src/bridge/globals.d.ts`, so the compiler holds
+the sfx side. Nothing yet holds the *caller* — `music.js` is still a `--pre-js` outside the
+project tsc sees, so the check arrives when music crosses.
 
 #### The browser suite exists because the goldens are about to stop covering the screen
 
@@ -3315,23 +3318,39 @@ Nothing parses it; both jobs gate on the exit code.
 
 **What is open.**
 
-- **The page's four files have not moved.** `web/` is the toolchain and the harnesses; `sfx.js`,
-  `music.js`, `saves.js` and `harness-pre.js.in` are still `--pre-js` and still exactly what
-  ships. The bundle is built and tested but is not in the deploy.
-- **`sfx.js` is the intended first mover** — 265 lines, zero Emscripten internals, and no test
-  to port because it has never had one. Every rule in it is a comment today: the 16-voice cap,
-  the 250ms latency bound, and the one that matters most, that a suspended context *drops*
-  rather than queues, because `currentTime` does not advance while suspended and a queue would
-  fire together on the first keystroke.
-- **Moving it touches CMake, contrary to the first plan written here.** A `.ts` file cannot be a
-  `--pre-js`; the bundle is. So the swap happens at the first crossing, not at the last: the
-  bundle takes `sfx.js`'s position on the command line — before `music.js`, which reads
-  `globalThis.ivanSfx` — and node becomes a build dependency of `WASM_BROWSER`, which today
-  needs only emsdk. Fail configure with a clear message rather than at link time.
-- **The full flip is still separate**: dropping `--pre-js` for a `<script>` in the shell needs
-  `addRunDependency` and `removeRunDependency` added to `EXPORTED_RUNTIME_METHODS`, which is the
-  whole of `saves.js`'s dependency on being inlined into `ivan.js`'s scope. `sfx.js` and
-  `music.js` reference no Emscripten internals at all.
+- **`sfx.js` has crossed, and the bundle is in the deploy.** It is
+  `web/src/audio/sfx.ts` — bundled by `build.mjs`, placed beside `ivan.html` by an `ALL` target
+  in `Main/CMakeLists.txt`, loaded by the shell from `<script src="ivan-page.js">` and copied by
+  `dist.py`. `music.js`, `saves.js` and `harness-pre.js.in` are still `--pre-js` and still
+  exactly what ships.
+- **The full flip happened at the first crossing, not the last — the opposite of what was
+  planned two paragraphs up.** The prediction was that the bundle would take `sfx.js`'s position
+  on the emcc command line as a `--pre-js`, with the `<script>` deferred to a later commit
+  gated on `addRunDependency`. That was wrong in a way worth recording: `build.mjs` already
+  emits an IIFE whose documented reason for existing is that it is *not* a `--pre-js`, so making
+  it one would have contradicted the artifact it builds. The `addRunDependency` constraint is
+  real but belongs to `saves.js` alone, and `saves.js` has not crossed — it is still inlined
+  into `ivan.js`'s scope and still has the module-scope `FS`/`IDBFS` it reaches for. Nothing
+  about sfx needed the delay.
+- **Ordering moved from the command line into the page.** `music.js` borrows the `AudioContext`
+  the sfx module owns, which the flag order used to guarantee. It reads `globalThis.ivanSfx`
+  lazily (`music.js:141`) and the shell's `<script>` runs before `ivan.js`, so the page's load
+  order now carries it. The `<script>` sits after the `Module` literal and before
+  `{{{ SCRIPT }}}`, and both halves are load-bearing — the globals must exist before `ivan.js`
+  runs, and whatever crosses next needs `Module` already there to hang a run dependency on.
+- **node is now a build dependency of `WASM_BROWSER`**, which previously needed only emsdk.
+  `find_program` plus an existence check on `web/node_modules/esbuild`, both at configure time,
+  so a missing toolchain names itself instead of failing inside a custom command. The CI
+  `package` job installs it before `emcmake`.
+- **`sfx.test.ts` is new coverage, not a port** — `sfx.js` never had a test. Ten cases, and what
+  they pin is the behaviour a reader would otherwise be free to "fix": the 16-voice cap drops
+  rather than mixes, a failed fetch is cached as a failure, a sound more than 250ms late is
+  thrown away, and a suspended context drops rather than queues. Checked by mutation: raising
+  the voice cap, widening the latency bound and not caching the failure each fail exactly one
+  case.
+- **`npm run build` joined the `modules` job.** `check` is typecheck + lint + tests and never
+  runs esbuild, so a `build.mjs` that could not produce a bundle previously reached the emsdk
+  job before anything noticed.
 - **`shell.html`'s 221 lines are still unlintable and untested**, and they hold the key handling,
   the progress bar, the crash panel and mute.
 - **The actions are a release behind.** `checkout`, `setup-node`, `cache` and `upload-artifact`

@@ -116,7 +116,7 @@ var Ctx = {
 
 Object.defineProperty(Ctx, 'currentTime', { get: function () { return Now; } });
 
-/* The gain sfx.js owns and effects also pass through. Starts at unity, as a
+/* The gain the sfx module owns and effects also pass through. Starts at unity, as a
    real one does, so that anything music.js wrongly writes here shows up. */
 var MasterGain = { gain: Param(), connect: function () {}, disconnect: function () {} };
 
@@ -276,7 +276,7 @@ function Gains() {
   Check('the early volume was applied', +MusicNode().gain.value.toFixed(3), 0.254);
 
   /* And it must land on music.js's own node, never on the shared one --
-     sfx.js's effects pass through that, and they have their own setting. */
+     the sfx module's effects pass through that, and they have their own setting. */
   Check('the shared master is untouched', MasterGain.gain.value, 1);
 
   Music.setVolume(127);

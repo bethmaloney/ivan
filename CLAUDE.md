@@ -18,9 +18,14 @@ them. Graphics, input and UI have not. `audio/` — RtMidi, the MIDI parser, the
 — is already excluded from the Emscripten build.
 
 **`web/` is where the page's own code is going** — TypeScript, esbuild, oxlint, `node --test`
-and Playwright, §9.12. It holds the toolchain and both test harnesses today; the four
-JavaScript files in `tools/web/` have not moved yet and are still what ships. `tools/web/`
-keeps the build tooling (`dist.py`, `serve.py`) and the landing page either way.
+and Playwright, §9.12. Sound effects have crossed: `web/src/audio/sfx.ts` is bundled by esbuild
+and loaded by the shell from its own `<script>`, not linked. The three JavaScript files left in
+`tools/web/` — `music.js`, `saves.js`, `harness-pre.js.in` — are still emcc `--pre-js` inputs and
+still what ships. `tools/web/` keeps the build tooling (`dist.py`, `serve.py`) and the landing
+page either way.
+
+**A browser build now needs node and `web/node_modules`.** Both are checked when CMake
+configures, so run `cd web && npm ci` once before `-DWASM_BROWSER=ON`.
 
 ## Builds
 
@@ -58,6 +63,7 @@ tools/corpora/verify-corpora.sh -n 1     # smoke test
 tools/corpora/compare-targets.sh         # native vs WASM, both corpora
 node tools/web/music.test.js             # music.js contract and mixing arithmetic, no browser
 node tools/web/saves.test.js             # saves.js contract: IndexedDB sync rules, no browser
+# sfx has crossed: its tests are web/src/audio/sfx.test.ts, run by `npm run check`
 ```
 
 The page's own half is tested from `web/`, which needs **Node 24** — `.nvmrc` says so, and
