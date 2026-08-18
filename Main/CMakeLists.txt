@@ -39,7 +39,7 @@ if(EMSCRIPTEN)
   # effect and gets debugged as a code problem.
   if(WASM_BROWSER)
     set_target_properties(ivan PROPERTIES
-                          LINK_DEPENDS "${CMAKE_BINARY_DIR}/harness-pre.js;${CMAKE_SOURCE_DIR}/tools/web/saves.js;${CMAKE_SOURCE_DIR}/tools/web/sfx.js;${CMAKE_SOURCE_DIR}/tools/web/music.js;${CMAKE_SOURCE_DIR}/tools/web/shell.html")
+                          LINK_DEPENDS "${CMAKE_BINARY_DIR}/harness-pre.js;${CMAKE_SOURCE_DIR}/tools/web/saves.js;${CMAKE_SOURCE_DIR}/tools/web/music.js;${CMAKE_SOURCE_DIR}/tools/web/shell.html")
   endif()
 
   # Emitting .html rather than .js is what makes emcc generate the page and the
@@ -49,6 +49,29 @@ if(EMSCRIPTEN)
   # as plain programs.
   if(WASM_BROWSER)
     set_target_properties(ivan PROPERTIES SUFFIX ".html")
+
+    # The page's own JavaScript, bundled beside ivan.html where the shell's
+    # <script src="ivan-page.js"> resolves it. Not a link input: it is an
+    # ordinary script the page loads, which is what lets an edit to web/src cost
+    # a rebuild measured in milliseconds instead of a relink.
+    #
+    # Always run rather than dependency-tracked. esbuild takes single-digit
+    # milliseconds, and the failure it avoids is the one LINK_DEPENDS above
+    # exists for: a stale bundle is silent, and the build reports success while
+    # the page keeps serving the previous copy.
+    #
+    # IVAN_BUILD_ID and the crash endpoint come from the same CMake variables
+    # that configure_file puts into harness-pre.js, so a report names the same
+    # build whichever half of the page produced it.
+    add_custom_target(ivan-page ALL
+                      COMMAND ${CMAKE_COMMAND} -E env
+                              "IVAN_BUILD_ID=${IVAN_BUILD_ID}"
+                              "IVAN_CRASH_ENDPOINT=${WASM_CRASH_ENDPOINT}"
+                              ${IVAN_NODE} build.mjs --outdir $<TARGET_FILE_DIR:ivan>
+                      WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/web
+                      COMMENT "Bundling web/ beside the page")
+
+    add_dependencies(ivan ivan-page)
 
     # Sound/ and Music/ are the data directories the page fetches over HTTP
     # instead of reading out of ivan.data -- effects per §9.7, music per §9.8 --

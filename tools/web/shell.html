@@ -13,7 +13,7 @@
   shell_minimal.html. Wired in from the top-level CMakeLists with --shell-file.
 
   Three things here are load-bearing and must survive any edit, because the
-  runtime and the pre-js files reach into them by name:
+  runtime, the pre-js files and the page's own bundle reach into them by name:
 
     id="canvas"      Emscripten's SDL2 port looks up "canvas" by id at video
                      init. Rename it and the game has nothing to draw on.
@@ -474,10 +474,10 @@ button:hover {
   });
 
   /* ---- saves -----------------------------------------------------------
-     saves.js decides, this displays, the same split the mute button and sfx.js
-     use. Both messages are about the same thing from the player's side -- the
-     run will not be there tomorrow -- and both have to arrive before the run
-     is worth anything, not after. */
+     saves.js decides, this displays, the same split the mute button and the
+     page's sfx module use. Both messages are about the same thing from the
+     player's side -- the run will not be there tomorrow -- and both have to
+     arrive before the run is worth anything, not after. */
 
   var Notice = document.getElementById('notice');
 
@@ -525,8 +525,9 @@ button:hover {
   Canvas.addEventListener('mousedown', function () { Canvas.focus(); });
 
   /* ---- the two buttons -------------------------------------------------
-     Mute goes through the master gain sfx.js owns, which is also what music.js
-     connects its stems to (music.js:149), so the one node covers both. Calling
+     Mute goes through the master gain web/src/audio/sfx.ts owns, which is also
+     what music.js connects its stems to (music.js:149), so the one node covers
+     both. Calling
      ivanSfx.context() here is safe and deliberate: this is a click, so it is
      exactly the user gesture the autoplay policy is waiting for. */
 
@@ -560,7 +561,7 @@ button:hover {
 
   /* ---- the module ------------------------------------------------------
      Global on purpose: ivan.js opens by picking up an existing Module, and
-     harness-pre.js, sfx.js and music.js all attach to the same object. */
+     harness-pre.js and music.js both attach to the same object. */
 
   globalThis.Module = {
     canvas: Canvas,
@@ -583,6 +584,17 @@ button:hover {
   SetStatus('Loading');
 })();
 </script>
+
+<!--
+  The page's own JavaScript (web/), bundled by web/build.mjs and placed here by
+  Main/CMakeLists.txt. Before {{{ SCRIPT }}} and after the Module literal above,
+  and both halves of that matter: the bundle assigns the globals an EM_JS body
+  looks up, so they have to exist before ivan.js runs, and the modules still to
+  cross need the Module object to already be there to hang a run dependency on.
+
+  Not deferred and not a module, for the same reason.
+-->
+<script src="ivan-page.js"></script>
 
 {{{ SCRIPT }}}
 

@@ -16,7 +16,8 @@ The layout it writes, and why it is this shape:
       play/
         index.html        the game page -- emcc's ivan.html, renamed
         ivan.js  ivan.wasm  ivan.data
-        Sound/*.wav       fetched on demand by sfx.js
+        ivan-page.js      the page's own JavaScript, bundled from web/
+        Sound/*.wav       fetched on demand by web/src/audio/sfx.ts
         Music/*.ogg       streamed by music.js, plus stems.json
 
 The game lives under /play/ rather than at the root so that the front door
@@ -24,8 +25,8 @@ stays a 30KB page instead of a 5MB one -- 11MB on disk, but the CDN serves the
 wasm brotli'd, and 5MB is what was measured off the wire.
 
 Sound/ and Music/ sit *beside* the game page rather than at the site root
-because both are resolved relative to the page that asks for them: sfx.js is
-handed "./Sound/name.wav" by the module itself (sfx.js:112), so moving them
+because both are resolved relative to the page that asks for them: the sfx
+module is handed "./Sound/name.wav" by the wasm module itself, so moving them
 would need a ?sfxbase= on every link.
 
 What is deliberately NOT copied:
@@ -55,7 +56,12 @@ SITE = os.path.join(HERE, "site")
 # emcc's outputs. ivan.html is renamed on the way in; the others keep their
 # names because the script tag emcc generates inside the page refers to
 # ivan.js by name, and they have to stay siblings for it to resolve.
-BUILD_FILES = ["ivan.html", "ivan.js", "ivan.wasm", "ivan.data"]
+# ivan-page.js is emitted beside them by the same build (Main/CMakeLists.txt)
+# rather than by emcc, and is required here for the same reason the rest are: a
+# page whose bundle is missing loads, draws, and is silently missing everything
+# web/ owns.
+BUILD_FILES = ["ivan.html", "ivan.js", "ivan.wasm", "ivan.data",
+               "ivan-page.js", "ivan-page.js.map"]
 
 # Cloudflare Pages. No COOP/COEP here on purpose: those are needed for
 # SharedArrayBuffer, this build has no pthreads and does not use it, and
@@ -79,6 +85,9 @@ HEADERS = """\
   Cache-Control: no-cache
 
 /play/ivan.js
+  Cache-Control: no-cache
+
+/play/ivan-page.js
   Cache-Control: no-cache
 
 /play/ivan.wasm
@@ -268,7 +277,8 @@ def main():
     missing += check("music stems", wanted_stems(), os.path.join(play, "Music"))
 
     core = sum(os.path.getsize(os.path.join(play, n))
-               for n in ["index.html", "ivan.js", "ivan.wasm", "ivan.data"])
+               for n in ["index.html", "ivan.js", "ivan.wasm", "ivan.data",
+                         "ivan-page.js"])
 
     print("%-22s %s" % ("landing page", megs(os.path.getsize(os.path.join(out, "index.html")))))
     print("%-22s %s  (%d files)" % ("fonts", megs(tree_size(os.path.join(out, "fonts"))), fonts))

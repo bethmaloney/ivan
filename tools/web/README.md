@@ -1,18 +1,18 @@
 # tools/web — the browser frontend
 
-**The frontend is moving to `web/`, which has the build, the linter and the two
-test harnesses; see `web/README.md`.** Nothing here has crossed yet: all four
-JavaScript files below are still emcc link inputs and still exactly what ships.
-What did change is that the C++ → page bridge is now declared in
-`web/src/bridge/contract.ts` and checked against these files from both ends.
+**The frontend is moving to `web/`; see `web/README.md`.** Sound effects have
+crossed — `sfx.js` is now `web/src/audio/sfx.ts`, it is bundled rather than
+linked, and its operating manual moved with it. The three JavaScript files below
+are what has not crossed yet: all three are still emcc link inputs and still
+exactly what ships. The C++ → page bridge is declared in
+`web/src/bridge/contract.ts` and checked against them from both ends.
 
-Eight things live here, and only the first is about crashes:
+Seven things live here, and only the first is about crashes:
 
 | | |
 |---|---|
 | `harness-pre.js.in` | turns the query string into argv, and collects a crash report |
 | `saves.js` | keeps the player's saves in IndexedDB, so they survive the tab |
-| `sfx.js` | sound effects, played by the page |
 | `music.js` | the soundtrack, played by the page |
 | `shell.html` | the page emcc wraps around the module |
 | `site/` | the landing page, and the fonts and images it serves |
@@ -224,91 +224,9 @@ runs in about three seconds; it is the first thing to run after a change here.
 
 ---
 
-# sfx.js — sound effects, played by the page
-
-`sfx.js` is the other half of the browser build's JavaScript, and it has
-nothing to do with crashes. The wasm module decides *what* to play; this
-decides *how*. HARNESS.md §9.7 has the design argument; this is the operating
-manual.
-
-## Where the boundary is
-
-Everything up to and including the choice of file stays in C++ —
-`Sound/SoundEffects.cfg`, its 153 patterns, the regex match against the message
-text, and the private xorshift that picks between several files for one
-pattern. What crosses is a path, through an `EM_JS` bridge in
-`FeLib/Source/sfx.cpp`:
-
-```
-soundeffects::playSound("The dog bites you!")   [C++]
-  -> findMatchingSound  -> "bark.wav"
-  -> IvanSfxPlay("./Sound/bark.wav", 127)       [bridge]
-  -> ivanSfx.play(...)                          [JS: fetch, decode, schedule]
-```
-
-Fire and forget: no return value, nothing calls back into wasm, so asyncify has
-nothing to unwind and a slow fetch cannot stall the frame that asked for the
-sound. Everything that can fail — a missing file, a decode error, a context the
-autoplay policy has not released — fails on the JS side and is silent, which is
-what the SDL_mixer path does with a null chunk.
-
-## From the console
-
-```js
-ivanSfx.stats()     // {played, dropped, failed, cached, voices}
-ivanSfx.played()    // the last few hundred paths, newest last
-ivanSfx.state()     // AudioContext state, or 'none' before the first sound
-```
-
-```
-ivan.html?sfx=off              never play anything (still records what would have)
-ivan.html?sfxbase=<url>        fetch from somewhere other than the page's Sound/
-```
-
-`played()` is the useful one when something is wrong, because it records the
-call whether or not a sound came out. A path in `played()` with `stats().played`
-not moving means the module and the bridge are fine and the problem is the
-fetch, the decode or the context.
-
-## When it is silent
-
-In the order worth checking:
-
-1. **`ivanSfx.played()` is empty.** Nothing is crossing the bridge, so the
-   problem is in C++, not here. Almost always `SoundState`: `initSound` reads
-   `Sound/SoundEffects.cfg` out of MEMFS, and if the preload is missing it
-   settles on `-1` and `playSound` returns before the bridge. Nothing is
-   printed when this happens. Check the file is in the package:
-   `grep -c SoundEffects.cfg build-web/Main/ivan.js`.
-2. **`stats().failed` is climbing.** The wavs are fetched over HTTP, not read
-   from `ivan.data`, so `Sound/` has to be served beside `ivan.html`. The build
-   symlinks it there; a deploy that copies only the emcc output will not have
-   it. One console line per missing file per session.
-3. **`state()` is `suspended`.** The autoplay policy has not released the
-   context. It resumes on the first `keydown`, `mousedown` or `touchstart`;
-   sounds requested before that are dropped rather than queued, deliberately —
-   a suspended context does not advance `currentTime`, so queued sounds would
-   all fire at once on the first keystroke.
-4. **`state()` is `none`.** No sound has been requested yet, or the browser has
-   no `AudioContext`.
-
-## Editing it
-
-`sfx.js` is a `--pre-js`, which means it is a link input CMake can only see
-through `LINK_DEPENDS` (`Main/CMakeLists.txt`). That is wired, so an edit
-relinks — but if you move or rename the file, wire it again. The failure mode
-is silent: the build reports itself up to date and the page keeps serving the
-previous copy, so the edit looks like it did nothing.
-
-There is no `configure_file` step and nothing is substituted at build time. What
-would have been build-time settings are query-string options instead, so they
-can be changed without a rebuild, exactly as `?crashlog=` is.
-
----
-
 # music.js — the soundtrack, played by the page
 
-The same split as `sfx.js`, one level up: the module says what should be
+The same split as the sfx module, one level up: the module says what should be
 playing, this plays it. HARNESS.md §9.8 has the design argument. Nothing here
 synthesizes MIDI — the `.mid` are never fetched by the page.
 
@@ -375,7 +293,7 @@ have no notes at all, so "no stems" is a normal answer rather than a fault.
 Unlike effects, stems are **streamed** through `<audio>` elements rather than
 decoded into `AudioBuffer`s. Decoded audio is about 23MB per minute per stem,
 and `Dungeon3` is 7.3 minutes — half a gigabyte for one dungeon if it were
-cached the way `sfx.js` caches wavs.
+cached the way the sfx module caches wavs.
 
 ## From the console
 
@@ -415,9 +333,9 @@ is climbing, the rate nudge is not keeping up and something is wrong.
 
 ## Editing it
 
-Same `--pre-js` and `LINK_DEPENDS` caveat as `sfx.js`, and one more: `music.js`
-is listed *after* `sfx.js` on the command line and depends on that order. It
-borrows the `AudioContext` `sfx.js` owns rather than opening a second one, so
+Same `--pre-js` and `LINK_DEPENDS` caveat as `saves.js`, and one more:
+`music.js` depends on the sfx module having run. It borrows the `AudioContext`
+that `web/src/audio/sfx.ts` owns rather than opening a second one, so
 `ivanSfx` has to exist by the time it runs.
 
 `node tools/web/music.test.js` covers the module contract and the mixing
@@ -475,7 +393,7 @@ ships minified onto a single line.
 - **Says when it dies.** On abort or an unhandled rejection it shows a panel
   pointing at `ivanHarness.save()`, because "nothing happened" is the worst
   possible reading of a crash.
-- **Mutes.** Through the master gain `sfx.js` owns, which is also what
+- **Mutes.** Through the master gain `web/src/audio/sfx.ts` owns, which is also what
   `music.js` connects its stems to (`music.js:149`), so one node covers both.
 
 Same `LINK_DEPENDS` caveat as the `--pre-js` files (`Main/CMakeLists.txt`): the
@@ -531,13 +449,13 @@ dist/
   play/
     index.html                    emcc's ivan.html, renamed
     ivan.js  ivan.wasm  ivan.data
-    Sound/*.wav                   fetched on demand by sfx.js
+    Sound/*.wav                   fetched on demand by the sfx module
     Music/*.ogg  stems.json       streamed by music.js
 ```
 
 `Sound/` and `Music/` sit beside the *game page* rather than at the site root
 because both are resolved relative to whatever asks for them — the module hands
-`sfx.js` the string `"./Sound/name.wav"` itself (`sfx.js:112`) — so moving them
+the sfx module the string `"./Sound/name.wav"` itself — so moving them
 would need a `?sfxbase=` on every link.
 
 Not copied: `Music/*.mid`, which are the source the stems were rendered from and

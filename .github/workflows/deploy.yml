@@ -116,8 +116,16 @@ jobs:
         working-directory: web
         run: npm run check
 
-      # Still --pre-js, still tested where they live. These move under web/test
-      # as each module crosses; until then both are the contract for what ships.
+      # The bundle the page loads. `check` is typecheck + lint + tests and never
+      # runs esbuild, so without this a build.mjs that cannot produce a bundle
+      # reaches the emsdk job before anything notices.
+      - name: bundle
+        working-directory: web
+        run: npm run build
+
+      # Still --pre-js, still tested where they live. Each becomes a *.test.ts
+      # beside its module as it crosses, as sfx did; until then both of these
+      # are the contract for what ships.
       - name: music.js
         run: node tools/web/music.test.js
 
@@ -129,6 +137,20 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+
+      # The browser build bundles web/ beside the page (Main/CMakeLists.txt), so
+      # node and web/node_modules have to be here before cmake configures --
+      # both are checked at configure time and fail the build with a named
+      # reason rather than inside a custom command.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install web/
+        working-directory: web
+        run: npm ci
 
       # Covers the SDK and the compiled ports (SDL2, SDL2_mixer, libpng), which
       # live inside it. Keyed on the version alone -- nothing else in the repo
