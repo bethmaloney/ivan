@@ -58,8 +58,8 @@ import sys
 INITIAL_INTENSITY_VOLUME = [127] * 11 + [0] * 5
 DELTA_VOLUME_PER_INTENSITY = [0, 0, 0, 0, 0, -1, -1, -1, -1, 0, -1, 1, 1, 1, 1, 1]
 
-# Suffixes are what music.js asks for, so the two have to agree. See
-# STEM_NAMES there.
+# Suffixes are what web/src/audio/music.ts asks for, so the two have to agree.
+# See StemNames there.
 
 STEMS = ("const", "fadeout", "fadein")
 
@@ -314,7 +314,7 @@ def main():
             emitted.append("%s(%d)" % (stem, notes))
             written += 1
 
-        # Recorded even when empty. music.js has to be able to tell "this track
+        # Recorded even when empty. The page has to be able to tell "this track
         # is deliberately silent" from "this deploy is missing a file", and six
         # of the eleven tracks are legitimately silent -- probing for them and
         # swallowing the 404 would make a broken deploy look normal.

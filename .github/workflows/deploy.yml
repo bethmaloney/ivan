@@ -123,12 +123,9 @@ jobs:
         working-directory: web
         run: npm run build
 
-      # Still --pre-js, still tested where they live. Each becomes a *.test.ts
-      # beside its module as it crosses, as sfx did; until then both of these
-      # are the contract for what ships.
-      - name: music.js
-        run: node tools/web/music.test.js
-
+      # Still --pre-js, still tested where it lives. It becomes a *.test.ts beside
+      # its module when it crosses, as sfx and music have; until then this is the
+      # contract for what ships.
       - name: saves.js
         run: node tools/web/saves.test.js
 

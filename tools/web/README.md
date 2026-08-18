@@ -1,19 +1,19 @@
 # tools/web — the browser frontend
 
-**The frontend is moving to `web/`; see `web/README.md`.** Sound effects have
-crossed — `sfx.js` is now `web/src/audio/sfx.ts`, it is bundled rather than
-linked, and its operating manual moved with it. The three JavaScript files below
-are what has not crossed yet: all three are still emcc link inputs and still
-exactly what ships. The C++ → page bridge is declared in
-`web/src/bridge/contract.ts` and checked against them from both ends.
+**The frontend is moving to `web/`; see `web/README.md`.** Sound effects and music
+have crossed — they are `web/src/audio/sfx.ts` and `web/src/audio/music.ts`,
+bundled rather than linked, and their operating manuals moved with them. The two
+JavaScript files below are what has not crossed: both are still emcc link inputs,
+both are still exactly what ships, and both reach for names that only exist inside
+`ivan.js`'s scope, which is the reason they are still here. The C++ → page bridge
+is declared in `web/src/bridge/contract.ts` and checked from both ends.
 
-Seven things live here, and only the first is about crashes:
+Six things live here, and only the first is about crashes:
 
 | | |
 |---|---|
 | `harness-pre.js.in` | turns the query string into argv, and collects a crash report |
 | `saves.js` | keeps the player's saves in IndexedDB, so they survive the tab |
-| `music.js` | the soundtrack, played by the page |
 | `shell.html` | the page emcc wraps around the module |
 | `site/` | the landing page, and the fonts and images it serves |
 | `dist.py` | assembles a deployable tree from a build plus the repo's assets |
@@ -224,127 +224,6 @@ runs in about three seconds; it is the first thing to run after a change here.
 
 ---
 
-# music.js — the soundtrack, played by the page
-
-The same split as the sfx module, one level up: the module says what should be
-playing, this plays it. HARNESS.md §9.8 has the design argument. Nothing here
-synthesizes MIDI — the `.mid` are never fetched by the page.
-
-## Where the boundary is
-
-The playlist is the game's. `dungeon::PrepareMusic` builds it from the level
-scripts and `audio.cpp` keeps it, exactly as on the native build; what crosses
-is that list, plus the master volume and the intensity the game recomputes
-every turn:
-
-```
-dungeon::PrepareMusic          [C++]  playlist for this level
-  -> audio::LoadMIDIFile              -> Tracks
-  -> IvanMusicPlaylist("Dungeon.mid,Dungeon2.mid")   [bridge]
-  -> ivanMusic.setPlaylist(...)       [JS: choose, fetch, loop, mix]
-
-character::Be                  [C++]  every turn
-  -> audio::IntensityLevel(127 - worstBodyPartHP)
-  -> ivanMusic.setIntensity(...)      [JS: three gain nodes]
-```
-
-Two more cross that this section used to omit, and `web/src/bridge/contract.test.ts` is
-what found them — the whole point of parsing the `EM_JS` blocks rather than
-trusting a table like this one:
-
-```
-audio::SetVolumeLevel(vol)     [C++]  the config's master volume
-  -> IvanMusicVolume(vol)             (audio.cpp:587)
-  -> ivanMusic.setVolume(...)
-
-audio::whatever stops it       [C++]  PlaybackState & PLAYING
-  -> IvanMusicPlaying(State)          (audio.cpp:628)
-  -> ivanMusic.setPlaying(...)
-```
-
-One value travels back, because `PrepareMusic` branches on it:
-`GetCurrentlyPlayedFile` is an `IvanMusicCurrentIndex()` readback resolved
-against the playlist. It is a plain synchronous `EM_JS` returning an `int` — no
-promise, no callback into wasm, nothing for asyncify.
-
-So the bridge is six functions, not the three this used to show:
-`ivanSfx.play`, and `ivanMusic.setPlaylist`, `setPlaying`, `setVolume`,
-`setIntensity` and `currentIndex`. They are declared once in
-`web/src/bridge/contract.ts` and checked from both ends — see `web/README.md`.
-
-## The stems
-
-IVAN's music is adaptive: as the player's worst body part gets worse, some
-instrument groups fade out and others fade in. `audio.cpp`'s two volume tables
-only ever produce three curves, so each track is pre-rendered as up to three
-OGG stems and mixed here by three gain nodes:
-
-| stem | MIDI channels | gain |
-|---|---|---|
-| `const` | 0–4, 9 | full, always |
-| `fadeout` | 5–8, 10 | `127 - intensity` |
-| `fadein` | 11–15 | `intensity` |
-
-Regenerate them from the `.mid` with `tools/music/render-stems.py` and commit
-the result. `Music/stems.json` says which stems each track has, and is why the
-page never probes for a file that was never rendered: six of the eleven tracks
-have no notes at all, so "no stems" is a normal answer rather than a fault.
-
-Unlike effects, stems are **streamed** through `<audio>` elements rather than
-decoded into `AudioBuffer`s. Decoded audio is about 23MB per minute per stem,
-and `Dungeon3` is 7.3 minutes — half a gigabyte for one dungeon if it were
-cached the way the sfx module caches wavs.
-
-## From the console
-
-```js
-ivanMusic.stats()      // {track, stems, gains, intensity, volume, drift, ...}
-ivanMusic.playlist()   // what the module last handed down
-```
-
-```
-ivan.html?music=off            never play anything
-ivan.html?musicbase=<url>      fetch from somewhere other than the page's Music/
-ivan.html?musiccurve=linear    volume as a straight ratio, not the GM square law
-```
-
-`stats().drift` is the one to watch. Three media elements keep three clocks, and
-these stems are the same piece of music, so drift between them is heard as a
-doubled attack rather than as a timing error. They are pulled back with a 0.2%
-playback-rate nudge, which is inaudible; `corrections` counts those. If `seeks`
-is climbing, the rate nudge is not keeping up and something is wrong.
-
-## When it is silent
-
-1. **`stats().track` is `null` and `playlist()` is empty.** Nothing crossed the
-   bridge. Either the game has music off — `ChangeMIDIOutputDevice(0)`, which
-   is the "Use MIDI soundtrack: no" option — or `audio::Init` never ran.
-2. **`stats().track` is `null` but `playlist()` is not.** The playlist is all
-   silent tracks. Normal on the main menu, the world map, and any dungeon whose
-   script names `Empty.mid`; those six files are byte-identical and have no
-   notes. Check `Music/stems.json`.
-3. **`stats().failed` is climbing.** A stem in the manifest would not load.
-   `Music/` has to be served beside `ivan.html`; the build symlinks it, a deploy
-   that copies only the emcc output will not have it. Or the stems were never
-   rendered — `ls Music/*.ogg`.
-4. **`state()` is `suspended`.** The autoplay policy. Unlike effects, music is
-   picked up when the context resumes rather than dropped, because the main menu
-   asks for it before any gesture can have happened.
-
-## Editing it
-
-Same `--pre-js` and `LINK_DEPENDS` caveat as `saves.js`, and one more:
-`music.js` depends on the sfx module having run. It borrows the `AudioContext`
-that `web/src/audio/sfx.ts` owns rather than opening a second one, so
-`ivanSfx` has to exist by the time it runs.
-
-`node tools/web/music.test.js` covers the module contract and the mixing
-arithmetic against stubs — the playlist, the index readback, the
-restart-or-keep rule at a level change, and intensity to gains. It needs no
-browser and no rendered audio.
-
----
-
 # shell.html — the page around the module
 
 `--shell-file` input, wired in from the top-level `CMakeLists.txt`. Without it
@@ -394,7 +273,7 @@ ships minified onto a single line.
   pointing at `ivanHarness.save()`, because "nothing happened" is the worst
   possible reading of a crash.
 - **Mutes.** Through the master gain `web/src/audio/sfx.ts` owns, which is also what
-  `music.js` connects its stems to (`music.js:149`), so one node covers both.
+  `web/src/audio/music.ts` connects its stems to, so one node covers both.
 
 Same `LINK_DEPENDS` caveat as the `--pre-js` files (`Main/CMakeLists.txt`): the
 shell reaches emcc only through `LINK_FLAGS`, so without it nothing relinks when
@@ -450,7 +329,7 @@ dist/
     index.html                    emcc's ivan.html, renamed
     ivan.js  ivan.wasm  ivan.data
     Sound/*.wav                   fetched on demand by the sfx module
-    Music/*.ogg  stems.json       streamed by music.js
+    Music/*.ogg  stems.json       streamed by web/src/audio/music.ts
 ```
 
 `Sound/` and `Music/` sit beside the *game page* rather than at the site root
@@ -541,9 +420,9 @@ doesn't, and this host doesn't.
 
 Measured cost: stems still start in about a second, `failed 0`. Progressive
 download is enough to begin playback — what ranges buy is seeking and an early
-`duration`, and `music.js` only wants `duration` for drift correction, which it
+`duration`, and the page only wants `duration` for drift correction, which it
 can wait for. If a long track ever starts late in practice (`Dungeon3` is three
-5MB stems), R2 answers ranges and `music.js` already takes `?musicbase=<url>`,
+5MB stems), R2 answers ranges and the music module already takes `?musicbase=<url>`,
 so moving only the music is a query parameter rather than a migration.
 
 Check it locally before pushing it, because the two differ in one way that

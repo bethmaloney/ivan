@@ -2564,6 +2564,10 @@ state, the volume and the intensity.
 Nothing synthesizes MIDI in the browser. `Music/*.mid` are never fetched by the page; they are
 the *source* for pre-rendered OGG stems, and those are what stream.
 
+The page's half of this was `tools/web/music.js`, a `--pre-js`, until §9.12 moved it into the
+bundle as `web/src/audio/music.ts`. The design below is unchanged by the move, and the
+measurements further down were taken against the file under its old name.
+
 **Three things this found before writing any code, all of which changed the design.**
 
 **1. Six of the eleven tracks are the same note-free file.** `Empty.mid`, `defeat.mid`,
@@ -2692,7 +2696,7 @@ a step — so it earns its place only against a large early skew. Left in for th
 **The two files share one `AudioContext` but not one gain, and both halves of that matter.**
 Sharing the context is the easy half: browsers cap how many a page may have, each costs a device
 connection, and two would need two resumes off the same gesture — so the sfx module exposes the
-one it already owns and `music.js` joins it. Not sharing the *gain* is the half that was a bug first:
+one it already owns and the music module joins it. Not sharing the *gain* is the half that was a bug first:
 the music volume went onto the shared master, where it would have scaled the sound effects by it
 as well, since effects pass through the same node with their own `SfxVolume` applied per sound.
 Music now hangs its own gain off the master and puts the volume there.
@@ -2891,12 +2895,12 @@ content-length: 2631966
 `tools/web/serve.py` implements 206 precisely so that local testing would not flatter a host that
 does not — and then the host did not. **Measured cost, which is smaller than the setup suggests:
 stems still start in 1.0s**, `started 1`, `failed 0`. Progressive download is enough to begin
-playback; what ranges buy is seeking and an early `duration`, and music.js only needs `duration`
+playback; what ranges buy is seeking and an early `duration`, and the page only needs `duration`
 for drift correction, which it can wait for. So this degrades the thing §9.8 built rather than
 breaking it, and the degradation was measured rather than assumed in either direction.
 
 Worth revisiting if a long track starts late in practice — `Dungeon3`'s stems are 5MB each and
-its three must all arrive. R2 answers ranges and `music.js` already takes `?musicbase=<url>`, so
+its three must all arrive. R2 answers ranges and the music module already takes `?musicbase=<url>`, so
 moving just the music is a query parameter rather than a migration.
 
 **What is open.**
@@ -3258,15 +3262,17 @@ Its first run found two bridges that `tools/web/README.md` did not mention at al
 `IvanMusicVolume` (`audio.cpp:587`) and `IvanMusicPlaying` (`audio.cpp:628`). The table said
 three; the answer is six. That doc is corrected.
 
-**There is a second contract, and it is still the weaker one.** `ivanSfx` has six methods and
-three consumers wanting different subsets: the C++ calls only `play`, while `music.js:144,149`
-and `shell.html:539,541` call `context()` and `master()` — music borrows the context rather than
+**There is a second contract, and it is now nearly closed.** `ivanSfx` has six methods and three
+consumers wanting different subsets: the C++ calls only `play`, while the music module and
+`shell.html:540,541` call `context()` and `master()` — music borrows the context rather than
 opening a second one, and the mute button drives the shared master gain. `contract.ts` covers
 the C++ → page direction only, so dropping or renaming `context` or `master` during a port would
 silence the music and break mute with no error and no failing test. Half closed when `sfx.js`
-moved: both are now declared on `IvanSfx` in `web/src/bridge/globals.d.ts`, so the compiler holds
-the sfx side. Nothing yet holds the *caller* — `music.js` is still a `--pre-js` outside the
-project tsc sees, so the check arrives when music crosses.
+moved: both are declared on `IvanSfx` in `web/src/bridge/globals.d.ts`, so the compiler holds the
+callee. The other half closed when music moved, because the caller is now inside the tree `tsc`
+reads — `music.ts` gets a compile error for a renamed `context()`, where `music.js` would have
+got `undefined`. `shell.html` is the piece still outside, and it is the piece that has been
+untestable all along.
 
 #### The browser suite exists because the goldens are about to stop covering the screen
 
@@ -3318,11 +3324,11 @@ Nothing parses it; both jobs gate on the exit code.
 
 **What is open.**
 
-- **`sfx.js` has crossed, and the bundle is in the deploy.** It is
-  `web/src/audio/sfx.ts` — bundled by `build.mjs`, placed beside `ivan.html` by an `ALL` target
-  in `Main/CMakeLists.txt`, loaded by the shell from `<script src="ivan-page.js">` and copied by
-  `dist.py`. `music.js`, `saves.js` and `harness-pre.js.in` are still `--pre-js` and still
-  exactly what ships.
+- **`sfx.js` and `music.js` have crossed, and the bundle is in the deploy.** They are
+  `web/src/audio/sfx.ts` and `web/src/audio/music.ts` — bundled by `build.mjs`, placed beside
+  `ivan.html` by an `ALL` target in `Main/CMakeLists.txt`, loaded by the shell from
+  `<script src="ivan-page.js">` and copied by `dist.py`. `saves.js` and `harness-pre.js.in` are
+  still `--pre-js` and still exactly what ships.
 - **The full flip happened at the first crossing, not the last — the opposite of what was
   planned two paragraphs up.** The prediction was that the bundle would take `sfx.js`'s position
   on the emcc command line as a `--pre-js`, with the `<script>` deferred to a later commit
@@ -3332,12 +3338,15 @@ Nothing parses it; both jobs gate on the exit code.
   real but belongs to `saves.js` alone, and `saves.js` has not crossed — it is still inlined
   into `ivan.js`'s scope and still has the module-scope `FS`/`IDBFS` it reaches for. Nothing
   about sfx needed the delay.
-- **Ordering moved from the command line into the page.** `music.js` borrows the `AudioContext`
-  the sfx module owns, which the flag order used to guarantee. It reads `globalThis.ivanSfx`
-  lazily (`music.js:141`) and the shell's `<script>` runs before `ivan.js`, so the page's load
-  order now carries it. The `<script>` sits after the `Module` literal and before
-  `{{{ SCRIPT }}}`, and both halves are load-bearing — the globals must exist before `ivan.js`
-  runs, and whatever crosses next needs `Module` already there to hang a run dependency on.
+- **Ordering moved from the command line into the page, and then into the module graph.** Music
+  borrows the `AudioContext` the sfx module owns, which the order of two `--pre-js` flags used to
+  guarantee. When sfx crossed alone, what carried it was the shell's `<script>` running before
+  `ivan.js` plus a lazy `globalThis.ivanSfx` read on the music side. Now that both are in the
+  same bundle it is an `import` and a call-time lookup, which is the only form of this dependency
+  that a reader can see without opening a build file. The `<script>` position still matters for
+  the two files left: it sits after the `Module` literal and before `{{{ SCRIPT }}}`, so the
+  globals exist before `ivan.js` runs and whatever crosses next has `Module` there to hang a run
+  dependency on.
 - **node is now a build dependency of `WASM_BROWSER`**, which previously needed only emsdk.
   `find_program` plus an existence check on `web/node_modules/esbuild`, both at configure time,
   so a missing toolchain names itself instead of failing inside a custom command. The CI
@@ -3351,6 +3360,56 @@ Nothing parses it; both jobs gate on the exit code.
 - **`npm run build` joined the `modules` job.** `check` is typecheck + lint + tests and never
   runs esbuild, so a `build.mjs` that could not produce a bundle previously reached the emsdk
   job before anything noticed.
+- **Music was the easy second crossing, and the reason is the reason it went second.** 674 lines
+  that touch no Emscripten internal at all: no `Module`, no `FS`, no run dependency, and nothing
+  substituted by `configure_file`. The whole of its coupling was `globalThis.ivanSfx` in and
+  `globalThis.ivanMusic` out. Removing `--pre-js` for it needed one line out of `CMakeLists.txt`
+  and one path out of `LINK_DEPENDS`. That is now the whole of what is left to move: `saves.js`
+  reaches for module-scope `addRunDependency`, `removeRunDependency`, `FS` and `IDBFS`, and
+  `harness-pre.js.in` sets `Module.arguments` before the runtime starts and is generated by
+  `configure_file` — so both need a design decision, where music needed a translation.
+- **Three things changed in the translation, and only one of them is visible from the page.**
+  Query options are read at call time through `platform/query.ts` rather than captured at load,
+  which changes nothing in a browser — the query string cannot change without a reload — and lets
+  one node process hold more than one page, which is what made the three query options testable
+  at all. The autoplay listener moved from a top-level side effect to an `Install()` that
+  `main.ts` calls, because a module is also imported by a test, where `document` does not exist
+  and a top-level reference to it is a `TypeError` before the first assertion. And the dead
+  module-scope `Master` became a local, which is what it always was.
+- **`music.test.ts` is a port, and the port is where the coverage grew.** The 61 checks of
+  `music.test.js` were one sequential narrative sharing a single stubbed page; they are 19
+  independent cases now, each building its own. Three are new and cover what the old suite could
+  not: `?music=off`, `?musicbase=` and `?musiccurve=linear`. Checked by mutation — the old
+  250ms seek threshold, a fixed smoothing constant in place of the 15ms-per-step slew, a linear
+  curve in place of the square law, `Promise.race` in place of the readiness barrier, dropping
+  the keep-the-shared-track rule, and counting a silent track as a fault each fail at least one
+  case.
+- **`npm run check` went from 0.74s to 3.8s, and all of the difference is three sleeps.** The
+  drift correction runs on a 500ms interval and the alignment pass at 400ms, and two cases wait
+  those out rather than reaching inside the module to fake a clock — the same choice
+  `music.test.js` made, at the same cost. It is not a new cost either: the suite it replaces was
+  2.7s on its own, so the repo's no-browser testing is about where it was. One thing did get
+  cheaper: the readiness fallback is now cleared when a stem settles rather than left to fire
+  into a settled promise, which took 2.5s of dead time off the end of the run.
+- **The move was verified against real audio in a real browser, which is the half no suite
+  covers.** The node suite plays nothing and the Playwright suite only reaches the main menu,
+  whose track is one of the six silent ones. So the bundled module was driven from the console the
+  way `audio.cpp` drives it — `setPlaylist('Dungeon.mid')`, `setPlaying(true)` — against the
+  deployed OGG stems: three elements constructed, all three `paused: false`, `currentTime`
+  advancing 8.963s → 10.981s over a 2s wall wait and identical across all three, `drift [0, 0]`,
+  `playbackRate 1`, **0 seeks and 0 corrections** over 11 seconds, and `gains` moving
+  `[1, 1, 0]` → `[1, 0, 1]` when intensity went to 127. §9.8 measured the same thing under
+  `--pre-js` and got a 20ms start skew nudged to 0.3ms over a minute; this is a cleaner number
+  over a shorter window, in headless Chromium with the autoplay restriction disabled, and no
+  attempt was made
+  to find out which of those differences accounts for it. What it does establish is the thing
+  worth establishing: the mix, the sync and the index readback all still work when the module is
+  bundled rather than linked.
+- **`ivanPage.modules` is asserted now.** `main.ts` has kept the list since sfx crossed and
+  nothing read it, so the comment claiming a browser test asserted against it was aspirational.
+  It does now, and it is the guard that matters as more crosses: a module that threw on the way
+  up is a failed assertion rather than a page quietly missing a feature, which is the failure
+  class a headless replay cannot see.
 - **`shell.html`'s 221 lines are still unlintable and untested**, and they hold the key handling,
   the progress bar, the crash panel and mute.
 - **The actions are a release behind.** `checkout`, `setup-node`, `cache` and `upload-artifact`

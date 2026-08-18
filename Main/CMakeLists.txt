@@ -39,7 +39,7 @@ if(EMSCRIPTEN)
   # effect and gets debugged as a code problem.
   if(WASM_BROWSER)
     set_target_properties(ivan PROPERTIES
-                          LINK_DEPENDS "${CMAKE_BINARY_DIR}/harness-pre.js;${CMAKE_SOURCE_DIR}/tools/web/saves.js;${CMAKE_SOURCE_DIR}/tools/web/music.js;${CMAKE_SOURCE_DIR}/tools/web/shell.html")
+                          LINK_DEPENDS "${CMAKE_BINARY_DIR}/harness-pre.js;${CMAKE_SOURCE_DIR}/tools/web/saves.js;${CMAKE_SOURCE_DIR}/tools/web/shell.html")
   endif()
 
   # Emitting .html rather than .js is what makes emcc generate the page and the

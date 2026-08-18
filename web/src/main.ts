@@ -7,25 +7,19 @@
  *
  * The globals below are the module's public surface in both directions: the
  * console API a player or a developer reaches for, and the names the wasm side
- * calls out of EM_JS bodies. Nothing else is exported to the page.
+ * calls out of EM_JS bodies. Nothing else is exported to the page. They are
+ * declared in bridge/globals.d.ts rather than here, because the browser test
+ * asserts against the same declarations and cannot see into this module.
  */
 
 import * as Query from './platform/query.ts';
 import * as Sfx from './audio/sfx.ts';
+import * as Music from './audio/music.ts';
 
-declare global {
-  /* `var` is not a style choice here: it is the only declaration form that
-     puts a name on globalThis, which is what an EM_JS body looks it up on. */
-  var ivanPage: {
-    build: string;
-    modules: string[];
-  };
-}
-
-/* Modules land here as they cross: sfx, music, saves, harness, then graphics,
-   input and the UI. The list is what the browser test asserts against, so a
-   module that fails to initialise is a failed assertion rather than a page
-   that is quietly missing a feature. */
+/* Modules land here as they cross: sfx and music have, saves and harness have
+   not, then graphics, input and the UI. The list is what the browser test
+   asserts against, so a module that fails to initialise is a failed assertion
+   rather than a page that is quietly missing a feature. */
 
 const Loaded: string[] = [];
 
@@ -44,3 +38,15 @@ if(!Query.Enabled('page'))
 
 globalThis.ivanSfx = Sfx.Api;
 Loaded.push('sfx');
+
+/* Music (HARNESS.md §9.8). After sfx in this file only because it reads
+   globalThis.ivanSfx to borrow the context -- lazily, at the first track, so the
+   order is not load-bearing the way it was when these were two --pre-js flags.
+
+   Install() is the autoplay listener the module wants registered before any
+   gesture, and it is here rather than at music.ts's top level so that importing
+   the module does not require a document. */
+
+globalThis.ivanMusic = Music.Api;
+Music.Install();
+Loaded.push('music');

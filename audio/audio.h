@@ -169,7 +169,7 @@ private:
    /* The three curves these two tables describe are the whole of the intensity
       system, and on Emscripten they have been applied already: they are what
       tools/music/split-stems.py cuts the rendered stems on, and what the three
-      gain nodes in tools/web/music.js drive. Keeping a second copy here that
+      gain nodes in web/src/audio/music.ts drive. Keeping a second copy here that
       nothing reads would be one more thing to drift. */
 
    static int  IntensityVolume[MAX_MIDI_CHANNELS];

@@ -1,13 +1,15 @@
 /*
  * The page boots, draws, hears a key and keeps its saves.
  *
- * These assertions are deliberately written against the *current* architecture,
- * before the four --pre-js files become one bundle. That is the point: a
- * refactor that changes how the page's JavaScript is delivered needs an oracle
- * that predates it, and nothing in the tree covered the browser at all -- the
- * two node suites are contract tests against stubs, shell.html was untested,
- * and HARNESS.md §9.10 says outright that "a save survives a reload" needs a
- * browser.
+ * These assertions were written against the architecture that predates the
+ * bundle, while all four of the page's files were still --pre-js inputs, and
+ * that was the point: a refactor that changes how the page's JavaScript is
+ * delivered needs an oracle older than the refactor. Two have crossed since and
+ * every assertion here still holds, which is the only evidence anybody has that
+ * the delivery change was behaviour-preserving -- nothing else in the tree
+ * covers the browser at all. The node suites are contract tests against stubs,
+ * shell.html is untested, and HARNESS.md §9.10 says outright that "a save
+ * survives a reload" needs a browser.
  *
  * Needs an assembled dist/. See playwright.config.ts.
  */
@@ -73,6 +75,21 @@ test('every bridge the C++ calls is on the page', async ({ page }) => {
 
     expect(Present, Name + ' (' + Bridge.source + ')').toEqual([...Bridge.methods]);
   }
+});
+
+/* main.ts appends to this as each module initialises, so a module that threw on
+   the way up is a failed assertion here rather than a page that is quietly
+   missing a feature -- which is the failure class the whole port has to avoid,
+   since a headless replay cannot hear the difference. */
+
+test('every module that has crossed announced itself', async ({ page }) => {
+  const Announced = await page.evaluate(() => ({
+    build: globalThis.ivanPage.build,
+    modules: globalThis.ivanPage.modules
+  }));
+
+  expect(Announced.modules).toEqual(['sfx', 'music']);
+  expect(Announced.build).not.toBe('');
 });
 
 test('the console APIs a player is told to use exist', async ({ page }) => {

@@ -15,10 +15,15 @@ nvm use              # in the repo; reads .nvmrc
 ```bash
 cd web
 npm ci
-npm run check        # typecheck + lint + tests. No browser, 0.74s
+npm run check        # typecheck + lint + tests. No browser, 3.8s
 npm run build        # -> dist/ivan-page.js
 npm run e2e          # the browser suite. Needs an assembled ../dist (below)
 ```
+
+Almost all of that 3.8s is three deliberate sleeps: the music module's drift
+correction runs on a 500ms interval and its one-time alignment pass at 400ms, and
+two cases wait those out rather than reaching inside the module to fake a clock.
+Typecheck, lint and every other test together are about 0.9s.
 
 ## Why the JavaScript is not a `--pre-js` any more
 
@@ -29,12 +34,12 @@ link inputs, which had three costs:
   hand-maintained `LINK_DEPENDS` string, and the failure mode when that string is
   wrong is silent — the build reports itself up to date and the page keeps
   serving the previous copy.
-- **The module graph was the order of flags in `CMakeLists.txt`.** `music.js`
-  borrows the `AudioContext` that the sfx module owns, and nothing but the order
-  of two `--pre-js` arguments enforced it. Within `src/` that is an `import` now;
-  while `music.js` is still a `--pre-js` it reads `globalThis.ivanSfx` lazily
-  (`music.js:141`), and the shell's `<script>` tag runs before `ivan.js`, so the
-  page's load order carries what the flag order used to.
+- **The module graph was the order of flags in `CMakeLists.txt`.** Music borrows
+  the `AudioContext` the sfx module owns, and nothing but the order of two
+  `--pre-js` arguments enforced it. Both are in `src/audio/` now, so that is an
+  `import` — the one case where the fix is visible in the file rather than in a
+  build script. What is left of it is the shell's `<script>` tag running before
+  `ivan.js`, which is what the two remaining `--pre-js` files rely on.
 - **No bundler could exist**, so no TypeScript, no npm library, no source map,
   and no content-hashed filename — which is why `dist.py` has to send `no-cache`
   on the JS it deploys.
@@ -120,7 +125,16 @@ ends:
 - `e2e/boot.spec.ts` asserts the live page has every one of them as a function.
 
 The first run of that test found two bridges — `IvanMusicPlaying` and
-`IvanMusicVolume` — that `tools/web/README.md`'s bridge table does not mention.
+`IvanMusicVolume` — that the hand-written bridge table in `tools/web/README.md`
+had never mentioned. That is why the table above is the only one left.
+
+`contract.ts` covers the C++ → page direction only, and the gap it left was the
+*page* → page one: `music.ts` calls `ivanSfx.context()` and `ivanSfx.master()` to
+borrow the audio context, and `shell.html:540,541` drives the same master gain for
+mute. Renaming either during the port would have silenced the music with no error
+and no failing test. Half of that closed when sfx crossed and both were declared
+on `IvanSfx`; the other half closed when music did, because the caller is now
+inside the tree `tsc` reads. `shell.html` is still outside it.
 
 ## The browser suite, and why it has to exist
 
@@ -129,7 +143,7 @@ emcmake cmake -S . -B build-web -DCMAKE_BUILD_TYPE=Release \
   -DWIZARD=ON -DPORTABLE_BUILD=ON -DWASM_BROWSER=ON
 cmake --build build-web -j$(nproc)
 tools/web/dist.py
-cd web && npm run e2e         # ~7s for the current seven
+cd web && npm run e2e         # ~8s for the current eight
 ```
 
 It runs against an assembled `dist/` served by `tools/web/serve.py`, not a dev
@@ -142,16 +156,17 @@ hashing the C++ `bitmap` double buffer before it reaches a texture (HARNESS.md
 §6.3, §9.3). That works only while rendering is C++. As graphics, input and the
 UI cross into this directory, the subject of that hash crosses with them — the
 traces will keep passing and cover less. Nothing else in the repo has ever
-tested a browser: the two node suites in `tools/web/` are contract tests against
-stubs, `shell.html` is untested, and HARNESS.md §9.10 says outright that "a save
-survives a reload" needs one.
+tested a browser: `saves.test.js`, the one node suite left in `tools/web/`, is a
+contract test against stubs, so are the suites in here, `shell.html` is untested,
+and HARNESS.md §9.10 says outright that "a save survives a reload" needs one.
 
-The current seven assert that the page boots without a page error, that the
+The current eight assert that the page boots without a page error, that the
 canvas keeps its 800×600 backing store, that it draws more than one colour, that
 every bridge is present, that the console APIs exist, that **a keystroke reaches
 the C++ input path** (asserted through `ivanHarness.text()`, the live recording,
 so it covers the browser, the shell, asyncify and `GET_KEY`), that the first
-gesture releases the audio context, and that the saves are mounted writable.
+gesture releases the audio context, that the saves are mounted writable, and that
+every module that has crossed announced itself in `ivanPage.modules`.
 
 Not a pixel comparison: the main menu fades in and the seed varies, so a golden
 image needs a fixed seed and a settled frame first. That is the obvious next one.
@@ -222,6 +237,104 @@ mixes, a failed fetch is cached as a failure so one missing file is one console
 line per session, a sound arriving more than 250ms late is thrown away, and a
 suspended context drops instead of queueing.
 
+## Music — the second module across
+
+`src/audio/music.ts` was `tools/web/music.js`. HARNESS.md §9.8 has the design
+argument and has not changed; this is the operating manual, which moved with the
+code, and `music.test.js` came with it as `music.test.ts`.
+
+The same split as sfx, one level up: the module says what should be playing, this
+plays it. Nothing here synthesizes MIDI — the `.mid` are never fetched by the
+page. They are rendered ahead of time into OGG stems, which is what lets the
+browser build drop RtMidi, the MIDI parser and the playback engine.
+
+The playlist is the game's. `dungeon::PrepareMusic` builds it from the level
+scripts and `audio.cpp` keeps it, exactly as on the native build; what crosses is
+that list, plus the master volume and the intensity the game recomputes every
+turn:
+
+```
+dungeon::PrepareMusic          [C++]  playlist for this level
+  -> audio::LoadMIDIFile              -> Tracks
+  -> IvanMusicPlaylist("Dungeon.mid,Dungeon2.mid")   [bridge]
+  -> ivanMusic.setPlaylist(...)       [JS: choose, fetch, loop, mix]
+
+character::Be                  [C++]  every turn
+  -> audio::IntensityLevel(127 - worstBodyPartHP)
+  -> ivanMusic.setIntensity(...)      [JS: three gain nodes]
+```
+
+One value travels back, because `PrepareMusic` branches on it:
+`GetCurrentlyPlayedFile` is an `IvanMusicCurrentIndex()` readback resolved against
+the playlist by *name*, so it stays right across the reorder a level change
+performs. A plain synchronous `EM_JS` returning an `int` — no promise, no callback
+into wasm, nothing for asyncify.
+
+### The stems
+
+IVAN's music is adaptive: as the player's worst body part gets worse, some
+instrument groups fade out and others fade in. `audio.cpp`'s two volume tables
+only ever produce three curves, so each track is pre-rendered as up to three OGG
+stems and mixed here by three gain nodes:
+
+| stem | MIDI channels | gain |
+|---|---|---|
+| `const` | 0–4, 9 | full, always |
+| `fadeout` | 5–8, 10 | `127 - intensity` |
+| `fadein` | 11–15 | `intensity` |
+
+Regenerate them from the `.mid` with `tools/music/render-stems.py` and commit the
+result. `Music/stems.json` says which stems each track has, and is why the page
+never probes for a file that was never rendered: six of the eleven tracks have no
+notes at all, so "no stems" is a normal answer rather than a fault.
+
+Unlike effects, stems are **streamed** through `<audio>` elements rather than
+decoded into `AudioBuffer`s. Decoded audio is about 23MB per minute per stem, and
+`Dungeon3` is 7.3 minutes — half a gigabyte for one dungeon if it were cached the
+way sfx caches wavs. The cost of streaming is that three elements keep three
+clocks, which is what the alignment pass and the drift correction are for.
+
+```js
+ivanMusic.stats()      // {track, stems, gains, intensity, volume, drift, ...}
+ivanMusic.playlist()   // what the module last handed down
+```
+
+```
+?music=off             never play anything (still records what would have)
+?musicbase=<url>       fetch from somewhere other than the page's own Music/
+?musiccurve=linear     volume as a straight ratio, not the GM square law
+```
+
+`stats().drift` is the one to watch: it is each stem's offset from the leading
+one, and drift between stems of the same piece is heard as a doubled attack
+rather than as a timing error. Anything under 5ms is left alone, anything over is
+pulled back with a playback-rate nudge of at most 0.5% — inaudible, and
+`corrections` counts those. Past 50ms the nudge cannot close the gap in
+reasonable time and the stem is seeked instead; if `seeks` is climbing in steady
+state, this design is the wrong one.
+
+**When it is silent**, in the order worth checking:
+
+1. **`stats().track` is `null` and `playlist()` is empty.** Nothing crossed the
+   bridge. Either the game has music off — `ChangeMIDIOutputDevice(0)`, the "Use
+   MIDI soundtrack: no" option — or `audio::Init` never ran.
+2. **`stats().track` is `null` but `playlist()` is not.** The playlist is all
+   silent tracks. Normal on the main menu, the world map, and any dungeon whose
+   script names `Empty.mid`. Check `Music/stems.json`.
+3. **`stats().failed` is climbing.** A stem in the manifest would not load.
+   `Music/` has to be served beside `ivan.html`; the build symlinks it, and a
+   deploy that copies only the emcc output will not have it. Or the stems were
+   never rendered — `ls Music/*.ogg`.
+4. **`state()` is `suspended`.** The autoplay policy. Unlike effects, music is
+   picked up when the context resumes rather than dropped, because the main menu
+   asks for it before any gesture can have happened.
+
+`music.test.ts` is a port rather than new coverage — the node suite it replaces
+had 61 checks and they are all still here, as independent cases rather than one
+sequential narrative. Three query options that suite never covered are new, and
+they are the ones the move made testable: options are read at call time now, so
+one process can hold more than one page.
+
 ## What is here
 
 ```
@@ -232,6 +345,8 @@ web/
     audio/
       sfx.ts                sound effects (§9.7) -- the first module to cross
       sfx.test.ts
+      music.ts              the soundtrack (§9.8) -- the second
+      music.test.ts
     platform/
       query.ts              the query string, once, for ?sfx=off ... ?wipesaves
       query.test.ts
