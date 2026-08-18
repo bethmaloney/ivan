@@ -330,7 +330,7 @@ character::Be                  [C++]  every turn
   -> ivanMusic.setIntensity(...)      [JS: three gain nodes]
 ```
 
-Two more cross that this section used to omit, and `web/test/bridge.test.ts` is
+Two more cross that this section used to omit, and `web/src/bridge/contract.test.ts` is
 what found them — the whole point of parsing the `EM_JS` blocks rather than
 trusting a table like this one:
 

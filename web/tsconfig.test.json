@@ -13,8 +13,9 @@
     "allowJs": true,
     "checkJs": true
   },
-  // The .d.ts files are named explicitly: nothing imports them, so they would
-  // not be reached by the include globs above, and the browser test asserts
+  // *.test.ts lives beside what it tests, so this reaches into src/ for them and
+  // tsconfig.json excludes them. The .d.ts files are named explicitly: nothing
+  // imports them, so no glob above would reach them, and the browser test asserts
   // against exactly the globals they declare.
-  "include": ["test", "e2e", "build.mjs", "playwright.config.ts", "src/**/*.d.ts"]
+  "include": ["src/**/*.test.ts", "src/**/*.d.ts", "e2e", "build.mjs", "playwright.config.ts"]
 }

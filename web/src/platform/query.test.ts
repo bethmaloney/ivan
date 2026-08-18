@@ -8,7 +8,7 @@
 
 import { test } from 'node:test';
 import { strictEqual } from 'node:assert';
-import { Enabled, Present, Setting } from '../src/platform/query.ts';
+import { Enabled, Present, Setting } from './query.ts';
 
 function Visit(Search: string): void {
   Object.defineProperty(globalThis, 'location', {

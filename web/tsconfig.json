@@ -8,5 +8,10 @@
     "lib": ["es2020", "dom", "dom.iterable"],
     "types": ["emscripten"]
   },
-  "include": ["src"]
+  "include": ["src"],
+  // Tests sit next to what they test, and they import node:test -- so they are
+  // excluded here and picked up by tsconfig.test.json instead. Excluding them is
+  // what keeps this project's "no node types" guard meaningful; handing src/ the
+  // node types so the tests could live in it would give the guard away.
+  "exclude": ["**/*.test.ts"]
 }

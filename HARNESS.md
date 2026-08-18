@@ -3216,9 +3216,19 @@ it forever. `.editorconfig` stays the authority.
 
 **Two tsconfigs, and the split is the point.** `src/` gets `lib: es2020 + dom` and **no node
 types**, so an `import 'node:fs'` in page code is a compile error rather than something a bundle
-discovers. `test/`, `e2e/` and `build.mjs` get node and a newer lib. `erasableSyntaxOnly`
-confines the whole tree to TypeScript that erases to nothing — no enums, no parameter
-properties — because both things that read it only strip types rather than compiling them.
+discovers.
+
+Tests live beside what they test — `query.ts` and `query.test.ts` are siblings, and there is no
+`test/` directory — which is what makes that split load-bearing rather than tidy. A test next to
+its subject imports `node:test`, so `tsconfig.json` `exclude`s `**/*.test.ts` and
+`tsconfig.test.json` picks them up with node and a newer lib, along with `e2e/` and `build.mjs`.
+Handing `src/` the node types so the tests could live in it would give the guard away for
+nothing. Nothing in `src/` imports a test, so esbuild never reaches one; the bundle follows
+imports from `main.ts`.
+
+`erasableSyntaxOnly` confines the whole tree to TypeScript that erases to nothing — no enums, no
+parameter properties — because both things that read it only strip types rather than compiling
+them.
 
 TypeScript 7, the native compiler, and that was checked rather than assumed: JSDoc-driven
 checking was the last thing to land in the native port and `build.mjs` depends on it. Three
@@ -3238,7 +3248,7 @@ class of failure §9.7 and §9.9 kept running into, and the reason `dist.py` par
 `SoundEffects.cfg` instead of globbing `Sound/`.
 
 So the six targets are declared once in `web/src/bridge/contract.ts` and checked from both ends:
-`web/test/bridge.test.ts` parses the `EM_JS` blocks out of `FeLib/Source`, `audio/` and
+`web/src/bridge/contract.test.ts` parses the `EM_JS` blocks out of `FeLib/Source`, `audio/` and
 `Main/Source` — brace-counting, not a regex that stops at the first `}` — and diffs them against
 the declaration **in both directions**, so a call that is not declared fails and a declaration
 nothing calls any more fails too. `web/e2e/boot.spec.ts` asserts the live page has each one.

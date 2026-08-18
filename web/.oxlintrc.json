@@ -18,7 +18,7 @@
   },
   "overrides": [
     {
-      "files": ["test/**", "e2e/**", "build.mjs", "playwright.config.ts"],
+      "files": ["**/*.test.ts", "e2e/**", "build.mjs", "playwright.config.ts"],
       "env": { "node": true },
       "rules": {
         // A browser test walks its assertions in order on purpose; the game has

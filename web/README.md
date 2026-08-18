@@ -57,12 +57,25 @@ aligned comment blocks, PascalCase locals matching the C++ house style. A
 formatter would churn all of it and then fight it. `.editorconfig` at the repo
 root is the formatting authority.
 
-`tsconfig.json` covers `src/` with `lib: es2020 + dom` and **no node types**, so
-an `import 'node:fs'` in page code is a compile error. `tsconfig.test.json`
-covers `test/`, `e2e/` and the build scripts, where node is the point.
+**Tests sit next to what they test**: `query.ts` and `query.test.ts` are siblings,
+and there is no `test/` directory. `*.spec.ts` under `e2e/` is the browser suite
+and a different runner, so the two never collide.
+
+That makes the tsconfig split load-bearing rather than tidy. `tsconfig.json`
+covers `src/` with `lib: es2020 + dom` and **no node types**, so an
+`import 'node:fs'` in page code is a compile error — and it `exclude`s
+`**/*.test.ts`, because a test beside its subject imports `node:test` and would
+otherwise force node's types into the project the guard depends on.
+`tsconfig.test.json` picks those files up, along with `e2e/` and the build
+scripts, where node is the point. Handing `src/` the node types so the tests
+could live in it would give the guard away for nothing.
+
 `erasableSyntaxOnly` confines the whole tree to TypeScript that erases to
 nothing — no enums, no parameter properties — because both things that read it
 only strip types rather than compiling them.
+
+Nothing in `src/` imports a test, so esbuild never reaches one: the bundle
+follows imports from `src/main.ts` and is 329 bytes.
 
 ## The bridge, and the one contract that spans both languages
 
@@ -80,7 +93,7 @@ an error, and the corpora cannot see it because a headless replay makes no sound
 So the names are declared once in `src/bridge/contract.ts` and checked from both
 ends:
 
-- `test/bridge.test.ts` parses the `EM_JS` blocks out of the C++ and compares
+- `src/bridge/contract.test.ts` parses the `EM_JS` blocks out of the C++ and compares
   them against `contract.ts`, in both directions — a call that is not declared
   fails, and a declaration nothing calls any more fails too. Parsed rather than
   trusted, for the same reason `dist.py` parses `SoundEffects.cfg` instead of
@@ -129,14 +142,17 @@ image needs a fixed seed and a settled frame first. That is the obvious next one
 ```
 web/
   src/
-    main.ts               the entry point, and the only place a global is assigned
-    platform/query.ts     the query string, once, for all of ?sfx=off ... ?wipesaves
-    bridge/contract.ts    the six EM_JS targets, checked from both ends
-    bridge/globals.d.ts   the console APIs, typed
-    env.d.ts              IVAN_BUILD_ID and IVAN_CRASH_ENDPOINT, esbuild --define
-  test/                   node --test, no browser
-  e2e/                    Playwright, against an assembled dist/
-  build.mjs               esbuild
+    main.ts                 the entry point, and the only place a global is assigned
+    env.d.ts                IVAN_BUILD_ID and IVAN_CRASH_ENDPOINT, esbuild --define
+    platform/
+      query.ts              the query string, once, for ?sfx=off ... ?wipesaves
+      query.test.ts
+    bridge/
+      contract.ts           the six EM_JS targets, checked from both ends
+      contract.test.ts      parses the C++ and diffs it against contract.ts
+      globals.d.ts          the console APIs, typed
+  e2e/                      Playwright, against an assembled dist/
+  build.mjs                 esbuild
 ```
 
 Modules cross into `src/` one at a time, and `src/main.ts` keeps the list it has

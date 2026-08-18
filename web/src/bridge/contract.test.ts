@@ -2,7 +2,7 @@
  * The C++ -> page bridge contract. Run with: npm test
  *
  * Parses the EM_JS blocks out of the game's own sources and checks them against
- * src/bridge/contract.ts. Parsed rather than trusted, for the same reason
+ * contract.ts beside it. Parsed rather than trusted, for the same reason
  * dist.py parses SoundEffects.cfg instead of globbing Sound/: a declaration
  * checked against itself would agree with itself and prove nothing.
  *
@@ -13,11 +13,33 @@
 import { test } from 'node:test';
 import { deepStrictEqual } from 'node:assert';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
-import { dirname, join, relative, resolve } from 'node:path';
+import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { Bridges, SourceDirs } from '../src/bridge/contract.ts';
+import { Bridges, SourceDirs } from './contract.ts';
 
-const Repo = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
+/* Found by walking up to the marker rather than by counting `..`, because this
+   file moved once already and a wrong count does not fail here -- Sources()
+   returns nothing for a directory that is not there, and a test that parses no
+   C++ at all would pass every comparison against an empty set. The vacuity
+   check below is the backstop; this is not needing it. */
+
+function RepoRoot(): string {
+  let At = dirname(fileURLToPath(import.meta.url));
+
+  for(;;) {
+    if(statSync(join(At, 'CMakeLists.txt'), { throwIfNoEntry: false })?.isFile())
+      return At;
+
+    const Up = dirname(At);
+
+    if(Up === At)
+      throw new Error('no CMakeLists.txt above ' + import.meta.url);
+
+    At = Up;
+  }
+}
+
+const Repo = RepoRoot();
 
 function Sources(Dir: string): string[] {
   const Full = join(Repo, Dir);
