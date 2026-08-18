@@ -1,0 +1,21 @@
+{
+  // The test tree and the build scripts: node's API, and a newer lib than the
+  // browser bundle is allowed to assume. src is pulled in by the imports and so
+  // is checked twice -- once here with node available, once by tsconfig.json
+  // without it, which is the pass that holds the boundary.
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["es2023", "dom", "dom.iterable"],
+    "types": ["node"],
+
+    // build.mjs is JavaScript, and without these two tsc lists it in `include`
+    // and then silently checks nothing in it.
+    "allowJs": true,
+    "checkJs": true
+  },
+  // *.test.ts lives beside what it tests, so this reaches into src/ for them and
+  // tsconfig.json excludes them. The .d.ts files are named explicitly: nothing
+  // imports them, so no glob above would reach them, and the browser test asserts
+  // against exactly the globals they declare.
+  "include": ["src/**/*.test.ts", "src/**/*.d.ts", "e2e", "build.mjs", "playwright.config.ts"]
+}

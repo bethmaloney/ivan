@@ -1,0 +1,17 @@
+{
+  // The page's own source, and nothing else. lib is es2020 + dom with no node
+  // types on purpose: this code runs in a browser, and a `import 'node:fs'` in
+  // here should be a compile error rather than something a bundle discovers.
+  // The test tree gets node and a newer lib from tsconfig.test.json.
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["es2020", "dom", "dom.iterable"],
+    "types": ["emscripten"]
+  },
+  "include": ["src"],
+  // Tests sit next to what they test, and they import node:test -- so they are
+  // excluded here and picked up by tsconfig.test.json instead. Excluding them is
+  // what keeps this project's "no node types" guard meaningful; handing src/ the
+  // node types so the tests could live in it would give the guard away.
+  "exclude": ["**/*.test.ts"]
+}

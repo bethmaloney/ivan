@@ -1,0 +1,27 @@
+{
+  "name": "ivan-web",
+  "version": "0.0.0",
+  "private": true,
+  "description": "The browser frontend for IVAN: everything the page owns rather than the wasm module (HARNESS.md §9)",
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs",
+    "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.test.json",
+    "lint": "oxlint",
+    "test": "node --test 'src/**/*.test.ts'",
+    "check": "npm run typecheck && npm run lint && npm test",
+    "e2e": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.62.1",
+    "@types/emscripten": "^1.41.5",
+    "@types/node": "^24.13.3",
+    "esbuild": "^0.28.2",
+    "oxlint": "^1.78.0",
+    "typescript": "^7.0.2"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "//": "@types/node tracks the runtime, not npm: its majors follow node's, so 24.x goes with the Node 24 in .nvmrc and in CI. 26.x is npm's latest and would describe APIs this runtime does not have."
+}

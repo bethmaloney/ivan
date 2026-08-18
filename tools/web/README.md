@@ -1,6 +1,12 @@
 # tools/web — the browser frontend
 
-Seven things live here, and only the first is about crashes:
+**The frontend is moving to `web/`, which has the build, the linter and the two
+test harnesses; see `web/README.md`.** Nothing here has crossed yet: all four
+JavaScript files below are still emcc link inputs and still exactly what ships.
+What did change is that the C++ → page bridge is now declared in
+`web/src/bridge/contract.ts` and checked against these files from both ends.
+
+Eight things live here, and only the first is about crashes:
 
 | | |
 |---|---|
@@ -324,10 +330,29 @@ character::Be                  [C++]  every turn
   -> ivanMusic.setIntensity(...)      [JS: three gain nodes]
 ```
 
+Two more cross that this section used to omit, and `web/src/bridge/contract.test.ts` is
+what found them — the whole point of parsing the `EM_JS` blocks rather than
+trusting a table like this one:
+
+```
+audio::SetVolumeLevel(vol)     [C++]  the config's master volume
+  -> IvanMusicVolume(vol)             (audio.cpp:587)
+  -> ivanMusic.setVolume(...)
+
+audio::whatever stops it       [C++]  PlaybackState & PLAYING
+  -> IvanMusicPlaying(State)          (audio.cpp:628)
+  -> ivanMusic.setPlaying(...)
+```
+
 One value travels back, because `PrepareMusic` branches on it:
 `GetCurrentlyPlayedFile` is an `IvanMusicCurrentIndex()` readback resolved
 against the playlist. It is a plain synchronous `EM_JS` returning an `int` — no
 promise, no callback into wasm, nothing for asyncify.
+
+So the bridge is six functions, not the three this used to show:
+`ivanSfx.play`, and `ivanMusic.setPlaylist`, `setPlaying`, `setVolume`,
+`setIntensity` and `currentIndex`. They are declared once in
+`web/src/bridge/contract.ts` and checked from both ends — see `web/README.md`.
 
 ## The stems
 
