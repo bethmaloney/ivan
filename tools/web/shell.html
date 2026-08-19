@@ -20,7 +20,7 @@
     var Module       declared global before ivan.js loads, exactly as the stock
                      shell does. ivan.js opens with
                      `var Module = typeof Module != "undefined" ? Module : {}`
-                     and harness-pre.js takes the same object, so the canvas,
+                     and the page's bundle takes the same object, so the canvas,
                      the status hooks and --record's argv all arrive through it.
     {{{ SCRIPT }}}   emcc substitutes the script tag for ivan.js here.
 
@@ -449,7 +449,7 @@ button:hover {
   }
 
   /* ---- failure ---------------------------------------------------------
-     harness-pre.js has already stored a report and printed it by the time this
+     web/src/harness has already stored a report and printed it by the time this
      runs; this only makes the page say so, because "nothing happened" is the
      worst possible reading of a crash. */
 
@@ -560,8 +560,10 @@ button:hover {
   });
 
   /* ---- the module ------------------------------------------------------
-     Global on purpose: ivan.js opens by picking up an existing Module, and
-     harness-pre.js and saves.js both attach to the same object. */
+     Global on purpose: ivan.js opens by picking up an existing Module, and both
+     the page's bundle and saves.js attach to the same object. The bundle puts
+     the query string on .arguments and chains the onAbort below; saves.js hangs
+     a run dependency on it. */
 
   globalThis.Module = {
     canvas: Canvas,

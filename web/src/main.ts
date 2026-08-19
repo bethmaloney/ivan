@@ -12,11 +12,13 @@
  * asserts against the same declarations and cannot see into this module.
  */
 
+import { BuildId } from './platform/build.ts';
 import * as Query from './platform/query.ts';
 import * as Sfx from './audio/sfx.ts';
 import * as Music from './audio/music.ts';
+import * as Harness from './harness/report.ts';
 
-/* Modules land here as they cross: sfx and music have, saves and harness have
+/* Modules land here as they cross: sfx, music and the harness have, saves has
    not, then graphics, input and the UI. The list is what the browser test
    asserts against, so a module that fails to initialise is a failed assertion
    rather than a page that is quietly missing a feature. */
@@ -24,7 +26,7 @@ import * as Music from './audio/music.ts';
 const Loaded: string[] = [];
 
 globalThis.ivanPage = {
-  build: IVAN_BUILD_ID,
+  build: BuildId(),
   modules: Loaded
 };
 
@@ -50,3 +52,17 @@ Loaded.push('sfx');
 globalThis.ivanMusic = Music.Api;
 Music.Install();
 Loaded.push('music');
+
+/* The harness (HARNESS.md §4, §9.6). Last of the three and the only one whose
+   Install() has to happen before ivan.js rather than merely before a gesture: it
+   puts the query string on Module.arguments, and the runtime reads that once, at
+   startup. The shell's <script> order is what guarantees it.
+
+   Deliberately outside the ?page=off warning above, like the other two but for a
+   different reason: ?page=off is a debugging switch, and a switch that also threw
+   away --seed, --headless and the recording would take the instrument away at the
+   moment it is being reached for. */
+
+globalThis.ivanHarness = Harness.Api;
+Harness.Install();
+Loaded.push('harness');

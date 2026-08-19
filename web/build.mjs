@@ -53,11 +53,12 @@ function OutDirFrom(Argv) {
 
 const OutDir = OutDirFrom(Args);
 
-/* The same build id harness-pre.js.in used to get from CMake's configure_file,
-   so a crash report still names the build it came from. Taken from git rather
-   than passed in, because the bundle is now built without CMake's involvement;
-   IVAN_BUILD_ID in the environment overrides it, which is what CI and the
-   CMake target will do. */
+/* The build id a crash report names, so a stack trace can be symbolized against
+   the binary that produced it. Taken from git here rather than passed in by
+   CMake: harness-pre.js.in was the other consumer and it is gone, so this is the
+   only source of it, and being derived at build time rather than at configure
+   time makes it the more accurate of the two. IVAN_BUILD_ID in the environment
+   overrides it, which is what CI does when git describe cannot see a tag. */
 
 function BuildId() {
   if(process.env.IVAN_BUILD_ID)

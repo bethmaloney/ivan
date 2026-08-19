@@ -39,7 +39,7 @@ if(EMSCRIPTEN)
   # effect and gets debugged as a code problem.
   if(WASM_BROWSER)
     set_target_properties(ivan PROPERTIES
-                          LINK_DEPENDS "${CMAKE_BINARY_DIR}/harness-pre.js;${CMAKE_SOURCE_DIR}/tools/web/saves.js;${CMAKE_SOURCE_DIR}/tools/web/shell.html")
+                          LINK_DEPENDS "${CMAKE_SOURCE_DIR}/tools/web/saves.js;${CMAKE_SOURCE_DIR}/tools/web/shell.html")
   endif()
 
   # Emitting .html rather than .js is what makes emcc generate the page and the
@@ -60,14 +60,16 @@ if(EMSCRIPTEN)
     # exists for: a stale bundle is silent, and the build reports success while
     # the page keeps serving the previous copy.
     #
-    # IVAN_BUILD_ID and the crash endpoint come from the same CMake variables
-    # that configure_file puts into harness-pre.js, so a report names the same
-    # build whichever half of the page produced it.
+    # No `cmake -E env` wrapper: build.mjs takes IVAN_BUILD_ID and
+    # IVAN_CRASH_ENDPOINT from the environment, and the environment reaches a
+    # custom command already. Forwarding CMake's own copies is what used to happen
+    # and it was worse than nothing -- `cmake -E env "IVAN_CRASH_ENDPOINT="` with
+    # the cache variable at its empty default *overwrote* an ambient value, so the
+    # override build.mjs documents could not be used through a CMake build at all.
+    # Measured on cmake 3.28.3, and it was silent because the value had never been
+    # set anywhere.
     add_custom_target(ivan-page ALL
-                      COMMAND ${CMAKE_COMMAND} -E env
-                              "IVAN_BUILD_ID=${IVAN_BUILD_ID}"
-                              "IVAN_CRASH_ENDPOINT=${WASM_CRASH_ENDPOINT}"
-                              ${IVAN_NODE} build.mjs --outdir $<TARGET_FILE_DIR:ivan>
+                      COMMAND ${IVAN_NODE} build.mjs --outdir $<TARGET_FILE_DIR:ivan>
                       WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/web
                       COMMENT "Bundling web/ beside the page")
 

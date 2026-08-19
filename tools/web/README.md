@@ -1,18 +1,18 @@
 # tools/web — the browser frontend
 
-**The frontend is moving to `web/`; see `web/README.md`.** Sound effects and music
-have crossed — they are `web/src/audio/sfx.ts` and `web/src/audio/music.ts`,
-bundled rather than linked, and their operating manuals moved with them. The two
-JavaScript files below are what has not crossed: both are still emcc link inputs,
-both are still exactly what ships, and both reach for names that only exist inside
-`ivan.js`'s scope, which is the reason they are still here. The C++ → page bridge
-is declared in `web/src/bridge/contract.ts` and checked from both ends.
+**The frontend is moving to `web/`; see `web/README.md`.** Sound effects, music
+and the harness have crossed — `web/src/audio/sfx.ts`, `web/src/audio/music.ts`
+and `web/src/harness/` — bundled rather than linked, and their operating manuals
+moved with them. **`saves.js` is the one JavaScript file left**, still an emcc
+link input and still exactly what ships, because it reaches for
+`addRunDependency` and `removeRunDependency`, which are module-scope in `ivan.js`
+and not exported. The C++ → page bridge is declared in
+`web/src/bridge/contract.ts` and checked from both ends.
 
-Six things live here, and only the first is about crashes:
+Five things live here now:
 
 | | |
 |---|---|
-| `harness-pre.js.in` | turns the query string into argv, and collects a crash report |
 | `saves.js` | keeps the player's saves in IndexedDB, so they survive the tab |
 | `shell.html` | the page emcc wraps around the module |
 | `site/` | the landing page, and the fonts and images it serves |
@@ -21,66 +21,26 @@ Six things live here, and only the first is about crashes:
 
 ---
 
-# Collecting and diagnosing a browser crash
+# Diagnosing a browser crash
 
-The goal is that an ordinary session, played with no foresight and no special
-flags, produces enough on a crash to find the bug. That means two things have to
-be true *before* the crash, because neither can be arranged afterwards:
+**The report itself is `web/src/harness/` now, and its manual moved with it — see
+`web/README.md`.** `ivanHarness.reports()`, `ivanHarness.saveRecording()`, the
+console output, `?record=off` and `?crashlog=` are all documented there.
+
+What stays here is the half that is about the *build* rather than the page: why a
+browser build carries function names unconditionally, the two knobs that make a
+crash easier to pin down, and what it means when a WASM crash will not reproduce
+natively.
+
+The goal both halves serve is that an ordinary session, played with no foresight
+and no special flags, produces enough on a crash to find the bug. Two things have
+to be true *before* the crash, because neither can be arranged afterwards:
 
 - the binary has to carry function names, or the trap prints byte offsets that
   nothing can resolve;
 - the session has to have been recording, or there is no way to reproduce it.
 
 Both are on by default in a `WASM_BROWSER` build. Nothing below needs enabling.
-
-## What you get when it crashes
-
-The console prints a report and it is also saved to `localStorage`, so it
-survives the reload or the closed tab that usually follows:
-
-```
-ivan: unhandled rejection
-RuntimeError: memory access out of bounds
-    at character::Move (ivan.wasm:0x...)
-    ...
-
---- crash report ---
-build   v059-55-gf7d61e1
-seed    1755312345
-keys    403
-stored  ivanHarness.reports() / ivanHarness.save()
-
-Reproduce it natively:
-  ivanHarness.saveRecording()   then
-  ./ivan --replay session.rec
-```
-
-From the console:
-
-```js
-ivanHarness.reports()        // every stored report, newest first
-ivanHarness.save()           // newest one as a .json file
-ivanHarness.saveRecording()  // just the .rec, ready for --replay
-ivanHarness.text()           // the live recording, crash or no crash
-ivanHarness.report('note')   // file one for something that did not crash
-ivanHarness.clear()          // forget them
-```
-
-**The recording is the valuable part.** A stack says where it stopped; the
-recording says how to get back there. It carries the seed in its header, so
-
-```bash
-./ivan --replay session.rec
-```
-
-replays the session on the native build, where gdb, valgrind and ASan all apply.
-That works because `harness::RecordKey` flushes every key as it writes it
-(`FeLib/Source/harness.cpp:545`) — a trap leaves the recording complete but for
-its `# end keys=` trailer, so the keys that led to the crash survive it.
-
-Recording changes nothing about how the game plays. The seed it pins is the same
-`time(0)` the game would have used anyway (`Main/Source/main.cpp:154`); it just
-writes it down. Opt out with `?record=off` if you ever need to.
 
 ## Why a stripped trap is not a lead
 
@@ -132,27 +92,6 @@ structurally cannot see — the class HARNESS.md §6.6 and §9.4 were about. Rea
 for `SAFE_HEAP` plus the recording, and compare a native `--trace` of the same
 recording against the WASM one to find the last frame they agreed on.
 
-## Sending reports somewhere
-
-Reports are local-only by default: `localStorage` and the console, with
-`ivanHarness.save()` to get one out by hand.
-
-The POST hook is wired but inert. Set an endpoint at build time, or per-session
-without a rebuild:
-
-```bash
-emcmake cmake ... -DWASM_CRASH_ENDPOINT=https://example.com/ivan-crash
-```
-
-```
-ivan.html?crashlog=https://example.com/ivan-crash
-```
-
-It sends the whole report as JSON, `keepalive` so it outlives the page — which a
-crash is usually followed by. `keepalive` caps a body at 64KB, so a long
-recording is dropped from the POST and kept locally rather than losing the
-report; the key count says so. Nothing is sent when no endpoint is set.
-
 ---
 
 # saves.js — the player's data, in IndexedDB
@@ -168,7 +107,7 @@ Everything the player accumulates, because it is one mount and not three:
 `Save/`, `Bones/`, `Scrshot/`, `ivan.cfg`, the highscore table and the answer to
 the name prompt. What is *not* in it is `Graphics/` and `Script/`, which are
 read-only and live at the MEMFS root that `ivan.data` populates, and
-`/session.rec`, which is the crash recording and belongs to `harness-pre.js`.
+`/session.rec`, which is the crash recording and belongs to `web/src/harness`.
 
 `.bkp` backups are off on this target (`save.cpp:28`) — they are 35% of a save
 set and IndexedDB would keep every byte of them.
@@ -233,16 +172,22 @@ thing rather than what the thing is.
 
 ## What must not change
 
-Three things are load-bearing, because the runtime and the `--pre-js` files
-reach into them by name:
+Four things are load-bearing, because the runtime, `saves.js` and the page's own
+bundle all reach into them by name:
 
 - **`id="canvas"`** — Emscripten's SDL2 port looks the canvas up by that id at
   video init. Rename it and the game has nothing to draw on.
 - **`var Module`, global, before `ivan.js` loads.** `ivan.js` opens with
-  `var Module = typeof Module != 'undefined' ? Module : {}`, and
-  `harness-pre.js` takes the same object, so the canvas, the status hooks and
-  `--record`'s argv all arrive through it. `onAbort` is chained rather than
-  replaced: the shell sets one, and harness-pre wraps it.
+  `var Module = typeof Module != 'undefined' ? Module : {}`, and both `saves.js`
+  and the bundle take the same object, so the canvas, the status hooks, the run
+  dependency that holds startup back for IndexedDB and `--record`'s argv all arrive
+  through it. `onAbort` is chained rather than replaced: the shell sets one and
+  `web/src/harness` wraps it.
+- **`<script src="ivan-page.js">`, after the `Module` literal and before
+  `{{{ SCRIPT }}}`.** Both halves matter. After, because the bundle assigns onto
+  `Module`; before, because `Module.arguments` is read by the runtime once, at
+  startup, so a bundle loaded later would lose the seed and the recording without
+  any error to show for it.
 - **`{{{ SCRIPT }}}`** — where emcc substitutes the script tag.
 
 ## No line may begin with a hash

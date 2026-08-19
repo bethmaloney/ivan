@@ -246,10 +246,9 @@ if(EMSCRIPTEN)
     # nothing else distinguishes them at that level: both are __EMSCRIPTEN__.
     add_definitions(-DIVAN_WASM_BROWSER)
 
-    # tools/web/harness-pre.js turns the query string into argv and collects a
-    # crash report. It needs FS on Module to read MEMFS, which is not exported
-    # by default. saves.js needs IDBFS beside it for the mount. See
-    # tools/web/README.md.
+    # web/src/harness reads the recording back out of MEMFS to put it in a crash
+    # report, so it needs FS on Module, which is not exported by default.
+    # saves.js needs IDBFS beside it for the mount. See tools/web/README.md.
     set(IVAN_WASM_LINK_FLAGS
         "${IVAN_WASM_LINK_FLAGS} -sEXPORTED_RUNTIME_METHODS=FS,IDBFS,callMain")
 
@@ -264,47 +263,21 @@ if(EMSCRIPTEN)
     # is not a degraded build: it is a page whose saves never leave MEMFS.
     set(IVAN_WASM_LINK_FLAGS "${IVAN_WASM_LINK_FLAGS} -lidbfs.js -sFS_DEBUG=1")
 
-    # A crash report names the build it came from, because a stack trace is only
-    # meaningful against the binary that produced it -- symbolizing last week's
-    # report against this week's wasm gives confident, wrong answers. Git
-    # describes the source; a dirty tree says so, since that is exactly the
-    # build whose report nobody else can reproduce.
-    find_package(Git QUIET)
+    # The harness crossed into web/src/harness (§9.6), and it took the build id
+    # and the crash endpoint with it. Nothing in CMake computes either one any
+    # more: harness-pre.js.in was the only consumer of the git describe, the
+    # WASM_CRASH_ENDPOINT cache variable and the configure_file that fed it, and
+    # build.mjs already derives the build id itself -- at build time rather than
+    # at configure time, so it is the fresher of the two. Set IVAN_CRASH_ENDPOINT
+    # in the environment to point reports somewhere; ?crashlog=<url> still
+    # redirects one session without a rebuild.
 
-    if(GIT_FOUND)
-      execute_process(COMMAND ${GIT_EXECUTABLE} describe --always --dirty --tags
-                      WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-                      OUTPUT_VARIABLE IVAN_BUILD_ID
-                      OUTPUT_STRIP_TRAILING_WHITESPACE
-                      ERROR_QUIET)
-    endif()
-
-    if(NOT IVAN_BUILD_ID)
-      set(IVAN_BUILD_ID "unknown")
-    endif()
-
-    # Where crash reports are POSTed. Empty means they are only kept locally,
-    # in localStorage and on the console. Overridable per-session with
-    # ?crashlog=<url> so a report can be redirected without a rebuild.
-    set(WASM_CRASH_ENDPOINT "" CACHE STRING
-        "URL to POST browser crash reports to (empty: keep them local only)")
-
-    configure_file(${CMAKE_CURRENT_SOURCE_DIR}/tools/web/harness-pre.js.in
-                   ${CMAKE_CURRENT_BINARY_DIR}/harness-pre.js @ONLY)
-
-    set(IVAN_WASM_LINK_FLAGS
-        "${IVAN_WASM_LINK_FLAGS} --pre-js ${CMAKE_CURRENT_BINARY_DIR}/harness-pre.js")
-
-    # Saves, mounted and synchronised by the page (§9.10). It holds up startup:
-    # it adds a run dependency while IndexedDB is read back into MEMFS, so
-    # main() cannot reach the menu and enumerate an empty Save/ before the saves
-    # have arrived. That run dependency is the whole of what keeps this one a
-    # --pre-js while the rest of the page moves into web/.
-    #
-    # The last of the two audio flags went with music (§9.8), which is now
-    # web/src/audio/music.ts. It borrows the AudioContext the sfx module owns,
-    # and both are in the same bundle, so an import states that dependency where
-    # the order of two --pre-js arguments used to imply it.
+    # Saves, mounted and synchronised by the page (§9.10). The last --pre-js, and
+    # addRunDependency is the whole of why: it holds up startup while IndexedDB is
+    # read back into MEMFS, so main() cannot reach the menu and enumerate an empty
+    # Save/ before the saves have arrived. FS and IDBFS are exported above and so
+    # reachable from the bundle; addRunDependency and removeRunDependency are
+    # module-scope in ivan.js and nothing else can hold main() back.
     set(IVAN_WASM_LINK_FLAGS
         "${IVAN_WASM_LINK_FLAGS} --pre-js ${CMAKE_CURRENT_SOURCE_DIR}/tools/web/saves.js")
 

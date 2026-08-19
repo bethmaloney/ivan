@@ -281,7 +281,7 @@ function AfterDebounce() {
 
   /* -- what is not the player's ------------------------------------------ */
 
-  /* The recording harness-pre.js reads lives at /session.rec, and Graphics/ and
+  /* The recording web/src/harness reads lives at /session.rec, and Graphics/ and
      Script/ are at the MEMFS root. None of it belongs in IndexedDB. */
 
   World.fs.Write('/session.rec', 400);

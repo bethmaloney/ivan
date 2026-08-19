@@ -88,7 +88,7 @@ test('every module that has crossed announced itself', async ({ page }) => {
     modules: globalThis.ivanPage.modules
   }));
 
-  expect(Announced.modules).toEqual(['sfx', 'music']);
+  expect(Announced.modules).toEqual(['sfx', 'music', 'harness']);
   expect(Announced.build).not.toBe('');
 });
 
@@ -116,6 +116,30 @@ test('a keystroke reaches the game', async ({ page }) => {
   await expect.poll(Keys).toBeGreaterThan(Before);
 });
 
+/* The one thing that could have broken silently when the harness stopped being a
+   --pre-js. Module.arguments is read by the runtime once, at startup, so a bundle
+   that assigned it a moment too late would lose the seed and the recording with
+   no error anywhere -- and nothing else in the tree would notice, because a
+   recording nobody asked for is not missed until a crash needs one.
+
+   ?seed=999 coming back out of the recording header is proof of the whole chain:
+   the bundle ran before ivan.js, ParseArgs saw the argv it built, and the seed it
+   pinned is the one the header now offers to --replay. */
+
+test('the query string reaches the game as argv', async ({ page }) => {
+  await page.goto('/play/?seed=999');
+  await expect(page.locator('#veil')).toBeHidden();
+
+  expect(await page.evaluate(() => globalThis.ivanHarness.args()))
+    .toEqual(['--seed', '999', '--record', '/session.rec']);
+
+  /* Written by harness.cpp:303 from the seed ParseArgs pinned, not echoed back
+     from the page. */
+
+  expect(await page.evaluate(() => globalThis.ivanHarness.text()))
+    .toContain('ivan-record 1 seed=999');
+});
+
 test('the first gesture releases the audio context', async ({ page }) => {
   /* Suspended until a gesture, by policy. The main menu asks for music before
      any gesture can have happened, which is why music is picked up on resume
@@ -124,6 +148,58 @@ test('the first gesture releases the audio context', async ({ page }) => {
 
   await expect.poll(() => page.evaluate(() => globalThis.ivanSfx.state() as string))
     .not.toBe('suspended');
+});
+
+/* The crash path, which has no coverage anywhere else and cannot get any without
+   a browser: report.test.ts stubs localStorage, MEMFS and fetch, so between them
+   the node cases check every rule and none of the three real things.
+ *
+ * Reported by hand rather than by crashing on purpose. A real trap would leave
+ * the module dead and the rest of this file has to keep running, and the code
+ * under test is the same either way -- ivanHarness.report() reaches Take()
+ * through the identical path onAbort does. */
+
+test('a crash report is built, stored and posted', async ({ page }) => {
+  const Posted: string[] = [];
+
+  await page.route('https://collector.test/c', async (Route) => {
+    Posted.push(Route.request().postData() ?? '');
+    await Route.fulfill({ status: 204, body: '' });
+  });
+
+  await page.goto('/play/?seed=4242&crashlog=https%3A%2F%2Fcollector.test%2Fc');
+  await expect(page.locator('#veil')).toBeHidden();
+  await page.locator('#canvas').press('Enter');
+
+  /* The game consumes a key when it next reaches GET_KEY, not when the event
+     fires, so the recording is a line longer some moments after the press. */
+
+  await expect.poll(() => page.evaluate(() =>
+    (globalThis.ivanHarness.text() ?? '').split('\n')
+      .filter((Line) => Line.startsWith('K ')).length)).toBeGreaterThan(0);
+
+  await page.evaluate(() => globalThis.ivanHarness.report('a report by hand'));
+
+  const Stored = await page.evaluate(() => globalThis.ivanHarness.reports());
+
+  expect(Stored.length).toBe(1);
+
+  /* Parsed back out of a header the C++ wrote, so this is the assertion that the
+     report carries a reproduction rather than a description of one. */
+
+  expect(Stored[0]?.seed).toBe('4242');
+  expect(Stored[0]?.keys).toBeGreaterThan(0);
+  expect(Stored[0]?.build).not.toBe('unknown');
+
+  await expect.poll(() => Posted.length).toBe(1);
+  expect(JSON.parse(Posted[0] ?? '{}')).toMatchObject({ seed: '4242' });
+
+  /* Why localStorage and not a variable: a crash is usually followed by the
+     reload or the closed tab that would take the report with it. */
+
+  await page.reload();
+  await expect(page.locator('#veil')).toBeHidden();
+  expect(await page.evaluate(() => globalThis.ivanHarness.reports().length)).toBe(1);
 });
 
 test('the saves are mounted where save.cpp looks', async ({ page }) => {
