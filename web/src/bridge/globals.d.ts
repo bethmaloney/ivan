@@ -2,14 +2,10 @@
  * The globals the page puts on the window, as the console and the browser test
  * see them.
  *
- * Deliberately loose for the one that has not moved: ivanSaves is the shape
- * tools/web/saves.js exposes today, declared so a test can reach it without
- * `any`. It gets a real type when it crosses into src/ and stops being a
- * --pre-js.
- *
- * ivanSfx, ivanMusic and ivanHarness have crossed, so their declarations here
- * are now the ones the modules are checked against rather than descriptions of
- * someone else's object.
+ * Every one of them has crossed now, so each declaration below is the type its
+ * module is checked against rather than a description of someone else's object.
+ * The looseness ivanSaves used to be declared with -- it was the last file in
+ * tools/web/ -- went with it.
  *
  * `var` rather than `const`: it is the only declaration form that puts a name on
  * globalThis, which is where both an EM_JS body and a page.evaluate() look.
@@ -69,20 +65,49 @@ interface IvanMusic {
   playlist(): string[];
 }
 
+interface IvanSavesStats {
+  mounted: boolean;
+  readOnly: boolean;
+  dirty: boolean;
+  syncing: boolean;
+  syncs: number;
+  writes: number;
+  failures: number;
+
+  /* Syncs refused because a .tmp was on disk. Not a fault count: outputfile
+     leaves one there for the length of a save, so deferring is the module
+     working (save.cpp:31). */
+
+  tempDeferrals: number;
+
+  /* Reading IndexedDB back at startup, and one sync afterwards. The first is
+     paid on every load and grows with the save set; the second does not. */
+
+  populateMs: number;
+  lastSyncMs: number;
+  lastError: string | null;
+}
+
 interface IvanSaves {
-  stats(): {
-    mounted: boolean;
-    readOnly: boolean;
-    dirty: boolean;
-    syncs: number;
-    writes: number;
-    failures: number;
-    lastError: string | null;
-  };
-  files(): unknown;
+  /* Both the mount point and the IndexedDB database name -- IDBFS keys its
+     database on the mountpoint, so they cannot differ. */
+
+  mount: string;
+
+  stats(): IvanSavesStats;
+  files(): { path: string; bytes: number }[];
   bytes(): number;
-  flush(): Promise<void>;
-  wipe(): void;
+
+  /* Resolves with whatever syncfs reported, so null is the success case. */
+
+  flush(): Promise<unknown>;
+
+  estimate(): Promise<{ usageMB: number; quotaMB: number; persisted: null } | null>;
+
+  /* Reloads afterwards unless told not to: the running game still holds the
+     state it just had wiped and would write it straight back. */
+
+  wipe(Reload?: boolean): Promise<void>;
 }
 
 interface IvanHarness {
@@ -140,8 +165,27 @@ interface IvanPage {
 
 interface IvanModule {
   arguments?: string[];
+
+  /* shell.html's, not the runtime's: the high-water mark of what startup was
+     ever waiting for. Read by the browser test, which is the only assertion
+     anywhere that the saves actually held main() back. */
+
+  totalDependencies: number;
+
   onAbort?: (What: unknown) => void;
+  preRun?: (() => void)[] | (() => void);
   FS?: typeof FS;
+  IDBFS?: Emscripten.FileSystemType;
+
+  /* Optional for the same reason FS is, and it is the whole of why saves.js
+     was the last --pre-js: these two are module-scope in ivan.js and reach the
+     page only as properties. FORCE_FILESYSTEM exports them and --preload-file
+     turns that on, but the link flags name them outright rather than inherit
+     them. They exist by the time preRun runs, which is the only moment saves
+     asks for them. */
+
+  addRunDependency?: (Id: string) => void;
+  removeRunDependency?: (Id: string) => void;
 }
 
 declare var Module: IvanModule;

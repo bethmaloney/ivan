@@ -1,19 +1,16 @@
 # tools/web — the browser frontend
 
-**The frontend is moving to `web/`; see `web/README.md`.** Sound effects, music
-and the harness have crossed — `web/src/audio/sfx.ts`, `web/src/audio/music.ts`
-and `web/src/harness/` — bundled rather than linked, and their operating manuals
-moved with them. **`saves.js` is the one JavaScript file left**, still an emcc
-link input and still exactly what ships, because it reaches for
-`addRunDependency` and `removeRunDependency`, which are module-scope in `ivan.js`
-and not exported. The C++ → page bridge is declared in
-`web/src/bridge/contract.ts` and checked from both ends.
+**The frontend has moved to `web/`; see `web/README.md`.** All four of the
+files that used to be here have crossed — `web/src/audio/sfx.ts`,
+`web/src/audio/music.ts`, `web/src/harness/` and `web/src/saves/` — bundled
+rather than linked, and their operating manuals moved with them. **No JavaScript
+is left here and there are no `--pre-js` inputs at all.** The C++ → page bridge
+is declared in `web/src/bridge/contract.ts` and checked from both ends.
 
-Five things live here now:
+Four things live here now, and none of them is JavaScript:
 
 | | |
 |---|---|
-| `saves.js` | keeps the player's saves in IndexedDB, so they survive the tab |
 | `shell.html` | the page emcc wraps around the module |
 | `site/` | the landing page, and the fonts and images it serves |
 | `dist.py` | assembles a deployable tree from a build plus the repo's assets |
@@ -94,72 +91,28 @@ recording against the WASM one to find the last frame they agreed on.
 
 ---
 
-# saves.js — the player's data, in IndexedDB
+# Saves — the player's data, in IndexedDB
 
-The game writes saves with `fopen` and knows nothing about any of this. What
-changed for it is one line: `GetUserDataDir()` answers `/ivan/` on this target
-rather than `PORTABLE_BUILD`'s `"./"` (`save.cpp:822`), and `/ivan` is an IDBFS
-mount. HARNESS.md §9.10 has the design argument; this is the operating manual.
+**`saves.js` is `web/src/saves/saves.ts` now, and its manual moved with it — see
+`web/README.md`.** `ivanSaves.stats()`, `?wipesaves`, `?saves=off` and the
+checklist for when saves do not persist are all documented there.
 
-## What is in the mount
+What stays here is the half that is about the *build*. Two link flags in the
+top-level `CMakeLists.txt` are load-bearing and neither fails loudly:
 
-Everything the player accumulates, because it is one mount and not three:
-`Save/`, `Bones/`, `Scrshot/`, `ivan.cfg`, the highscore table and the answer to
-the name prompt. What is *not* in it is `Graphics/` and `Script/`, which are
-read-only and live at the MEMFS root that `ivan.data` populates, and
-`/session.rec`, which is the crash recording and belongs to `web/src/harness`.
-
-`.bkp` backups are off on this target (`save.cpp:28`) — they are 35% of a save
-set and IndexedDB would keep every byte of them.
-
-## From the console
-
-```js
-ivanSaves.stats()      // mounted, dirty, syncs, failures, populateMs, lastError
-ivanSaves.files()      // what is in the mount, with sizes
-ivanSaves.bytes()      // their total
-ivanSaves.estimate()   // navigator.storage.estimate(), in MB
-ivanSaves.flush()      // sync now; resolves when IndexedDB has it
-ivanSaves.wipe()       // delete every save, then reload
-```
-
-```
-ivan.html?saves=off            do not mount; play in a scratch filesystem
-ivan.html?wipesaves            delete the database before mounting
-```
-
-**`?wipesaves` is the one to know.** Persistent saves mean a save the game
-cannot load fails on every load, and a player who cannot reach the menu cannot
-use a console API that lives behind it. It deletes the database before the mount,
-so there is no open connection to fight. If another tab has the game open,
-IndexedDB queues the delete instead of doing it and the page says so rather than
-claiming success.
-
-## When saves do not persist
-
-In the order worth checking:
-
-1. **`ivanSaves.stats().readOnly` is true.** Three things set it, and all three
-   print: another tab holds the lock, IndexedDB refused (a private window, or
-   third-party storage blocked), or the page was opened with `?saves=off`.
-2. **`stats().writes` stays at 0 while the game plainly saves.** The write
-   tracker is `FS.trackingDelegate`, which only exists when the module is linked
-   `-sFS_DEBUG=1`. Check with `grep -c trackingDelegate build-web/Main/ivan.js`.
-   Without it the mount populates and the game plays, so this fails silently
-   except for the one line `saves.js` prints at boot.
-3. **`stats().failures` is climbing.** Read `stats().lastError`. A full disk
-   arrives here as `QuotaExceededError`; the files stay in MEMFS and every later
-   write retries.
-4. **`stats().dirty` is stuck true with `tempDeferrals` climbing.** A `.tmp` is
-   sitting in the mount and the sync is refusing to run over a half-written
-   save. After ten attempts it gives up waiting and syncs anyway.
-
-## Editing it
-
-`saves.js` is a `--pre-js`, so **re-run `cmake` is not needed but a relink is**,
-and `Main/CMakeLists.txt` lists it in `LINK_DEPENDS` for exactly that reason.
-`node tools/web/saves.test.js` covers the whole contract without a browser and
-runs in about three seconds; it is the first thing to run after a change here.
+- **`-lidbfs.js -sFS_DEBUG=1`.** The first links the IndexedDB backend, which is
+  a separate JS library. The second is not a debug mode despite the name —
+  `settings.js:392` defines it as exactly "register file system callbacks using
+  trackingDelegate", which is how the page learns that the game wrote a save.
+  Without it `FS.trackingDelegate` does not exist, the mount populates, the game
+  plays, and nothing after boot is ever written back.
+- **`-sEXPORTED_RUNTIME_METHODS=...,addRunDependency,removeRunDependency`.** The
+  run dependency that holds `main()` back while IndexedDB is copied into MEMFS.
+  `FORCE_FILESYSTEM` already exports the pair and `--preload-file` turns that on
+  (`link.py:1637`), so dropping the two names would *not* break the build today;
+  they are there so the page depends on something the flags state rather than on
+  a side effect of preloading `Graphics/`. Without them the failure is a Continue
+  menu drawn over saves that had not arrived yet.
 
 ---
 
@@ -172,17 +125,17 @@ thing rather than what the thing is.
 
 ## What must not change
 
-Four things are load-bearing, because the runtime, `saves.js` and the page's own
-bundle all reach into them by name:
+Four things are load-bearing, because the runtime and the page's own bundle both
+reach into them by name:
 
 - **`id="canvas"`** — Emscripten's SDL2 port looks the canvas up by that id at
   video init. Rename it and the game has nothing to draw on.
 - **`var Module`, global, before `ivan.js` loads.** `ivan.js` opens with
-  `var Module = typeof Module != 'undefined' ? Module : {}`, and both `saves.js`
-  and the bundle take the same object, so the canvas, the status hooks, the run
-  dependency that holds startup back for IndexedDB and `--record`'s argv all arrive
-  through it. `onAbort` is chained rather than replaced: the shell sets one and
-  `web/src/harness` wraps it.
+  `var Module = typeof Module != 'undefined' ? Module : {}`, and the bundle takes
+  the same object, so the canvas, the status hooks, the `preRun` hook and run
+  dependency that hold startup back for IndexedDB, and `--record`'s argv all
+  arrive through it. `onAbort` is chained rather than replaced: the shell sets one
+  and `web/src/harness` wraps it.
 - **`<script src="ivan-page.js">`, after the `Module` literal and before
   `{{{ SCRIPT }}}`.** Both halves matter. After, because the bundle assigns onto
   `Module`; before, because `Module.arguments` is read by the runtime once, at
@@ -220,9 +173,10 @@ ships minified onto a single line.
 - **Mutes.** Through the master gain `web/src/audio/sfx.ts` owns, which is also what
   `web/src/audio/music.ts` connects its stems to, so one node covers both.
 
-Same `LINK_DEPENDS` caveat as the `--pre-js` files (`Main/CMakeLists.txt`): the
-shell reaches emcc only through `LINK_FLAGS`, so without it nothing relinks when
-the shell changes and the edit silently appears to do nothing.
+`LINK_DEPENDS` in `Main/CMakeLists.txt` names it, and it is the only entry left
+now that nothing is a `--pre-js`: the shell reaches emcc only through
+`LINK_FLAGS`, so without it nothing relinks when the shell changes and the edit
+silently appears to do nothing.
 
 ---
 

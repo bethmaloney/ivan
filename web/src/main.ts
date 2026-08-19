@@ -17,11 +17,12 @@ import * as Query from './platform/query.ts';
 import * as Sfx from './audio/sfx.ts';
 import * as Music from './audio/music.ts';
 import * as Harness from './harness/report.ts';
+import * as Saves from './saves/saves.ts';
 
-/* Modules land here as they cross: sfx, music and the harness have, saves has
-   not, then graphics, input and the UI. The list is what the browser test
-   asserts against, so a module that fails to initialise is a failed assertion
-   rather than a page that is quietly missing a feature. */
+/* Modules land here as they cross: sfx, music, the harness and saves have,
+   then graphics, input and the UI. The list is what the browser test asserts
+   against, so a module that fails to initialise is a failed assertion rather
+   than a page that is quietly missing a feature. */
 
 const Loaded: string[] = [];
 
@@ -66,3 +67,17 @@ Loaded.push('music');
 globalThis.ivanHarness = Harness.Api;
 Harness.Install();
 Loaded.push('harness');
+
+/* Saves (HARNESS.md §9.10). Last across, and the only one whose Install() puts
+   a hook on Module.preRun rather than on the document -- so, like the harness,
+   it depends on this bundle running before ivan.js and not merely before a
+   gesture. The shell's <script> order is what guarantees that too.
+
+   Outside the ?page=off warning as well, and unlike the other three the switch
+   it does answer to is its own: ?saves=off leaves the API assigned and reporting
+   read-only, because a console asking why nothing saved should get an answer
+   rather than a missing object. */
+
+globalThis.ivanSaves = Saves.Api;
+Saves.Install();
+Loaded.push('saves');

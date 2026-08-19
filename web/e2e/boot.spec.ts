@@ -4,9 +4,9 @@
  * These assertions were written against the architecture that predates the
  * bundle, while all four of the page's files were still --pre-js inputs, and
  * that was the point: a refactor that changes how the page's JavaScript is
- * delivered needs an oracle older than the refactor. Two have crossed since and
- * every assertion here still holds, which is the only evidence anybody has that
- * the delivery change was behaviour-preserving -- nothing else in the tree
+ * delivered needs an oracle older than the refactor. All four have crossed since
+ * and every assertion here still holds, which is the only evidence anybody has
+ * that the delivery change was behaviour-preserving -- nothing else in the tree
  * covers the browser at all. The node suites are contract tests against stubs,
  * shell.html is untested, and HARNESS.md §9.10 says outright that "a save
  * survives a reload" needs a browser.
@@ -88,7 +88,7 @@ test('every module that has crossed announced itself', async ({ page }) => {
     modules: globalThis.ivanPage.modules
   }));
 
-  expect(Announced.modules).toEqual(['sfx', 'music', 'harness']);
+  expect(Announced.modules).toEqual(['sfx', 'music', 'harness', 'saves']);
   expect(Announced.build).not.toBe('');
 });
 
@@ -203,9 +203,91 @@ test('a crash report is built, stored and posted', async ({ page }) => {
 });
 
 test('the saves are mounted where save.cpp looks', async ({ page }) => {
-  const Stats = await page.evaluate(() =>
-    globalThis.ivanSaves.stats() as { mounted: boolean; readOnly: boolean });
+  const Stats = await page.evaluate(() => globalThis.ivanSaves.stats());
 
   expect(Stats.mounted).toBe(true);
   expect(Stats.readOnly).toBe(false);
+});
+
+/* The one thing that could have broken silently when saves stopped being a
+   --pre-js, and the reason the link flags now name the pair outright. From the
+   bundle the run dependency is a property on Module rather than a name in
+   ivan.js's own scope, and a build that lost it would not fail anywhere: the
+   mount would still happen, just after main() had drawn a Continue menu over
+   saves that had not arrived. Nothing in the node suite can see it, because its
+   Module is whatever the test defines.
+
+   Counted rather than inferred. shell.html's monitorRunDependencies keeps the
+   high-water mark of what startup was waiting for, and it is 2 here --
+   ivan.data's and the saves'. Verified by mutation, which is the only reason to
+   prefer it to the obvious assertions: with the hold removed the page still
+   boots, still mounts, still syncs and still survives a reload, and every other
+   test in this file still passes. This one reads 1. */
+
+test('the game was held back while the saves were read', async ({ page }) => {
+  const Held = await page.evaluate(() => globalThis.Module.totalDependencies);
+  const Stats = await page.evaluate(() => globalThis.ivanSaves.stats());
+
+  expect(Held).toBe(2);
+  expect(Stats.failures).toBe(0);
+  expect(Stats.lastError).toBe(null);
+});
+
+/* The assertion HARNESS.md §9.10 says needs a browser, and the one the node
+   suite structurally cannot make: its FS is a stub, so it can only prove that a
+   sync was asked for, never that anything came back. This writes into the mount
+   the way the game does, flushes, reloads, and finds it -- the whole round trip
+   through a real IDBFS, which is the half the stub cannot reach. The ordering
+   that puts the saves there *before* the game looks is the test above this one;
+   this only says they came back.
+
+   Written through Module.FS rather than by playing, because a real save needs a
+   character created through several menus and the file it produces is a
+   megabyte. What is under test is the mount and the sync, and those cannot tell
+   the two apart. */
+
+test('a save survives a reload', async ({ page }) => {
+  const Written = await page.evaluate(async () => {
+    globalThis.Module.FS?.writeFile('/ivan/probe.sav', 'Belyer of Attnam');
+    await globalThis.ivanSaves.flush();
+
+    return globalThis.ivanSaves.stats();
+  });
+
+  expect(Written.failures).toBe(0);
+  expect(Written.syncs).toBeGreaterThan(0);
+
+  await page.reload();
+  await expect(page.locator('#veil')).toBeHidden();
+
+  const Found = await page.evaluate(() => ({
+    Files: globalThis.ivanSaves.files().map((F) => F.path),
+    Text: new TextDecoder().decode(
+      globalThis.Module.FS?.readFile('/ivan/probe.sav') ?? new Uint8Array())
+  }));
+
+  expect(Found.Files).toContain('/ivan/probe.sav');
+  expect(Found.Text).toBe('Belyer of Attnam');
+
+  /* Left behind it would be the next run's mount, and this suite shares one
+     IndexedDB origin (playwright.config.ts pins it to one worker for that
+     reason). */
+
+  await page.evaluate(async () => {
+    globalThis.Module.FS?.unlink('/ivan/probe.sav');
+    await globalThis.ivanSaves.flush();
+  });
+});
+
+/* ?saves=off is the switch a player is told to reach for when a save will not
+   load, so it has to leave a page that plays rather than a page that throws. */
+
+test('?saves=off plays in a scratch filesystem', async ({ page }) => {
+  await page.goto('/play/?saves=off');
+  await expect(page.locator('#veil')).toBeHidden();
+
+  const Stats = await page.evaluate(() => globalThis.ivanSaves.stats());
+
+  expect(Stats.mounted).toBe(false);
+  expect(Stats.readOnly).toBe(true);
 });

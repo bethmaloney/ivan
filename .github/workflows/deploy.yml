@@ -97,7 +97,7 @@ jobs:
       # 24 is not a floor, it is the version the tests are written against, and
       # it matches .nvmrc so a developer and this runner agree. web/ relies on
       # node stripping TypeScript itself and on --test expanding its own globs,
-      # so neither suite needs a runner or a transform. 24 is the current LTS
+      # so the suite needs neither a runner nor a transform. 24 is the current LTS
       # (Krypton); @types/node is held at 24.x to describe exactly this runtime.
       - uses: actions/setup-node@v4
         with:
@@ -122,12 +122,6 @@ jobs:
       - name: bundle
         working-directory: web
         run: npm run build
-
-      # Still --pre-js, still tested where it lives. It becomes a *.test.ts beside
-      # its module when it crosses, as sfx and music have; until then this is the
-      # contract for what ships.
-      - name: saves.js
-        run: node tools/web/saves.test.js
 
   package:
     name: package

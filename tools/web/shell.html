@@ -474,8 +474,8 @@ button:hover {
   });
 
   /* ---- saves -----------------------------------------------------------
-     saves.js decides, this displays, the same split the mute button and the
-     page's sfx module use. Both messages are about the same thing from the
+     web/src/saves decides, this displays, the same split the mute button and
+     the page's sfx module use. Both messages are about the same thing from the
      player's side -- the run will not be there tomorrow -- and both have to
      arrive before the run is worth anything, not after. */
 
@@ -560,10 +560,10 @@ button:hover {
   });
 
   /* ---- the module ------------------------------------------------------
-     Global on purpose: ivan.js opens by picking up an existing Module, and both
-     the page's bundle and saves.js attach to the same object. The bundle puts
-     the query string on .arguments and chains the onAbort below; saves.js hangs
-     a run dependency on it. */
+     Global on purpose: ivan.js opens by picking up an existing Module, and the
+     page's bundle attaches to the same object. It puts the query string on
+     .arguments, chains the onAbort below, and hangs the saves' preRun hook and
+     run dependency on it. */
 
   globalThis.Module = {
     canvas: Canvas,
@@ -591,8 +591,8 @@ button:hover {
   The page's own JavaScript (web/), bundled by web/build.mjs and placed here by
   Main/CMakeLists.txt. Before {{{ SCRIPT }}} and after the Module literal above,
   and both halves of that matter: the bundle assigns the globals an EM_JS body
-  looks up, so they have to exist before ivan.js runs, and the modules still to
-  cross need the Module object to already be there to hang a run dependency on.
+  looks up, so they have to exist before ivan.js runs, and it needs the Module
+  object to already be there to hang the saves' preRun hook on.
 
   Not deferred and not a module, for the same reason.
 -->

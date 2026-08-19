@@ -841,7 +841,7 @@ festring GetUserDataDir()
    be laid over a populated MEMFS root. So user data moves to its own mount and
    GetDataDir() stays "./" -- which is the cut that should have been there
    anyway, read-only game data on one side and the player's on the other.
-   Mounted and synchronised by tools/web/saves.js. Not for the node host: that
+   Mounted and synchronised by web/src/saves. Not for the node host: that
    one is NODERAWFS and writes its traces relative to the launch directory. */
 #if defined(__EMSCRIPTEN__) && defined(IVAN_WASM_BROWSER)
   return "/ivan/";

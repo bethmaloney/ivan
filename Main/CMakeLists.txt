@@ -32,14 +32,15 @@ if(EMSCRIPTEN)
   # and target_link_options arrived in 3.13.
   set_target_properties(ivan PROPERTIES LINK_FLAGS "${IVAN_WASM_LINK_FLAGS}")
 
-  # --pre-js files are link inputs, but they appear only inside LINK_FLAGS as
-  # far as CMake can see, so nothing reruns the link when one of them changes.
-  # The failure is silent and expensive: the build says it is up to date and
-  # the page keeps the previous copy of the JS, so an edit appears to have no
-  # effect and gets debugged as a code problem.
+  # --shell-file is a link input, but it appears only inside LINK_FLAGS as far
+  # as CMake can see, so nothing reruns the link when it changes. The failure is
+  # silent and expensive: the build says it is up to date and the page keeps the
+  # previous copy, so an edit appears to have no effect and gets debugged as a
+  # code problem. It is the last one -- saves.js was the other, and it is
+  # web/src/saves now, where a change costs a bundle rather than a relink.
   if(WASM_BROWSER)
     set_target_properties(ivan PROPERTIES
-                          LINK_DEPENDS "${CMAKE_SOURCE_DIR}/tools/web/saves.js;${CMAKE_SOURCE_DIR}/tools/web/shell.html")
+                          LINK_DEPENDS "${CMAKE_SOURCE_DIR}/tools/web/shell.html")
   endif()
 
   # Emitting .html rather than .js is what makes emcc generate the page and the
