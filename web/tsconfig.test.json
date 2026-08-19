@@ -6,7 +6,10 @@
   "extends": "./tsconfig.base.json",
   "compilerOptions": {
     "lib": ["es2023", "dom", "dom.iterable"],
-    "types": ["node"],
+
+    // emscripten as well as node, because the .d.ts files in the include below
+    // now describe the Module object and reach FS's own declarations for it.
+    "types": ["node", "emscripten"],
 
     // build.mjs is JavaScript, and without these two tsc lists it in `include`
     // and then silently checks nothing in it.

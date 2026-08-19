@@ -18,12 +18,17 @@ them. Graphics, input and UI have not. `audio/` — RtMidi, the MIDI parser, the
 — is already excluded from the Emscripten build.
 
 **`web/` is where the page's own code is going** — TypeScript, esbuild, oxlint, `node --test`
-and Playwright, §9.12. Sound effects and music have crossed: `web/src/audio/sfx.ts` and
-`web/src/audio/music.ts` are bundled by esbuild and loaded by the shell from its own `<script>`,
-not linked. The two JavaScript files left in `tools/web/` — `saves.js`, `harness-pre.js.in` — are
-still emcc `--pre-js` inputs and still what ships, and both reach for things that only exist
-inside `ivan.js`'s scope, which is why they have not moved. `tools/web/` keeps the build tooling
-(`dist.py`, `serve.py`) and the landing page either way.
+and Playwright, §9.12. Sound effects, music and the harness have crossed:
+`web/src/audio/sfx.ts`, `web/src/audio/music.ts` and `web/src/harness/` are bundled by esbuild
+and loaded by the shell from its own `<script>`, not linked. **`saves.js` is the one JavaScript
+file left in `tools/web/`**, still an emcc `--pre-js` input and still what ships, because it
+reaches for module-scope `addRunDependency`/`removeRunDependency` to hold `main()` back while
+IndexedDB is read into MEMFS. `tools/web/` keeps the build tooling (`dist.py`, `serve.py`) and
+the landing page either way.
+
+The crash endpoint is `IVAN_CRASH_ENDPOINT` in the environment, read by `web/build.mjs`. It was
+`-DWASM_CRASH_ENDPOINT` and no longer is; nothing in CMake computes a build id or an endpoint any
+more.
 
 **A browser build now needs node and `web/node_modules`.** Both are checked when CMake
 configures, so run `cd web && npm ci` once before `-DWASM_BROWSER=ON`.
@@ -63,7 +68,7 @@ tools/corpora/verify-corpora.sh          # 8 runs each: self-consistency + golde
 tools/corpora/verify-corpora.sh -n 1     # smoke test
 tools/corpora/compare-targets.sh         # native vs WASM, both corpora
 node tools/web/saves.test.js             # saves.js contract: IndexedDB sync rules, no browser
-# sfx and music have crossed: their tests are web/src/audio/*.test.ts, run by `npm run check`
+# sfx, music and the harness have crossed: their tests are web/src/**/*.test.ts, `npm run check`
 ```
 
 The page's own half is tested from `web/`, which needs **Node 24** — `.nvmrc` says so, and
@@ -71,8 +76,8 @@ The page's own half is tested from `web/`, which needs **Node 24** — `.nvmrc` 
 
 ```bash
 cd web && npm ci
-npm run check          # tsc + oxlint + node --test. No browser, 3.8s
-npm run e2e            # Playwright against an assembled dist/. ~8s, needs the two steps below
+npm run check          # tsc + oxlint + node --test. No browser, 3.9s
+npm run e2e            # Playwright against an assembled dist/. ~15s, needs the two steps below
 ```
 
 `npm run check` includes the bridge contract test, which parses the `EM_JS` blocks out of

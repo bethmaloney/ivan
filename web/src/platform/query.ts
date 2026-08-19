@@ -39,3 +39,12 @@ export function Setting(Name: string): string | null {
 export function Present(Name: string): boolean {
   return Params().has(Name);
 }
+
+/* Every option in the URL, in the order it gave them, which is the order
+   harness::ParseArgs sees once argv is built out of them. The one caller that
+   needs the whole string rather than a named option -- and the reason this is
+   here rather than a second URLSearchParams in harness/argv.ts. */
+
+export function All(): [string, string][] {
+  return Array.from(Params());
+}

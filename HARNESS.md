@@ -333,7 +333,9 @@ printed. 10KB.
 A browser build also records every session and keeps its function names, both unconditionally,
 because neither can be arranged after the crash they are for — §9.6 has the argument and
 `tools/web/README.md` the workflow. `WASM_DEBUG` (assertions, stack checking) therefore defaults
-ON here and OFF for node; `WASM_SAFE_HEAP` and `WASM_CRASH_ENDPOINT` stay opt-in.
+ON here and OFF for node and `WASM_SAFE_HEAP` stays opt-in. The crash endpoint is no longer a
+CMake variable at all: it is `IVAN_CRASH_ENDPOINT` in the environment, read by `web/build.mjs`
+(§9.6).
 
 `emrun` rather than `python3 -m http.server` because it serves `.wasm` as `application/wasm`
 without argument. It has to be HTTP either way — `file://` will not fetch the wasm. No
@@ -2387,17 +2389,18 @@ recorder "loses nothing but the trailer". A trap therefore leaves the recording 
 its `# end keys=` line — the keys that led to the crash survive the crash, and the seed rides
 along in the header, so the file is a deterministic reproduction rather than a description of
 one. Nothing in the harness had to change. It had no way to be *reached* from a browser, which
-is all `tools/web/harness-pre.js` supplies: query string to argv on the way in, MEMFS to a report
-on the way out.
+is all `web/src/harness/` supplies: query string to argv on the way in (`argv.ts`), MEMFS to a
+report on the way out (`report.ts`). It was `tools/web/harness-pre.js.in` until it crossed into
+the bundle; see the note at the end of §9.12.
 
 **The report outlives the tab.** A crash is usually followed by a reload or a close, either of
 which takes MEMFS with it, so reports are kept in `localStorage` and retrieved with
 `ivanHarness.save()` / `.saveRecording()`. Each carries the failure text, the recording, the
-seed, the key count and a build id from `git describe --always --dirty --tags` — the last
+seed, the key count and a build id from `git describe --tags --always --dirty` — the last
 because a stack trace symbolized against the wrong binary gives confident, wrong answers, and a
 dirty tree is precisely the build nobody else can reproduce. A POST hook exists behind
-`WASM_CRASH_ENDPOINT` (or `?crashlog=`) and is inert unless one is set; local-only is the
-default.
+`IVAN_CRASH_ENDPOINT` in the environment (or `?crashlog=`) and is inert unless one is set;
+local-only is the default.
 
 **Measured 2026-08-16, end to end.** The last three rows are the ones that matter, because they
 were taken on a session opened at a bare `ivan.html` — no query string, no flags, nothing a
@@ -2907,10 +2910,12 @@ moving just the music is a query parameter rather than a migration.
 
 - ~~**Saves still do not survive the tab.**~~ Closed by §9.10. The landing page's caveat is gone
   with it.
-- **The crash endpoint is still inert.** `WASM_CRASH_ENDPOINT` is unset, so a player's crash
-  report reaches `localStorage` and nowhere else (§9.6). A Pages Function would be a few lines
-  and would turn every stranger's crash into a replayable recording — which is exactly what §9.6
-  built and nothing is collecting.
+- **The crash endpoint is still inert.** No endpoint has ever been set, so a player's crash
+  report reaches `localStorage` and nowhere else (§9.6). It is `IVAN_CRASH_ENDPOINT` in the
+  environment now rather than a CMake cache variable — one `env:` line on the `package` job would
+  do it. A Pages Function on the other end would be a few lines and would turn every stranger's
+  crash into a replayable recording, which is exactly what §9.6 built and nothing is
+  collecting.
 - **No CI.** `dist.py` runs by hand against a local emsdk. Nothing rebuilds or redeploys on push.
 - **The page quotes the source and nothing checks that it still says that.** The body part
   numbers, the message templates, the opening text and the key list are all real values lifted
@@ -3324,11 +3329,11 @@ Nothing parses it; both jobs gate on the exit code.
 
 **What is open.**
 
-- **`sfx.js` and `music.js` have crossed, and the bundle is in the deploy.** They are
-  `web/src/audio/sfx.ts` and `web/src/audio/music.ts` — bundled by `build.mjs`, placed beside
-  `ivan.html` by an `ALL` target in `Main/CMakeLists.txt`, loaded by the shell from
-  `<script src="ivan-page.js">` and copied by `dist.py`. `saves.js` and `harness-pre.js.in` are
-  still `--pre-js` and still exactly what ships.
+- **`sfx.js`, `music.js` and `harness-pre.js.in` have crossed, and the bundle is in the
+  deploy.** They are `web/src/audio/sfx.ts`, `web/src/audio/music.ts` and `web/src/harness/` —
+  bundled by `build.mjs`, placed beside `ivan.html` by an `ALL` target in
+  `Main/CMakeLists.txt`, loaded by the shell from `<script src="ivan-page.js">` and copied by
+  `dist.py`. `saves.js` is the only `--pre-js` left.
 - **The full flip happened at the first crossing, not the last — the opposite of what was
   planned two paragraphs up.** The prediction was that the bundle would take `sfx.js`'s position
   on the emcc command line as a `--pre-js`, with the `<script>` deferred to a later commit
@@ -3364,10 +3369,11 @@ Nothing parses it; both jobs gate on the exit code.
   that touch no Emscripten internal at all: no `Module`, no `FS`, no run dependency, and nothing
   substituted by `configure_file`. The whole of its coupling was `globalThis.ivanSfx` in and
   `globalThis.ivanMusic` out. Removing `--pre-js` for it needed one line out of `CMakeLists.txt`
-  and one path out of `LINK_DEPENDS`. That is now the whole of what is left to move: `saves.js`
-  reaches for module-scope `addRunDependency`, `removeRunDependency`, `FS` and `IDBFS`, and
-  `harness-pre.js.in` sets `Module.arguments` before the runtime starts and is generated by
-  `configure_file` — so both need a design decision, where music needed a translation.
+  and one path out of `LINK_DEPENDS`. ~~That is now the whole of what is left to move.~~ The
+  claim that followed here — that `saves.js` and `harness-pre.js.in` both needed a design
+  decision where music needed a translation — was half right, and the wrong half is recorded in
+  the harness bullets below. `saves.js` does: it reaches for module-scope `addRunDependency` and
+  `removeRunDependency`, which `EXPORTED_RUNTIME_METHODS` does not name.
 - **Three things changed in the translation, and only one of them is visible from the page.**
   Query options are read at call time through `platform/query.ts` rather than captured at load,
   which changes nothing in a browser — the query string cannot change without a reload — and lets
@@ -3416,3 +3422,73 @@ Nothing parses it; both jobs gate on the exit code.
   are all `@v4`, target Node 20 and are being force-run on Node 24 with a deprecation warning on
   every run. Pre-existing, unrelated to anything above, and worth its own commit so a failure
   points at the right cause.
+
+**The harness crossed third, and the design decision it was supposed to need had already been
+made.**
+
+- **The prediction above was wrong, and wrong in a specific way worth recording.** §9.12 said
+  `harness-pre.js.in` needed a design decision because it "sets `Module.arguments` before the
+  runtime starts and is generated by `configure_file`". Both facts were true and neither was a
+  blocker. The `<script>` position that sfx's crossing established — after the `Module` literal,
+  before `{{{ SCRIPT }}}` — is *already* before the runtime starts, so argv timing came free. And
+  `configure_file` had been replaced before anybody noticed: `build.mjs` had defined both
+  `IVAN_BUILD_ID` and `IVAN_CRASH_ENDPOINT` since sfx crossed, `env.d.ts` declared both, and
+  `Main/CMakeLists.txt` forwarded both — with nothing in `web/src` reading the endpoint. The
+  groundwork for the third crossing was laid by the first and sat unused for two commits. The
+  general lesson is about the note-taking rather than the port: a blocker recorded once is not
+  re-checked when the ground under it moves.
+- **The forwarding was worse than nothing, and it took a measurement to see it.**
+  `Main/CMakeLists.txt` ran the bundle through `cmake -E env "IVAN_CRASH_ENDPOINT=${WASM_CRASH_ENDPOINT}"`.
+  With the cache variable at its empty default that *sets the variable to empty*, so an ambient
+  `IVAN_CRASH_ENDPOINT` was clobbered and the override `build.mjs` documents could not be used
+  through a CMake build at all. Measured on cmake 3.28.3: `IVAN_CRASH_ENDPOINT=https://x cmake -E
+  env "IVAN_CRASH_ENDPOINT=" node -p process.env.IVAN_CRASH_ENDPOINT` prints an empty string,
+  and without the wrapper prints the URL. Silent for as long as it existed, because no endpoint
+  has ever been set anywhere.
+- **What went, and why it could all go at once.** `harness-pre.js.in` was the only consumer
+  outside `web/` of the `find_package(Git)` + `git describe` block, the `WASM_CRASH_ENDPOINT`
+  cache variable, the `configure_file` and the `cmake -E env` wrapper. No C++ reads either value.
+  So the whole supply chain went with the file, and `build.mjs`'s own `git describe --tags
+  --always --dirty` — the same three flags, run at build time rather than configure time, so the
+  fresher of the two — is now the only source of a build id.
+- **An `.env` file was considered and rejected.** The endpoint is not a secret: it is
+  `--define`d into `ivan-page.js`, which every player downloads. `?crashlog=` already redirects a
+  session without a rebuild, which is the whole dev case, and the only consumer of a baked value
+  is a production default set once in CI, where `env:` is the native mechanism. An `.env` would
+  have added a file format, a gitignore entry, an example to keep in sync and a
+  `--env-file-if-exists` flag to serve one string in one job — and invited a real secret to be
+  filed beside a published one. Worth revisiting at the third build-time knob; the count is not
+  growing because the query string absorbs this class of option instead.
+- **`typeof` is the seam that makes an esbuild `--define` testable.** `report.ts` was the first
+  module outside `main.ts` to name a define, and `node --test` strips types rather than running
+  esbuild, so a bare `IVAN_BUILD_ID` is a `ReferenceError` at import — before any assertion.
+  `platform/build.ts` reads each through `typeof X === 'undefined' ? fallback : X`, which is the
+  one reference form that does not throw on an undeclared name. Verified in the built bundle:
+  esbuild substitutes both occurrences and folds the ternary away, leaving no `typeof` and no
+  identifier, and under node an unqualified name still resolves through `globalThis` so a test
+  can set one.
+- **36 test cases, all new, and 14 of 14 mutations caught.** `harness-pre.js` had no test. The
+  cases pin what a reader would otherwise be free to "fix": recording is on when nobody asked,
+  `?record=` is a request rather than a filename, page options *are* forwarded to a C++ parser
+  that ignores them on purpose, a truncated recording keeps its head so the seed survives the
+  cut, and a `localStorage` that refuses still leaves the recording on the console. One mutation
+  survived the first pass — `Post()` editing its argument in place is invisible because `Store()`
+  runs first — so the trimming rule was pulled out into an exported `Wire()` and asserted
+  directly. That is the mutation check doing its job: it found a guarantee the code kept by
+  accident rather than by construction.
+- **The crash path is covered in a browser now, and was not before.** The node cases stub
+  `localStorage`, MEMFS and `fetch`, so between them they check every rule and none of the three
+  real things. `boot.spec.ts` gained two: `?seed=999` coming back out of the recording header,
+  which is the one assertion that proves argv reached the runtime in time, and a full report
+  built, stored, POSTed to an intercepted endpoint and still present after a reload. Measured in
+  headless Chromium against an assembled `dist/`: seed `4242` parsed from a header the C++ wrote,
+  build id `v059-83-g0071b88-dirty` from `build.mjs`, `?crashlog=` honoured, one POST, one report
+  surviving the reload. `npm run e2e` is 10 tests in 15.1s.
+- **`npm run check` went from 3.8s to 3.9s.** The harness cases are 0.20s of it. Music is still
+  3.1s of the 3.44s of tests, and typecheck (0.38s) plus lint (0.21s) plus every other test
+  (0.20s) is the rest.
+- **`saves.js` is the last one, and it is the one that always needed the decision.**
+  `addRunDependency` and `removeRunDependency` are module-scope in `ivan.js` and absent from
+  `-sEXPORTED_RUNTIME_METHODS=FS,IDBFS,callMain`. Exporting them is one flag; whether a run
+  dependency is the right way for a bundled module to hold `main()` back at all is the question
+  worth asking first. Its 508-line `saves.test.js` ports with it.

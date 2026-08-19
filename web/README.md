@@ -15,15 +15,16 @@ nvm use              # in the repo; reads .nvmrc
 ```bash
 cd web
 npm ci
-npm run check        # typecheck + lint + tests. No browser, 3.8s
+npm run check        # typecheck + lint + tests. No browser, 3.9s
 npm run build        # -> dist/ivan-page.js
 npm run e2e          # the browser suite. Needs an assembled ../dist (below)
 ```
 
-Almost all of that 3.8s is three deliberate sleeps: the music module's drift
+Almost all of that 3.9s is three deliberate sleeps: the music module's drift
 correction runs on a 500ms interval and its one-time alignment pass at 400ms, and
 two cases wait those out rather than reaching inside the module to fake a clock.
-Typecheck, lint and every other test together are about 0.9s.
+Music alone is 3.1s of it. Typecheck is 0.38s, lint 0.21s, and every other test
+together 0.20s.
 
 ## Why the JavaScript is not a `--pre-js` any more
 
@@ -335,6 +336,127 @@ sequential narrative. Three query options that suite never covered are new, and
 they are the ones the move made testable: options are read at call time now, so
 one process can hold more than one page.
 
+## The harness — the third module across
+
+`src/harness/` was `tools/web/harness-pre.js.in`. HARNESS.md §4 and §9.6 have the
+design argument; this is the operating manual, which moved with the code. It had
+no test, so `argv.test.ts` and `report.test.ts` are new rather than ported.
+
+Two jobs, and they are the two a browser has no command line for:
+
+```
+argv.ts     the query string -> Module.arguments, before the runtime reads it
+report.ts   a crash -> a report in localStorage, on the console, and POSTed
+```
+
+The goal is that an ordinary session, played with no foresight and no special
+flags, produces enough on a crash to find the bug. Two things have to be true
+*before* the crash, because neither can be arranged afterwards: the binary has to
+carry function names, or a trap prints byte offsets nothing can resolve; and the
+session has to have been recording, or there is no way to reproduce it. Both are
+on by default in a `WASM_BROWSER` build.
+
+### What you get when it crashes
+
+```
+ivan: unhandled rejection
+RuntimeError: memory access out of bounds
+    at character::Move (ivan.wasm:0x...)
+    ...
+
+--- crash report ---
+build   v059-55-gf7d61e1
+seed    1755312345
+keys    403
+stored  ivanHarness.reports() / ivanHarness.save()
+
+Reproduce it natively:
+  ivanHarness.saveRecording()   then
+  ./ivan --replay session.rec
+```
+
+```js
+ivanHarness.reports()        // every stored report, newest first
+ivanHarness.save()           // newest one as a .json file
+ivanHarness.saveRecording()  // just the .rec, ready for --replay
+ivanHarness.text()           // the live recording, crash or no crash
+ivanHarness.report('note')   // file one for something that did not crash
+ivanHarness.clear()          // forget them
+ivanHarness.build            // the build id the report will name
+ivanHarness.args()           // the argv this session handed the runtime
+ivanHarness.recordingPath()  // where the recording is, or null under ?record=off
+ivanHarness.endpoint()       // where a report would be POSTed, '' for nowhere
+```
+
+The last three are functions where the `--pre-js` version had them as plain
+values. All three are derived from the query string, and reading them when asked
+rather than at load is what keeps them from disagreeing with what the runtime was
+actually given.
+
+**The recording is the valuable part.** A stack says where it stopped; the
+recording says how to get back there. It carries the seed in its header, so
+`./ivan --replay session.rec` replays the session on the native build, where gdb,
+valgrind and ASan all apply. That works because `harness::RecordKey` flushes every
+key as it writes it (`FeLib/Source/harness.cpp:545`) — a trap leaves the recording
+complete but for its `# end keys=` trailer, so the keys that led to the crash
+survive it.
+
+Recording changes nothing about how the game plays. The seed it pins is the same
+`time(0)` the game would have used anyway (`Main/Source/main.cpp:154`); it just
+writes it down. Opt out with `?record=off`.
+
+### Three failure paths, and nothing in them may throw
+
+`onAbort` for a runtime assertion, a rejected promise for a trap unwinding out of
+asyncify (which is the shape a wasm trap takes here, since `ASYNCIFY` means `main`
+runs inside a promise), and the `error` event for anything thrown synchronously.
+
+All of it runs while something has *already* gone wrong, so every entry point is
+wrapped and every failure is swallowed after a console warning. A handler that
+throws replaces the crash being reported with its own, which is a worse bug than
+the one being chased because it is invisible. That is most of what the node tests
+check: storage that refuses still leaves the recording on the console, a crash
+before the runtime attached `FS` reports without one rather than failing twice.
+
+### Sending reports somewhere
+
+Reports are local-only by default: `localStorage` and the console, with
+`ivanHarness.save()` to get one out by hand. The POST hook is wired and inert
+until an endpoint is set.
+
+```bash
+IVAN_CRASH_ENDPOINT=https://example.com/ivan-crash npm run build
+```
+
+```
+ivan.html?crashlog=https://example.com/ivan-crash
+```
+
+An environment variable, not a CMake cache variable — `-DWASM_CRASH_ENDPOINT`
+used to exist and is gone. The value is `--define`d into the bundle by
+`build.mjs`, so it is a `web/` concern and nothing in CMake needs to know it. Not
+a secret either way: it ships inside `ivan-page.js`, which every player downloads.
+
+It sends the whole report as JSON, `keepalive` so it outlives the page — which a
+crash is usually followed by. `keepalive` caps a body at 64KB, so a long recording
+is dropped from the POST and kept locally rather than losing the report; the key
+count says so, and the stored copy keeps its recording.
+
+### Why the query string is argv
+
+`Module.arguments` is read by the runtime once, at startup. That is the whole
+reason the shell's `<script src="ivan-page.js">` sits before `{{{ SCRIPT }}}` and
+after the `Module` literal, and the reason the browser suite asserts that
+`?seed=999` comes back out of the recording header: a bundle that assigned argv a
+moment too late would lose the seed and the recording with no error anywhere.
+
+Every option the page does not answer itself is forwarded, so `?sfx=off` reaches
+the game as `--sfx off`. That is deliberate. `harness::ParseArgs` is an
+if/else-if chain with no else (`FeLib/Source/harness.cpp:357`), so an option it
+does not know is ignored rather than rejected — and filtering here would mean a
+second list of page options to keep in step with `platform/query.ts`, where a new
+one forgotten would silently stop reaching the game.
+
 ## What is here
 
 ```
@@ -347,13 +469,19 @@ web/
       sfx.test.ts
       music.ts              the soundtrack (§9.8) -- the second
       music.test.ts
+    harness/
+      argv.ts               the query string as argv (§4) -- the third
+      argv.test.ts
+      report.ts             crash reports (§9.6)
+      report.test.ts
     platform/
       query.ts              the query string, once, for ?sfx=off ... ?wipesaves
       query.test.ts
+      build.ts              the two esbuild --define values, readable under node
     bridge/
       contract.ts           the six EM_JS targets, checked from both ends
       contract.test.ts      parses the C++ and diffs it against contract.ts
-      globals.d.ts          the console APIs, typed
+      globals.d.ts          the console APIs and the Module object, typed
   e2e/                      Playwright, against an assembled dist/
   build.mjs                 esbuild
 ```
