@@ -1,9 +1,10 @@
 # web/ — the browser frontend
 
 The half of the port that is not C++. `Main/` decides what happens; this decides
-what the player sees, hears and types. `tools/web/` is the build tooling that
-assembles and serves it (`dist.py`, `serve.py`); everything the browser actually
-runs lives here.
+what the player sees, hears and types. `tools/web/` is the page emcc wraps around
+the module (`shell.html`), the landing page and the build tooling that assembles
+and serves both (`dist.py`, `serve.py`); every line of JavaScript the browser
+runs is bundled from here.
 
 Node 24, pinned in `.nvmrc` at the repo root and in CI. With nvm:
 
@@ -15,16 +16,19 @@ nvm use              # in the repo; reads .nvmrc
 ```bash
 cd web
 npm ci
-npm run check        # typecheck + lint + tests. No browser, 3.9s
+npm run check        # typecheck + lint + tests. No browser, 9.8s
 npm run build        # -> dist/ivan-page.js
 npm run e2e          # the browser suite. Needs an assembled ../dist (below)
 ```
 
-Almost all of that 3.9s is three deliberate sleeps: the music module's drift
-correction runs on a 500ms interval and its one-time alignment pass at 400ms, and
-two cases wait those out rather than reaching inside the module to fake a clock.
-Music alone is 3.1s of it. Typecheck is 0.38s, lint 0.21s, and every other test
-together 0.20s.
+Almost all of that 9.8s is deliberate sleeps, and the suites sleep because they
+drive real timers rather than reaching inside a module to fake a clock. `node
+--test` runs the files concurrently, so the wall clock is the slowest of them:
+saves at 9.1s, of which 4.6s is one case that waits out all ten `.tmp` retries at
+400ms to prove a stale temporary file cannot wedge saving for the session, and
+most of the rest is six debounce waits at 320ms. Music is 3.1s behind it, from a
+500ms drift interval and a 400ms alignment pass. Typecheck is 0.38s and lint
+0.21s.
 
 ## Why the JavaScript is not a `--pre-js` any more
 
@@ -40,7 +44,9 @@ link inputs, which had three costs:
   `--pre-js` arguments enforced it. Both are in `src/audio/` now, so that is an
   `import` — the one case where the fix is visible in the file rather than in a
   build script. What is left of it is the shell's `<script>` tag running before
-  `ivan.js`, which is what the two remaining `--pre-js` files rely on.
+  `ivan.js`, which is what `src/harness` and `src/saves` still rely on: one puts
+  `Module.arguments` there and the other a `preRun` hook, and the runtime reads
+  both once, at startup.
 - **No bundler could exist**, so no TypeScript, no npm library, no source map,
   and no content-hashed filename — which is why `dist.py` has to send `no-cache`
   on the JS it deploys.
@@ -52,8 +58,8 @@ link inputs, which had three costs:
 `<script src="ivan-page.js">` placed after the `Module` literal and before
 emcc's own script tag. Both halves of that position matter: the bundle assigns
 the globals an `EM_JS` body looks up, so they must exist before `ivan.js` runs,
-and the modules still to cross need `Module` to already be there to hang a run
-dependency on. `dist.py` copies it like any other build output.
+and it needs `Module` to already be there to hang the saves' `preRun` hook on.
+`dist.py` copies it like any other build output.
 
 The target is `ALL` and always runs rather than being dependency-tracked —
 esbuild takes single-digit milliseconds, and the failure that buys off is the
@@ -63,9 +69,10 @@ missing one names itself rather than failing inside a custom command.
 
 What is left of the coupling is small and deliberate: the bundle is an IIFE that
 assigns a handful of globals, because the wasm side reaches them by name out of
-`EM_JS` bodies (see below), and `saves.js` needs `addRunDependency` /
-`removeRunDependency`, which are `EXPORTED_RUNTIME_METHODS` rather than
-inlined-scope internals.
+`EM_JS` bodies (see below), and it reaches four things back on `Module` — `FS`,
+`IDBFS`, `addRunDependency` and `removeRunDependency`, all named in
+`EXPORTED_RUNTIME_METHODS` rather than taken from `ivan.js`'s own scope the way a
+`--pre-js` could.
 
 ## The toolchain, and why each piece
 
@@ -144,7 +151,7 @@ emcmake cmake -S . -B build-web -DCMAKE_BUILD_TYPE=Release \
   -DWIZARD=ON -DPORTABLE_BUILD=ON -DWASM_BROWSER=ON
 cmake --build build-web -j$(nproc)
 tools/web/dist.py
-cd web && npm run e2e         # ~8s for the current eight
+cd web && npm run e2e         # 15-21s for the current thirteen
 ```
 
 It runs against an assembled `dist/` served by `tools/web/serve.py`, not a dev
@@ -157,17 +164,27 @@ hashing the C++ `bitmap` double buffer before it reaches a texture (HARNESS.md
 §6.3, §9.3). That works only while rendering is C++. As graphics, input and the
 UI cross into this directory, the subject of that hash crosses with them — the
 traces will keep passing and cover less. Nothing else in the repo has ever
-tested a browser: `saves.test.js`, the one node suite left in `tools/web/`, is a
-contract test against stubs, so are the suites in here, `shell.html` is untested,
-and HARNESS.md §9.10 says outright that "a save survives a reload" needs one.
+tested a browser: every suite in here is a contract test against stubs,
+`shell.html` is untested, and HARNESS.md §9.10 said outright that "a save
+survives a reload" needs one — which is now one of the thirteen.
 
-The current eight assert that the page boots without a page error, that the
-canvas keeps its 800×600 backing store, that it draws more than one colour, that
-every bridge is present, that the console APIs exist, that **a keystroke reaches
-the C++ input path** (asserted through `ivanHarness.text()`, the live recording,
-so it covers the browser, the shell, asyncify and `GET_KEY`), that the first
-gesture releases the audio context, that the saves are mounted writable, and that
-every module that has crossed announced itself in `ivanPage.modules`.
+They assert that the page boots without a page error, that the canvas keeps its
+800×600 backing store, that it draws more than one colour, that every bridge is
+present, that the console APIs exist, that **a keystroke reaches the C++ input
+path** (asserted through `ivanHarness.text()`, the live recording, so it covers
+the browser, the shell, asyncify and `GET_KEY`), that the query string reaches
+the game as argv, that the first gesture releases the audio context, that a crash
+report is built, stored, POSTed and survives a reload, that the saves are mounted
+writable, that **startup was actually held back while they were read**, that **a
+save survives a reload**, and that `?saves=off` still plays. Plus the list in
+`ivanPage.modules`, so a module that threw on the way up is a failed assertion
+rather than a quietly missing feature.
+
+Three of those are about the saves and only one of them is obvious. The mount and
+the round trip through IDBFS would both keep passing with the run dependency
+removed entirely — measured, not assumed: with the hold taken out the page boots,
+mounts, syncs and survives a reload, and the only test that moves is the one that
+reads `Module.totalDependencies` and finds 1 where there should be 2.
 
 Not a pixel comparison: the main menu fades in and the seed varies, so a golden
 image needs a fixed seed and a settled frame first. That is the obvious next one.
@@ -457,6 +474,102 @@ does not know is ignored rather than rejected — and filtering here would mean 
 second list of page options to keep in step with `platform/query.ts`, where a new
 one forgotten would silently stop reaching the game.
 
+## Saves — the fourth module across
+
+`src/saves/saves.ts` was `tools/web/saves.js`, and it was the last `--pre-js` in
+the build. HARNESS.md §9.10 has the design argument; this is the operating
+manual, which moved with the code.
+
+The game writes saves with `fopen` and knows nothing about any of this. What
+changed for it is one line: `GetUserDataDir()` answers `/ivan/` on this target
+rather than `PORTABLE_BUILD`'s `"./"` (`save.cpp:838`), and `/ivan` is an IDBFS
+mount.
+
+### What is in the mount
+
+Everything the player accumulates, because it is one mount and not three:
+`Save/`, `Bones/`, `Scrshot/`, `ivan.cfg`, the highscore table and the answer to
+the name prompt. What is *not* in it is `Graphics/` and `Script/`, which are
+read-only and live at the MEMFS root that `ivan.data` populates, and
+`/session.rec`, which is the crash recording and belongs to `src/harness`.
+
+`.bkp` backups are off on this target (`save.cpp:28`) — they are 35% of a save
+set and IndexedDB would keep every byte of them.
+
+### From the console
+
+```js
+ivanSaves.stats()      // mounted, dirty, syncs, failures, populateMs, lastError
+ivanSaves.files()      // what is in the mount, with sizes
+ivanSaves.bytes()      // their total
+ivanSaves.estimate()   // navigator.storage.estimate(), in MB
+ivanSaves.flush()      // sync now; resolves when IndexedDB has it
+ivanSaves.wipe()       // delete every save, then reload
+```
+
+```
+/play/?saves=off               do not mount; play in a scratch filesystem
+/play/?wipesaves               delete the database before mounting
+```
+
+**`?wipesaves` is the one to know.** Persistent saves mean a save the game cannot
+load fails on every load, and a player who cannot reach the menu cannot use a
+console API that lives behind it. It deletes the database before the mount, so
+there is no open connection to fight. If another tab has the game open, IndexedDB
+queues the delete instead of doing it and the page says so rather than claiming
+success.
+
+### The two things that hold the page's end up
+
+**A run dependency, held across the read.** `Module.addRunDependency('ivan-saves')`
+in a `preRun` hook, released in the `syncfs(true)` callback. Without it `main()`
+reaches the menu and `iosystem::ContinueMenu` enumerates a `Save/` that IndexedDB
+has not been copied into yet — "You don't have any previous saves." over a save
+that was about to arrive. Nothing below the hold may leave it held: a page that
+cannot save is a bad outcome, a page that will not boot is a worse one, so every
+path through `Populate()` ends at `Release()`, including a throw inside a
+callback IndexedDB invoked rather than one this module awaited. That last case is
+not hypothetical — it is what happened the first time this ran against a build
+with no `trackingDelegate`.
+
+**A debounce, and not only to coalesce.** `outputfile` writes to `<name>.tmp` and
+copies it over the final name on close (`save.cpp:31`), so a sync taken mid-save
+would push a megabyte of temporary file into IndexedDB and delete it again on the
+next pass. A sync refuses outright while a `.tmp` is on disk, and retries ten
+times at 400ms before deciding the `.tmp` is stale and going anyway — because a
+crash between opening one and removing it must not wedge saving for the rest of
+the session. The waiting costs nothing: the game blocks inside wasm and only
+returns to the event loop when asyncify unwinds it at the input wait, so a timer
+cannot fire until the game is idle, which is exactly when a sync should happen.
+
+### When saves do not persist
+
+In the order worth checking:
+
+1. **`ivanSaves.stats().readOnly` is true.** Three things set it, and all three
+   print: another tab holds the lock, IndexedDB refused (a private window, or
+   third-party storage blocked), or the page was opened with `?saves=off`.
+2. **`stats().writes` stays at 0 while the game plainly saves.** The write
+   tracker is `FS.trackingDelegate`, which only exists when the module is linked
+   `-sFS_DEBUG=1`. Check with `grep -c trackingDelegate build-web/Main/ivan.js`.
+   Without it the mount populates and the game plays, so this fails silently
+   except for the one line the module prints at boot.
+3. **`stats().failures` is climbing.** Read `stats().lastError`. A full disk
+   arrives here as `QuotaExceededError`; the files stay in MEMFS and every later
+   write retries.
+4. **`stats().dirty` is stuck true with `tempDeferrals` climbing.** A `.tmp` is
+   sitting in the mount and the sync is refusing to run over a half-written save.
+   After ten attempts it gives up waiting and syncs anyway.
+
+### Two tabs
+
+Two tabs on one origin share one database and each holds its own MEMFS, so
+whichever syncs last overwrites the other's saves wholesale. The first tab takes
+a Web Lock for the life of the page; a tab that cannot get it plays with syncing
+off and says so on the page, which loses that session's progress but not the run
+already stored. A browser with no `navigator.locks` at all is not a reason to
+stop saving.
+
 ## What is here
 
 ```
@@ -474,6 +587,9 @@ web/
       argv.test.ts
       report.ts             crash reports (§9.6)
       report.test.ts
+    saves/
+      saves.ts              the player's data in IndexedDB (§9.10) -- the fourth
+      saves.test.ts         and the last: tools/web/ has no JavaScript now
     platform/
       query.ts              the query string, once, for ?sfx=off ... ?wipesaves
       query.test.ts
@@ -488,4 +604,6 @@ web/
 
 Modules cross into `src/` one at a time, and `src/main.ts` keeps the list it has
 initialised so the browser test fails on a module that did not load rather than
-on a feature that is quietly missing.
+on a feature that is quietly missing. All four of the files that used to be in
+`tools/web/` are here now; graphics, input and the UI are what is left, and they
+are still C++.

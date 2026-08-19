@@ -13,18 +13,19 @@ A fork of [Attnam/ivan](https://github.com/Attnam/ivan) (`origin`; this fork is 
 - **Host it on Cloudflare Pages.** Project `playivan`, live at
   [playivan.pages.dev](https://playivan.pages.dev); landing page at `/`, game at `/play/`.
 
-Sound effects (§9.7), music (§9.8) and saves (§9.10) have already crossed and the page owns
-them. Graphics, input and UI have not. `audio/` — RtMidi, the MIDI parser, the playback engine
+Sound effects (§9.7), music (§9.8), the harness (§9.6) and saves (§9.10) have already crossed
+and the page owns them. Graphics, input and UI have not. `audio/` — RtMidi, the MIDI parser, the playback engine
 — is already excluded from the Emscripten build.
 
-**`web/` is where the page's own code is going** — TypeScript, esbuild, oxlint, `node --test`
-and Playwright, §9.12. Sound effects, music and the harness have crossed:
-`web/src/audio/sfx.ts`, `web/src/audio/music.ts` and `web/src/harness/` are bundled by esbuild
-and loaded by the shell from its own `<script>`, not linked. **`saves.js` is the one JavaScript
-file left in `tools/web/`**, still an emcc `--pre-js` input and still what ships, because it
-reaches for module-scope `addRunDependency`/`removeRunDependency` to hold `main()` back while
-IndexedDB is read into MEMFS. `tools/web/` keeps the build tooling (`dist.py`, `serve.py`) and
-the landing page either way.
+**`web/` is where the page's own code lives** — TypeScript, esbuild, oxlint, `node --test`
+and Playwright, §9.12. All four of the files that used to be in `tools/web/` have crossed:
+`web/src/audio/sfx.ts`, `web/src/audio/music.ts`, `web/src/harness/` and `web/src/saves/` are
+bundled by esbuild and loaded by the shell from its own `<script>`. **There is no JavaScript in
+`tools/web/` and no `--pre-js` in the build.** Saves was the last one and the hold-up was
+`addRunDependency`/`removeRunDependency`, which are module-scope in `ivan.js`; they are named in
+`-sEXPORTED_RUNTIME_METHODS` now, so the bundle holds `main()` back through `Module` while
+IndexedDB is read into MEMFS. `tools/web/` keeps `shell.html`, the build tooling (`dist.py`,
+`serve.py`) and the landing page.
 
 The crash endpoint is `IVAN_CRASH_ENDPOINT` in the environment, read by `web/build.mjs`. It was
 `-DWASM_CRASH_ENDPOINT` and no longer is; nothing in CMake computes a build id or an endpoint any
@@ -67,8 +68,7 @@ traces, text logs and screenshots.
 tools/corpora/verify-corpora.sh          # 8 runs each: self-consistency + golden. ~12s
 tools/corpora/verify-corpora.sh -n 1     # smoke test
 tools/corpora/compare-targets.sh         # native vs WASM, both corpora
-node tools/web/saves.test.js             # saves.js contract: IndexedDB sync rules, no browser
-# sfx, music and the harness have crossed: their tests are web/src/**/*.test.ts, `npm run check`
+# every page module has crossed: their tests are web/src/**/*.test.ts, run by `npm run check`
 ```
 
 The page's own half is tested from `web/`, which needs **Node 24** — `.nvmrc` says so, and
@@ -76,8 +76,8 @@ The page's own half is tested from `web/`, which needs **Node 24** — `.nvmrc` 
 
 ```bash
 cd web && npm ci
-npm run check          # tsc + oxlint + node --test. No browser, 3.9s
-npm run e2e            # Playwright against an assembled dist/. ~15s, needs the two steps below
+npm run check          # tsc + oxlint + node --test. No browser, 9.8s
+npm run e2e            # Playwright against an assembled dist/. 15-21s, needs the two below
 ```
 
 `npm run check` includes the bridge contract test, which parses the `EM_JS` blocks out of
@@ -109,8 +109,8 @@ python3 tools/play/play.py auto 200
 
 **A push to `main` deploys.** `.github/workflows/deploy.yml` is five jobs, named after the five
 things that can be wrong: `corpora` (native build, replay the goldens), `modules` (`npm run
-check` plus the two legacy node suites), `package` (browser build with the pinned emsdk, then
-`dist.py`), `browser` (Playwright against `package`'s artifact, so it tests the bytes that are
+check`, plus `npm run build` so a bundle that will not build is caught before the emsdk job),
+`package` (browser build with the pinned emsdk, then `dist.py`), `browser` (Playwright against `package`'s artifact, so it tests the bytes that are
 about to be uploaded) and `publish`. A pull request runs everything except the publish, which
 waits on the other four and needs two repo secrets, `CLOUDFLARE_API_TOKEN` and
 `CLOUDFLARE_ACCOUNT_ID` — touched by that one job and no build step.

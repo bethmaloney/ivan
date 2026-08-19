@@ -163,7 +163,7 @@ validates the *rewrite*. You need both, in that order.
 | `S` save-and-flee, then reload | new set survives and the `AutoSave` set it replaced is **gone** — deletions cross too |
 | IndexedDB populate at startup | **12–25ms** for 4.75–5.9MB, inside a 550–850ms load |
 | Tracked writes per sync, one autosave | 578–2,336 writes became **4–5 syncs**; **0** `.tmp` files reached IndexedDB |
-| `node tools/web/saves.test.js` | **57/57**, and **11 of 12** deliberate mutations caught |
+| `node tools/web/saves.test.js` | **57/57**, and **11 of 12** deliberate mutations caught (now `web/src/saves/saves.test.ts`, §9.12) |
 | Both corpora after the `save.cpp` change of §9.10 | `verify-corpora.sh` **matches golden**, `compare-targets.sh` **targets agree** |
 | All three corpora after the two fixes of §9.11 | `verify-corpora.sh` **matches golden**, `compare-targets.sh` **targets agree** |
 | `autoplay-2000` replayed four ways — native/WASM x with/without `--text` | **byte-identical**, 2,676-line traces; was four different runs (§9.11) |
@@ -315,7 +315,7 @@ The preload paths are absolute because `PORTABLE_BUILD` makes `game::GetDataDir(
 `GetUserDataDir()` used to answer `"./"` as well and now answers `/ivan/` here, which is an
 IDBFS mount holding everything the player accumulates — §9.10. That is also why this target
 links `-lidbfs.js` and `-sFS_DEBUG=1`, the second of which registers the filesystem callbacks
-`tools/web/saves.js` needs and is not a debug mode despite the name.
+`web/src/saves/saves.ts` needs and is not a debug mode despite the name.
 
 `WASM_PRELOAD_AUDIO` (OFF) adds `Music/` and `Sound/`, and **it no longer governs whether the
 game makes a sound**. §9.7 moved effect playback to the page: `web/src/audio/sfx.ts` fetches each
@@ -2965,8 +2965,8 @@ harness would rather never meet.
 
 **The sync is debounced, and not only to coalesce.** `outputfile` writes `<name>.tmp` and copies
 it over the final name on close, so a sync taken mid-save pushes a megabyte of temporary file
-into IndexedDB and deletes it again on the next pass. `saves.js` waits for the writes to stop
-and refuses outright while a `.tmp` is on disk.
+into IndexedDB and deletes it again on the next pass. The saves module waits for the writes to
+stop and refuses outright while a `.tmp` is on disk.
 
 The wait is free, for a reason worth stating because it is not obvious: **the game blocks inside
 wasm and only returns to the JS event loop when asyncify unwinds it at the input wait**. A timer
@@ -2975,7 +2975,7 @@ this is so effective that the `.tmp` guard never fired in any measured run — t
 files are always gone before the first timer gets a turn. It stays, because "never observed" is
 not "cannot happen", and the failure it prevents is silent.
 
-**`FS_DEBUG` is not a debug mode.** `saves.js` learns that a save was written from
+**`FS_DEBUG` is not a debug mode.** The saves module learns that a save was written from
 `FS.trackingDelegate`, which only exists when the module is linked `-sFS_DEBUG=1`. The name
 suggests a cost that is not there: `settings.js:393` defines the option as exactly "register
 file system callbacks using trackingDelegate in library_fs.js", and `libfs.js` is the only file
@@ -3019,7 +3019,7 @@ could not have.**
 
 | Check | Result |
 |---|---|
-| `node tools/web/saves.test.js` | **57/57** — populate before main, coalescing, `.tmp` deferral, no overlapping syncs, deletions, failure surfacing, second tab, `?wipesaves`, `?saves=off` |
+| `node tools/web/saves.test.js` | **57/57** — populate before main, coalescing, `.tmp` deferral, no overlapping syncs, deletions, failure surfacing, second tab, `?wipesaves`, `?saves=off`. Ported to `web/src/saves/saves.test.ts` as 22 cases in §9.12 |
 | Same suite against 12 deliberate mutations | **11 caught**. The survivor is the read-only guard in the write tracker, which three separate layers already prevent — a redundant guard rather than a test gap, recorded rather than papered over |
 | Autosave set written in a browser | 3 files, 1.15MB — `.40` 918,482, `.sav` 171,487, `.wm` 63,667. **No `.bkp`** |
 | Same set after a page reload | **byte-identical**, all three, by SHA-256 |
@@ -3333,7 +3333,7 @@ Nothing parses it; both jobs gate on the exit code.
   deploy.** They are `web/src/audio/sfx.ts`, `web/src/audio/music.ts` and `web/src/harness/` —
   bundled by `build.mjs`, placed beside `ivan.html` by an `ALL` target in
   `Main/CMakeLists.txt`, loaded by the shell from `<script src="ivan-page.js">` and copied by
-  `dist.py`. `saves.js` is the only `--pre-js` left.
+  `dist.py`. ~~`saves.js` is the only `--pre-js` left.~~ It crossed too; there are none.
 - **The full flip happened at the first crossing, not the last — the opposite of what was
   planned two paragraphs up.** The prediction was that the bundle would take `sfx.js`'s position
   on the emcc command line as a `--pre-js`, with the `<script>` deferred to a later commit
@@ -3342,7 +3342,8 @@ Nothing parses it; both jobs gate on the exit code.
   it one would have contradicted the artifact it builds. The `addRunDependency` constraint is
   real but belongs to `saves.js` alone, and `saves.js` has not crossed — it is still inlined
   into `ivan.js`'s scope and still has the module-scope `FS`/`IDBFS` it reaches for. Nothing
-  about sfx needed the delay.
+  about sfx needed the delay. (It has crossed since, and the constraint was weaker than this
+  says: both names were already on `Module`. The last bullets have it.)
 - **Ordering moved from the command line into the page, and then into the module graph.** Music
   borrows the `AudioContext` the sfx module owns, which the order of two `--pre-js` flags used to
   guarantee. When sfx crossed alone, what carried it was the shell's `<script>` running before
@@ -3373,7 +3374,9 @@ Nothing parses it; both jobs gate on the exit code.
   claim that followed here — that `saves.js` and `harness-pre.js.in` both needed a design
   decision where music needed a translation — was half right, and the wrong half is recorded in
   the harness bullets below. `saves.js` does: it reaches for module-scope `addRunDependency` and
-  `removeRunDependency`, which `EXPORTED_RUNTIME_METHODS` does not name.
+  `removeRunDependency`, which `EXPORTED_RUNTIME_METHODS` does not name. ~~Which is a constraint
+  on where it can live.~~ It is not — `FORCE_FILESYSTEM` puts both on `Module` regardless, which
+  nobody checked until the crossing itself. See the last bullets.
 - **Three things changed in the translation, and only one of them is visible from the page.**
   Query options are read at call time through `platform/query.ts` rather than captured at load,
   which changes nothing in a browser — the query string cannot change without a reload — and lets
@@ -3487,8 +3490,50 @@ made.**
 - **`npm run check` went from 3.8s to 3.9s.** The harness cases are 0.20s of it. Music is still
   3.1s of the 3.44s of tests, and typecheck (0.38s) plus lint (0.21s) plus every other test
   (0.20s) is the rest.
-- **`saves.js` is the last one, and it is the one that always needed the decision.**
-  `addRunDependency` and `removeRunDependency` are module-scope in `ivan.js` and absent from
-  `-sEXPORTED_RUNTIME_METHODS=FS,IDBFS,callMain`. Exporting them is one flag; whether a run
-  dependency is the right way for a bundled module to hold `main()` back at all is the question
-  worth asking first. Its 508-line `saves.test.js` ports with it.
+- ~~**`saves.js` is the last one, and it is the one that always needed the decision.**~~
+  **It crossed, the decision was smaller than it looked, and the premise was already false.**
+  `addRunDependency` and `removeRunDependency` are indeed module-scope in `ivan.js` and absent
+  from `-sEXPORTED_RUNTIME_METHODS=FS,IDBFS,callMain` — but they were on `Module` anyway, in
+  every browser build this repo has ever produced. `link.py:1619-1640` exports both under
+  `FORCE_FILESYSTEM`, and `link.py:1457-1461` sets `FORCE_FILESYSTEM=1` for any build using
+  `--preload-file`, which this one does three times over for `Graphics/`, `Script/` and
+  `SoundEffects.cfg`. Grepping the generated `ivan.js` for `Module["addRunDependency"]=` was the
+  whole investigation and it should have come before the paragraph above it. The flag now names
+  the pair regardless, because a page that depends on a side effect of preloading a directory is
+  one `--preload-file` away from a Continue menu drawn over saves that had not arrived.
+- **The run dependency was the right mechanism and the alternative was never attractive.** It is
+  Emscripten's only documented way to defer `run()`, and it is not a foreign mechanism bolted on
+  beside the startup: `file_packager.py:992` holds `ivan.data` back through exactly the same
+  call. What changed is that a property lookup on a shared object replaced a name in `ivan.js`'s
+  own scope, which is strictly better — the old form worked only because the file was pasted
+  into that scope, and it failed silently for anything that was not.
+- **`saves.test.js` ported to 22 cases, and the port paid for itself twice.** The 57 checks were
+  one sequential narrative sharing a single world, in the same shape `music.test.js` had. Three
+  cases are new: a stale `.tmp` giving up after ten deferrals and syncing anyway (the bound was
+  never exercised), hiding the tab cutting the debounce short, and a runtime with no run
+  dependency to hold. That last one is only reachable because the dependency is a property now —
+  when it was a bare identifier, its absence was a `ReferenceError` rather than a case.
+- **`npm run check` went from 3.9s to 9.8s, and 4.6s of the rise is one test.** The stale-`.tmp`
+  case waits out all ten retries at 400ms, because the bound is the behaviour. `node --test`
+  runs files concurrently, so the wall clock is the slowest file rather than the sum: saves is
+  9.1s of it, music 3.1s. Against the 3.69s the old `saves.test.js` took as its own CI step, the
+  combined cost went from 7.6s across two steps to 9.8s across one.
+- **The browser suite gained three and one of them is the only thing that can see the change.**
+  `a save survives a reload` finally makes the assertion §9.10 said needs a browser — written
+  through `Module.FS`, flushed, reloaded, read back. `?saves=off plays in a scratch filesystem`
+  covers the switch a player is told to reach for. But the interesting one is
+  `the game was held back while the saves were read`, and it is interesting because of what a
+  mutation showed: **with the run dependency removed entirely, the page still boots, still
+  mounts, still syncs, and the save still survives the reload.** Twelve of the thirteen browser
+  tests pass on a build that has lost the one thing this whole crossing was blocked on. What
+  moves is `Module.totalDependencies`, the high-water mark `shell.html`'s
+  `monitorRunDependencies` keeps: **2 with the hold, 1 without.** That is the assertion, and
+  without the mutation it would have been a `populateMs >= 0` that could never fail.
+- **`tools/web/` has no JavaScript and the build has no `--pre-js`.** `LINK_DEPENDS` is down to
+  `shell.html` alone, and the last silent-staleness hazard in the JavaScript path is gone: an
+  edit to any of it now costs a bundle measured in milliseconds rather than a relink CMake could
+  only be told about by hand. `ivan.js` lost 6,076 bytes.
+- **What is left to cross is C++.** Graphics, input and the UI, and none of them is a file move
+  — they are SDL surfaces, an SDL event loop and a C++ menu system, so each one is a rewrite
+  against a browser API rather than a translation. The golden traces still cover all three,
+  which is exactly the coverage §9.12 opened by saying they are about to lose.

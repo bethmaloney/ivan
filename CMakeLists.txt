@@ -246,11 +246,22 @@ if(EMSCRIPTEN)
     # nothing else distinguishes them at that level: both are __EMSCRIPTEN__.
     add_definitions(-DIVAN_WASM_BROWSER)
 
-    # web/src/harness reads the recording back out of MEMFS to put it in a crash
-    # report, so it needs FS on Module, which is not exported by default.
-    # saves.js needs IDBFS beside it for the mount. See tools/web/README.md.
+    # Everything the bundle reaches for on Module. None of it is exported by
+    # default and each one is a silent no-op rather than an error when it is
+    # missing, which is why they are named here rather than inherited:
+    #
+    #   FS       web/src/harness reads the recording back out of MEMFS for a
+    #            crash report, and web/src/saves walks the mount
+    #   IDBFS    the backend web/src/saves mounts at /ivan
+    #   the run dependency pair, which holds main() back while IndexedDB is
+    #            copied into MEMFS. FORCE_FILESYSTEM exports both already
+    #            (link.py:1637) and --preload-file above turns that on, so this
+    #            names what the page depends on instead of inheriting it from a
+    #            file we happen to preload.
+    #
+    # See tools/web/README.md.
     set(IVAN_WASM_LINK_FLAGS
-        "${IVAN_WASM_LINK_FLAGS} -sEXPORTED_RUNTIME_METHODS=FS,IDBFS,callMain")
+        "${IVAN_WASM_LINK_FLAGS} -sEXPORTED_RUNTIME_METHODS=FS,IDBFS,callMain,addRunDependency,removeRunDependency")
 
     # The IndexedDB filesystem backend is a separate JS library and is not
     # linked in by default.
@@ -258,8 +269,8 @@ if(EMSCRIPTEN)
     # FS_DEBUG is not a debug mode despite the name -- settings.js:392 defines
     # it as exactly "register file system callbacks using trackingDelegate",
     # and every one of its seventeen uses in libfs.js guards one of those
-    # optional calls and nothing else. It is how saves.js learns that the game
-    # wrote a save. Without it FS.trackingDelegate does not exist at all, which
+    # optional calls and nothing else. It is how web/src/saves learns that the
+    # game wrote a save. Without it FS.trackingDelegate does not exist at all, which
     # is not a degraded build: it is a page whose saves never leave MEMFS.
     set(IVAN_WASM_LINK_FLAGS "${IVAN_WASM_LINK_FLAGS} -lidbfs.js -sFS_DEBUG=1")
 
@@ -272,24 +283,14 @@ if(EMSCRIPTEN)
     # in the environment to point reports somewhere; ?crashlog=<url> still
     # redirects one session without a rebuild.
 
-    # Saves, mounted and synchronised by the page (§9.10). The last --pre-js, and
-    # addRunDependency is the whole of why: it holds up startup while IndexedDB is
-    # read back into MEMFS, so main() cannot reach the menu and enumerate an empty
-    # Save/ before the saves have arrived. FS and IDBFS are exported above and so
-    # reachable from the bundle; addRunDependency and removeRunDependency are
-    # module-scope in ivan.js and nothing else can hold main() back.
-    set(IVAN_WASM_LINK_FLAGS
-        "${IVAN_WASM_LINK_FLAGS} --pre-js ${CMAKE_CURRENT_SOURCE_DIR}/tools/web/saves.js")
-
     # The page emcc wraps around the module. Without this it emits
     # shell_minimal.html, which is an emscripten.org logo, a "Resize canvas"
     # checkbox and a debug textarea -- a page that says what built the thing
     # rather than what the thing is.
     #
-    # Also a LINK_DEPENDS in Main/CMakeLists.txt, for the same reason the
-    # --pre-js files are: the shell reaches emcc only through LINK_FLAGS, so
-    # nothing would relink when it changed and an edit would silently appear to
-    # do nothing.
+    # Also a LINK_DEPENDS in Main/CMakeLists.txt, and now the only one: the
+    # shell reaches emcc only through LINK_FLAGS, so nothing would relink when it
+    # changed and an edit would silently appear to do nothing.
     set(IVAN_WASM_LINK_FLAGS
         "${IVAN_WASM_LINK_FLAGS} --shell-file ${CMAKE_CURRENT_SOURCE_DIR}/tools/web/shell.html")
 
