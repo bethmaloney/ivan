@@ -503,7 +503,7 @@ void worldmap::Generate()
       // a tie, and std::sort is free to order ties however its implementation
       // finds convenient. libstdc++ and libc++ find different things
       // convenient, which put the towns and dungeon entrances of an otherwise
-      // identical world in different places under Emscripten (HARNESS.md
+      // identical world in different places under Emscripten (docs/port-log.md
       // §9.4). The input order is the deterministic x,y scan above, so keeping
       // ties in it is well defined on both.
       std::stable_sort(AvailableLocations.begin(), AvailableLocations.end(), distancetoattnam());

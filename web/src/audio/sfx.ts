@@ -1,36 +1,13 @@
 /*
- * Browser-side sound effects (HARNESS.md §9.7).
+ * Browser-side sound effects. Console API, query options and what to check when
+ * it is silent are in web/README.md; the boundary argument is
+ * docs/port-log.md §9.7.
  *
- * The wasm module decides *what* to play and this decides *how*. Everything up
- * to and including the choice of file stays in C++ -- Sound/SoundEffects.cfg,
- * its 153 patterns, the regex match against the message text, and the private
- * xorshift that picks between several files for one pattern (sfx.cpp:277). What
- * crosses the boundary is a path, through the EM_JS bridge in sfx.cpp.
- *
- * The point of the split is not tidiness, it is the three things SDL_mixer
- * could not do on this target:
- *
- *   - Nothing is preloaded. Sound/ is 26MB of wav against the 3.3MB of
- *     Graphics/ and Script/ in ivan.data, so preloading it would have made the
- *     first load an order of magnitude slower for audio that may never play.
- *     Each file is fetched the first time it is asked for and cached by the
- *     browser thereafter, so the cost is a few KB at the moment of use.
- *   - Latency is a buffer, not a mixer chunk. Mix_OpenAudio's 8000-sample
- *     request rounds up to 8192 (SDL_audio.c:1431), about 186ms, which is a
- *     long time between a blow landing and the sound of it. WebAudio schedules
- *     on the sample.
- *   - The autoplay policy is handled where it lives. See below.
- *
- * From the console:
- *
- *   ivanSfx.stats()     counts: played, dropped, cached, failed
- *   ivanSfx.played()    the last few hundred paths, newest last
- *   ivanSfx.state()     AudioContext state, or 'none' before the first sound
- *
- * Query string:
- *
- *   ?sfx=off            never play anything (still records what would have)
- *   ?sfxbase=<url>      fetch from somewhere other than the page's own Sound/
+ * The wasm module decides *what* to play and this decides *how*: everything up
+ * to and including the choice of file stays in C++, and what crosses the EM_JS
+ * bridge in sfx.cpp is a path. Fire and forget, so nothing here can stall the
+ * frame that asked for a sound -- and everything that can fail fails silently,
+ * which is what the SDL_mixer path does with a null chunk.
  */
 
 import * as Query from '../platform/query.ts';

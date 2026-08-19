@@ -19,7 +19,7 @@
 # the goldens hash the C++ double buffer, so as graphics and input cross into
 # web/ they stop being evidence about what a player sees (web/README.md).
 #
-# Golden traces travel: HARNESS.md §1 records native (gcc) and WASM (clang)
+# Golden traces travel: PORTING.md records native (gcc) and WASM (clang)
 # producing byte-identical traces, so a runner's compiler differing from a
 # developer's does not move the goldens. If this job ever fails on a trace diff,
 # suspect the change, not the runner.
@@ -40,7 +40,7 @@ permissions:
   contents: read
 
 env:
-  # HARNESS.md §9.9: the toolchain is pinned, because "latest" is not a
+  # docs/port-log.md §9.9: the toolchain is pinned, because "latest" is not a
   # toolchain. Bumping this is a deliberate act -- rebuild locally and re-run
   # tools/corpora/compare-targets.sh before changing it here.
   EMSDK_VERSION: 6.0.6

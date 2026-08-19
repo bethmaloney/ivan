@@ -108,7 +108,7 @@ void audio::error(RtMidiError::Type type, const std::string &errorText, void *us
 
 #else
 
-/* The browser plays the music; this decides what it should be (HARNESS.md
+/* The browser plays the music; this decides what it should be (docs/port-log.md
    §9.8). The split is the one sfx.cpp already makes for effects, and the same
    reasoning puts the cut in the same place: the playlist is built from the
    level scripts by dungeon::PrepareMusic and belongs to the game, while

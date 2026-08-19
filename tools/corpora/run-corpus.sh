@@ -1,7 +1,7 @@
 #!/bin/sh
 # Replay one corpus into an isolated directory and capture its trace.
 #
-# The harness options are pinned here on purpose. HARNESS.md §6.6 records that
+# The harness options are pinned here on purpose. docs/port-log.md §6.6 records that
 # changing them changes the process's allocation history, which used to change
 # the run with it; that sensitivity is closed, but a golden trace is only a
 # golden trace if the command line that produced it is fixed. Change the options
@@ -12,7 +12,7 @@
 # leaving the software rendering that TraceFrame() hashes untouched. Native runs
 # produce byte-identical traces, text logs and screenshots with it and without
 # it; the WASM build cannot run at all without it, because Emscripten's SDL2
-# port binds to the DOM at video init (HARNESS.md §9.3).
+# port binds to the DOM at video init (docs/port-log.md §9.3).
 #
 # Usage: run-corpus.sh <corpus.rec> <outdir>
 # Env:   IVAN_BIN   path to the ivan binary (default build/Main/ivan). A path
@@ -55,7 +55,7 @@ CORPUS=$(cd "$(dirname "$CORPUS")" && pwd)/$(basename "$CORPUS")
 
 # Every run gets its own directory. A portable build writes Save/, SndDebug.txt
 # and .QuestionHistory_*.txt into the directory it is launched from, so runs
-# sharing one contaminate each other -- HARNESS.md §6.5a, where that artifact
+# sharing one contaminate each other -- docs/port-log.md §6.5a, where that artifact
 # alone produced a spurious outcome cluster.
 rm -rf "$OUTDIR"
 mkdir -p "$OUTDIR"

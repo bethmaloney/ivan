@@ -1,7 +1,7 @@
 #!/bin/sh
 # Replay every committed corpus on two builds and compare what came out.
 #
-# This is seam 1 of HARNESS.md §1: while C++ still renders, a native build and
+# This is seam 1 of PORTING.md: while C++ still renders, a native build and
 # a WASM build must produce the same frames. The frame trace is the verdict --
 # a per-frame hash of the double buffer plus the cumulative RNG count -- and the
 # text layer and the end-of-run screenshot come with it, so a failure arrives
@@ -18,7 +18,7 @@
 #                    node -- run-corpus.sh picks the runner from the extension)
 #        SAVEDIFF    savediff binary, if built. When present the save set is
 #                    compared too and reported, but it does not decide the exit
-#                    status: HARNESS.md §5 records one legitimate divergence
+#                    status: PORTING.md records one legitimate divergence
 #                    (game::Save's GetTimeSpent, a wall-clock second boundary)
 #                    that no amount of determinism work will remove.
 #
@@ -56,7 +56,7 @@ for rec in "$HERE"/*.rec; do
       printf '  FAIL %s differs\n' "$artifact"
 
       # The first differing trace record is the useful part: its rng field says
-      # whether the *game* diverged or only the animation did (HARNESS.md §6.5a).
+      # whether the *game* diverged or only the animation did (docs/port-log.md §6.5a).
       if [ "$artifact" = trace.jsonl ]; then
         diff "$WORK/$name/a/$artifact" "$WORK/$name/b/$artifact" \
           | head -3 | sed 's/^/    /'

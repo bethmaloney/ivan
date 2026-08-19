@@ -1,32 +1,18 @@
 /*
- * Crash reports from a browser session (HARNESS.md §4, §9.6).
+ * Crash reports from a browser session. Console API, query options and the
+ * three failure paths are in web/README.md; the argument for collecting any of
+ * this unconditionally is docs/port-log.md §9.6.
  *
  * A trap in the wasm prints a stack trace to a console nobody is looking at and
- * the tab is closed. This collects the one thing that makes such a session
- * actionable instead: the recording harness::RecordKey has been appending to
- * since startup.
+ * the tab is closed. What makes a report worth having instead is that
+ * harness::RecordKey flushes every key as it writes it (harness.cpp:545), so a
+ * trap leaves the recording complete but for its trailer: the keys that led to
+ * the crash survive the crash, and the seed rides along in the header. A report
+ * therefore carries a deterministic reproduction rather than a description of
+ * one -- `./ivan --replay session.rec`.
  *
- * What makes a report worth having is that RecordKey flushes every key as it
- * writes it (harness.cpp:545), so a trap leaves the recording complete but for
- * its trailer. The keys that led to the crash survive the crash, and the seed
- * rides along in the header, so a report contains a deterministic reproduction
- * rather than a description of one:
- *
- *   ./ivan --replay session.rec
- *
- * Reports are kept in localStorage so they survive the reload or the closed tab
- * that usually follows a crash, and POSTed to the configured endpoint when there
- * is one. From the console:
- *
- *   ivanHarness.reports()        every stored report, newest first
- *   ivanHarness.save()           write the newest one out as a .json file
- *   ivanHarness.saveRecording()  just the .rec, ready for --replay
- *   ivanHarness.clear()          forget them
- *
- * Query string:
- *
- *   ?record=off       do not record, so a report carries no reproduction
- *   ?crashlog=<url>   POST somewhere other than the built-in endpoint
+ * Reports go to localStorage so they survive the reload or the closed tab that
+ * usually follows a crash, and are POSTed when an endpoint is configured.
  */
 
 import { BuildId, CrashEndpoint } from '../platform/build.ts';

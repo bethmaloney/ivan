@@ -1,6 +1,6 @@
 // Differential check: pcre_exec(...) >= 0  vs  std::regex_search (ECMAScript).
 //
-// Evidence for HARNESS.md §9.2, which replaced PCRE with std::regex. The patterns
+// Evidence for docs/port-log.md §9.2, which replaced PCRE with std::regex. The patterns
 // this game matches are *data* -- 153 in Sound/SoundEffects.cfg plus the default
 // AutoPickUpMatching -- so swapping the engine swaps the grammar under a config
 // file nobody re-tests. This compiles every shipped pattern under both engines and

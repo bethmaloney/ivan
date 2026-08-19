@@ -9,7 +9,7 @@
 #                     Catches behaviour changes -- intended or not.
 #
 # N defaults to 8 because the divergences this harness was built to find are
-# flaky: HARNESS.md §6.5a records two confidently wrong diagnoses drawn from
+# flaky: docs/port-log.md §6.5a records two confidently wrong diagnoses drawn from
 # two-run comparisons, both of which evaporated at 6-8 samples. Pairs agree by
 # chance often enough to fool you. Use 1 only for a quick smoke test.
 #
@@ -50,7 +50,7 @@ for rec in "$HERE"/*.rec; do
   wait
 
   # Self-consistency. Count distinct outcomes rather than comparing a pair --
-  # HARNESS.md §6.5a again: with a flaky divergence, "run 1 == run 2" is a
+  # docs/port-log.md §6.5a again: with a flaky divergence, "run 1 == run 2" is a
   # coin flip and reporting it as agreement is how this went wrong twice.
   consistent=0
   for artifact in trace.jsonl text.log screen.png; do

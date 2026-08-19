@@ -1,5 +1,5 @@
 /*
- * The browser oracle (HARNESS.md §1: the two seams).
+ * The browser oracle (PORTING.md: the two seams).
  *
  * The committed corpora prove the *game* still plays the way it did, and they
  * do it by hashing the C++ bitmap double buffer before it reaches a texture

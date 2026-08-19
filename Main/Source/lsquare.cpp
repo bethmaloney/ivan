@@ -2247,7 +2247,7 @@ void lsquare::CalculateGroundBorderPartners()
      leaves them in is packed into BorderPartnerInfo - which is drawn and
      saved. libstdc++ sorts a range this short with an insertion sort and
      libc++ with a sorting network, so std::sort disagreed across the two
-     (HARNESS.md §9.4). */
+     (docs/port-log.md §9.4). */
 
   std::stable_sort(BorderPartner, BorderPartner + Index);
   truth Animated = false;
@@ -2325,7 +2325,7 @@ void lsquare::CalculateOverBorderPartners()
      leaves them in is packed into BorderPartnerInfo - which is drawn and
      saved. libstdc++ sorts a range this short with an insertion sort and
      libc++ with a sorting network, so std::sort disagreed across the two
-     (HARNESS.md §9.4). */
+     (docs/port-log.md §9.4). */
 
   std::stable_sort(BorderPartner, BorderPartner + Index);
   truth Animated = false;

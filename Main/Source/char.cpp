@@ -944,7 +944,7 @@ struct svpriorityelement
      equal elements, and which of two equal elements a std::priority_queue
      leaves on top is up to the heap algorithm. libstdc++ and libc++ answer
      differently, so the same bite landed on the right leg natively and the
-     left leg under Emscripten (HARNESS.md §9.4). Lower index wins, which is
+     left leg under Emscripten (docs/port-log.md §9.4). Lower index wins, which is
      the order the loop below pushes them in. */
 
   bool operator<(const svpriorityelement& AnotherPair) const
@@ -2875,7 +2875,7 @@ bool character::AutoPlayAICheckAreaLevelChangedAndReset()
 {
   /* Not the pointer alone: leaving a level deletes it and the next one may land
      on the same address, which under Emscripten left vv2AllDungeonSquares full
-     of dangling squares (HARNESS.md §9.11). The pointer stays for reloads. */
+     of dangling squares (docs/port-log.md §9.11). The pointer stays for reloads. */
 
   static area* areaPrevious=NULL;
   static int iDungeonPrevious=-1, iLevelPrevious=-1;

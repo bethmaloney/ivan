@@ -2,7 +2,7 @@
 
 """Split each Music/*.mid into the stems the intensity system implies.
 
-The browser build does not synthesize MIDI (HARNESS.md §9.8). It plays
+The browser build does not synthesize MIDI (docs/port-log.md §9.8). It plays
 pre-rendered audio, and the only reason that can reproduce what the native
 build does is that IVAN's adaptive music turns out to be a three-way split
 and nothing more.

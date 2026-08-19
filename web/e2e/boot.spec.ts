@@ -8,7 +8,7 @@
  * and every assertion here still holds, which is the only evidence anybody has
  * that the delivery change was behaviour-preserving -- nothing else in the tree
  * covers the browser at all. The node suites are contract tests against stubs,
- * shell.html is untested, and HARNESS.md §9.10 says outright that "a save
+ * shell.html is untested, and docs/port-log.md §9.10 says outright that "a save
  * survives a reload" needs a browser.
  *
  * Needs an assembled dist/. See playwright.config.ts.
@@ -56,8 +56,8 @@ test('the canvas has something on it', async ({ page }) => {
   expect(Bytes.size).toBeGreaterThan(16);
 });
 
-/* The other half of the bridge contract. test/bridge.test.ts checks the C++
-   against src/bridge/contract.ts; this checks the live page against the same
+/* The other half of the bridge contract. src/bridge/contract.test.ts checks the
+   C++ against src/bridge/contract.ts; this checks the live page against the same
    file, so between them a rename on either side fails a test rather than
    silently costing the game a feature. */
 
@@ -143,7 +143,7 @@ test('the query string reaches the game as argv', async ({ page }) => {
 test('the first gesture releases the audio context', async ({ page }) => {
   /* Suspended until a gesture, by policy. The main menu asks for music before
      any gesture can have happened, which is why music is picked up on resume
-     where effects are dropped (tools/web/README.md). */
+     where effects are dropped (web/README.md). */
   await page.locator('#canvas').press('Enter');
 
   await expect.poll(() => page.evaluate(() => globalThis.ivanSfx.state() as string))
@@ -233,7 +233,7 @@ test('the game was held back while the saves were read', async ({ page }) => {
   expect(Stats.lastError).toBe(null);
 });
 
-/* The assertion HARNESS.md §9.10 says needs a browser, and the one the node
+/* The assertion docs/port-log.md §9.10 says needs a browser, and the one the node
    suite structurally cannot make: its FS is a stub, so it can only prove that a
    sync was asked for, never that anything came back. This writes into the mount
    the way the game does, flushes, reloads, and finds it -- the whole round trip

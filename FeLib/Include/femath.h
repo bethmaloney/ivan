@@ -36,9 +36,9 @@
  * and the draw order is the order you read. Note this is unspecified behaviour
  * rather than undefined: every build is internally consistent and reproduces
  * itself perfectly, which is why it survived twenty-five years and every
- * determinism test in HARNESS.md. It surfaces only when two *compilers* are
+ * determinism test in this repo. It surfaces only when two *compilers* are
  * compared, which is exactly what a WASM port does - the player's eye colour
- * came out a different colour under Emscripten (HARNESS.md §9.4).
+ * came out a different colour under Emscripten (docs/port-log.md §9.4).
  *
  * Interchangeable draws are fine and are left alone: RAND()%36 + RAND()%36 has
  * the same distribution and the same value whichever half is drawn first, and

@@ -45,7 +45,7 @@ class room
  public:
   typedef roomprototype prototype;
   /* Flags is NO_MONSTER_GENERATION and was read uninitialised by every reloaded
-     room until Save/Load below started carrying it (HARNESS.md §9.11). */
+     room until Save/Load below started carrying it (docs/port-log.md §9.11). */
 
   room() : Master(0), LastMasterSearchTick(0), MasterID(0), Index(0),
            DivineMaster(0), Flags(0) { }

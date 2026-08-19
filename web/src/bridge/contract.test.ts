@@ -6,8 +6,8 @@
  * dist.py parses SoundEffects.cfg instead of globbing Sound/: a declaration
  * checked against itself would agree with itself and prove nothing.
  *
- * The first run of this found two bridges -- IvanMusicPlaying and
- * IvanMusicVolume -- that tools/web/README.md's bridge table does not mention.
+ * The first run of this found two bridges nothing had documented --
+ * IvanMusicPlaying and IvanMusicVolume. The count was three; the answer is six.
  */
 
 import { test } from 'node:test';

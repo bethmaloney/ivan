@@ -2516,7 +2516,7 @@ bool nodepointerstorer::operator<(const nodepointerstorer& N) const
      two equal elements a std::priority_queue leaves on top is the heap
      algorithm's business - libstdc++ and libc++ disagree. Without this the
      route a monster picks depends on which standard library built the game
-     (HARNESS.md §9.4). Each node owns a distinct square, so this is a total
+     (docs/port-log.md §9.4). Each node owns a distinct square, so this is a total
      order. */
 
   if(Node->Pos.Y != N.Node->Pos.Y)

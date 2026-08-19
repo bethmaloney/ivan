@@ -91,7 +91,7 @@ festring getstr(FILE *f, truth word)
 
 #ifdef __EMSCRIPTEN__
 
-/* Playback is the browser's on this target (HARNESS.md §9.7). Everything above
+/* Playback is the browser's on this target (docs/port-log.md §9.7). Everything above
    this line stays in C++ -- SoundEffects.cfg, the patterns, the match, and the
    choice of which of several files to use -- and what crosses the boundary is
    the filename it settled on.

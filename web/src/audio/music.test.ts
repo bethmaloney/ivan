@@ -17,7 +17,7 @@
  *     rather than an error
  *
  * What it cannot check is that a browser makes a sound. That needs the render
- * and a machine with an audio device; see HARNESS.md §9.8.
+ * and a machine with an audio device; see docs/port-log.md §9.8.
  */
 
 import { test, after } from 'node:test';

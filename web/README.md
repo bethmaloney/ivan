@@ -1,10 +1,9 @@
 # web/ — the browser frontend
 
 The half of the port that is not C++. `Main/` decides what happens; this decides
-what the player sees, hears and types. `tools/web/` is the page emcc wraps around
-the module (`shell.html`), the landing page and the build tooling that assembles
-and serves both (`dist.py`, `serve.py`); every line of JavaScript the browser
-runs is bundled from here.
+what the player sees, hears and types. Every line of JavaScript the browser runs
+is bundled from here. `tools/web/` is the page emcc wraps around the module
+(`shell.html`), the landing page and the tooling that assembles and serves both.
 
 Node 24, pinned in `.nvmrc` at the repo root and in CI. With nvm:
 
@@ -30,27 +29,6 @@ most of the rest is six debounce waits at 320ms. Music is 3.1s behind it, from a
 500ms drift interval and a 400ms alignment pass. Typecheck is 0.38s and lint
 0.21s.
 
-## Why the JavaScript is not a `--pre-js` any more
-
-It was, and that is what this replaces. The four files in `tools/web/` were emcc
-link inputs, which had three costs:
-
-- **Every edit cost a relink.** CMake could only see them through a
-  hand-maintained `LINK_DEPENDS` string, and the failure mode when that string is
-  wrong is silent — the build reports itself up to date and the page keeps
-  serving the previous copy.
-- **The module graph was the order of flags in `CMakeLists.txt`.** Music borrows
-  the `AudioContext` the sfx module owns, and nothing but the order of two
-  `--pre-js` arguments enforced it. Both are in `src/audio/` now, so that is an
-  `import` — the one case where the fix is visible in the file rather than in a
-  build script. What is left of it is the shell's `<script>` tag running before
-  `ivan.js`, which is what `src/harness` and `src/saves` still rely on: one puts
-  `Module.arguments` there and the other a `preRun` hook, and the runtime reads
-  both once, at startup.
-- **No bundler could exist**, so no TypeScript, no npm library, no source map,
-  and no content-hashed filename — which is why `dist.py` has to send `no-cache`
-  on the JS it deploys.
-
 ## How the bundle reaches the page
 
 `Main/CMakeLists.txt` runs `build.mjs` into the build directory beside
@@ -62,26 +40,27 @@ and it needs `Module` to already be there to hang the saves' `preRun` hook on.
 `dist.py` copies it like any other build output.
 
 The target is `ALL` and always runs rather than being dependency-tracked —
-esbuild takes single-digit milliseconds, and the failure that buys off is the
-one `LINK_DEPENDS` exists for: a stale bundle is silent. A browser build now
-needs node and `web/node_modules`; both are checked when CMake configures, so a
-missing one names itself rather than failing inside a custom command.
+esbuild takes single-digit milliseconds, and the failure that buys off is the one
+`LINK_DEPENDS` exists for: a stale bundle is silent. A browser build needs node
+and `web/node_modules`; both are checked when CMake configures, so a missing one
+names itself rather than failing inside a custom command.
 
 What is left of the coupling is small and deliberate: the bundle is an IIFE that
 assigns a handful of globals, because the wasm side reaches them by name out of
-`EM_JS` bodies (see below), and it reaches four things back on `Module` — `FS`,
+`EM_JS` bodies (below), and it reaches four things back on `Module` — `FS`,
 `IDBFS`, `addRunDependency` and `removeRunDependency`, all named in
 `EXPORTED_RUNTIME_METHODS` rather than taken from `ivan.js`'s own scope the way a
-`--pre-js` could.
+`--pre-js` could. None of this is a `--pre-js` link input any more;
+`docs/port-log.md` §9.12 has what that cost and why it went.
 
 ## The toolchain, and why each piece
 
 | | |
 |---|---|
 | **esbuild** | bundles and strips types. No config file, sub-100ms. Vite's value is a dev server with HMR, and a game that boots through a multi-megabyte wasm download cannot usefully hot-reload. |
-| **tsc `--noEmit`** | the only type checker. esbuild does not check, and oxlint does not either. TypeScript 7, which is the native compiler — both projects check in 0.24s. |
+| **tsc `--noEmit`** | the only type checker. esbuild does not check, and oxlint does not either. TypeScript 7, the native compiler — both projects check in 0.24s. |
 | **oxlint** | one binary, no plugin tree. Correctness rules only. |
-| **`node --test`** | built into Node 24, which also strips the types — so the contract tests need no runner, no transform and no dependency. |
+| **`node --test`** | built into Node 24, which also strips the types — so the tests need no runner, no transform and no dependency. |
 | **Playwright** | the only thing in the repo that tests a browser. |
 
 **No Prettier, and that is not an oversight.** This tree is hand-formatted —
@@ -107,7 +86,7 @@ nothing — no enums, no parameter properties — because both things that read 
 only strip types rather than compiling them.
 
 Nothing in `src/` imports a test, so esbuild never reaches one: the bundle
-follows imports from `src/main.ts` and is 329 bytes.
+follows imports from `src/main.ts`.
 
 ## The bridge, and the one contract that spans both languages
 
@@ -125,23 +104,20 @@ an error, and the corpora cannot see it because a headless replay makes no sound
 So the names are declared once in `src/bridge/contract.ts` and checked from both
 ends:
 
-- `src/bridge/contract.test.ts` parses the `EM_JS` blocks out of the C++ and compares
-  them against `contract.ts`, in both directions — a call that is not declared
-  fails, and a declaration nothing calls any more fails too. Parsed rather than
-  trusted, for the same reason `dist.py` parses `SoundEffects.cfg` instead of
-  globbing `Sound/`: a declaration checked against itself proves nothing.
+- `src/bridge/contract.test.ts` parses the `EM_JS` blocks out of the C++ and
+  compares them against `contract.ts`, in both directions — a call that is not
+  declared fails, and a declaration nothing calls any more fails too. Parsed
+  rather than trusted, for the same reason `dist.py` parses `SoundEffects.cfg`
+  instead of globbing `Sound/`: a declaration checked against itself proves
+  nothing. Its first run found two bridges no document had ever mentioned, which
+  is why the table above is the only one left.
 - `e2e/boot.spec.ts` asserts the live page has every one of them as a function.
-
-The first run of that test found two bridges — `IvanMusicPlaying` and
-`IvanMusicVolume` — that the hand-written bridge table in `tools/web/README.md`
-had never mentioned. That is why the table above is the only one left.
 
 `contract.ts` covers the C++ → page direction only, and the gap it left was the
 *page* → page one: `music.ts` calls `ivanSfx.context()` and `ivanSfx.master()` to
-borrow the audio context, and `shell.html:540,541` drives the same master gain for
-mute. Renaming either during the port would have silenced the music with no error
-and no failing test. Half of that closed when sfx crossed and both were declared
-on `IvanSfx`; the other half closed when music did, because the caller is now
+borrow the audio context, and `shell.html` drives the same master gain for mute.
+Renaming either would have silenced the music with no error and no failing test.
+Both are declared on `IvanSfx` in `src/bridge/globals.d.ts` now and the caller is
 inside the tree `tsc` reads. `shell.html` is still outside it.
 
 ## The browser suite, and why it has to exist
@@ -160,13 +136,12 @@ autoplay policy.
 
 **This is what replaces the coverage the golden traces are about to lose.** The
 committed corpora prove the game still plays the way it did, and they do it by
-hashing the C++ `bitmap` double buffer before it reaches a texture (HARNESS.md
-§6.3, §9.3). That works only while rendering is C++. As graphics, input and the
-UI cross into this directory, the subject of that hash crosses with them — the
-traces will keep passing and cover less. Nothing else in the repo has ever
-tested a browser: every suite in here is a contract test against stubs,
-`shell.html` is untested, and HARNESS.md §9.10 said outright that "a save
-survives a reload" needs one — which is now one of the thirteen.
+hashing the C++ `bitmap` double buffer before it reaches a texture
+(`docs/port-log.md` §6.3, §9.3). That works only while rendering is C++. As
+graphics, input and the UI cross into this directory, the subject of that hash
+crosses with them — the traces will keep passing and cover less. Nothing else in
+the repo has ever tested a browser: every node suite in here is a contract test
+against stubs, and `shell.html` is untested.
 
 They assert that the page boots without a page error, that the canvas keeps its
 800×600 backing store, that it draws more than one colour, that every bridge is
@@ -180,25 +155,22 @@ save survives a reload**, and that `?saves=off` still plays. Plus the list in
 `ivanPage.modules`, so a module that threw on the way up is a failed assertion
 rather than a quietly missing feature.
 
-Three of those are about the saves and only one of them is obvious. The mount and
-the round trip through IDBFS would both keep passing with the run dependency
-removed entirely — measured, not assumed: with the hold taken out the page boots,
-mounts, syncs and survives a reload, and the only test that moves is the one that
-reads `Module.totalDependencies` and finds 1 where there should be 2.
+Three of those are about the saves and only one is obvious. The mount and the
+round trip through IDBFS would both keep passing with the run dependency removed
+entirely — measured, not assumed: with the hold taken out the page boots, mounts,
+syncs and survives a reload, and the only test that moves is the one that reads
+`Module.totalDependencies` and finds 1 where there should be 2.
 
 Not a pixel comparison: the main menu fades in and the seed varies, so a golden
 image needs a fixed seed and a settled frame first. That is the obvious next one.
 
-## Sound effects — the first module across
-
-`src/audio/sfx.ts` was `tools/web/sfx.js`. The design argument is HARNESS.md
-§9.7 and has not changed; this is the operating manual, which moved with the
-code.
+## Sound effects — `src/audio/sfx.ts`
 
 The wasm module decides *what* to play, this decides *how*. Everything up to and
 including the choice of file stays in C++ — `Sound/SoundEffects.cfg`, its 153
-patterns, the regex match against the message text, and the private xorshift
-that picks between several files for one pattern. What crosses is a path:
+patterns, the regex match against the message text, and the private xorshift that
+picks between several files for one pattern. `docs/port-log.md` §9.7 argues for
+that boundary; what crosses it is a path:
 
 ```
 soundeffects::playSound("The dog bites you!")   [C++]
@@ -224,10 +196,10 @@ ivanSfx.state()     // AudioContext state, or 'none' before the first sound
 ?sfxbase=<url>        fetch from somewhere other than the page's own Sound/
 ```
 
-`played()` is the useful one when something is wrong, because it records the
-call whether or not a sound came out. A path in `played()` with `stats().played`
-not moving means the module and the bridge are fine and the problem is the
-fetch, the decode or the context.
+`played()` is the useful one when something is wrong, because it records the call
+whether or not a sound came out. A path in `played()` with `stats().played` not
+moving means the module and the bridge are fine and the problem is the fetch, the
+decode or the context.
 
 **When it is silent**, in the order worth checking:
 
@@ -255,16 +227,13 @@ mixes, a failed fetch is cached as a failure so one missing file is one console
 line per session, a sound arriving more than 250ms late is thrown away, and a
 suspended context drops instead of queueing.
 
-## Music — the second module across
-
-`src/audio/music.ts` was `tools/web/music.js`. HARNESS.md §9.8 has the design
-argument and has not changed; this is the operating manual, which moved with the
-code, and `music.test.js` came with it as `music.test.ts`.
+## Music — `src/audio/music.ts`
 
 The same split as sfx, one level up: the module says what should be playing, this
 plays it. Nothing here synthesizes MIDI — the `.mid` are never fetched by the
 page. They are rendered ahead of time into OGG stems, which is what lets the
 browser build drop RtMidi, the MIDI parser and the playback engine.
+`docs/port-log.md` §9.8 has the design argument.
 
 The playlist is the game's. `dungeon::PrepareMusic` builds it from the level
 scripts and `audio.cpp` keeps it, exactly as on the native build; what crosses is
@@ -306,12 +275,6 @@ result. `Music/stems.json` says which stems each track has, and is why the page
 never probes for a file that was never rendered: six of the eleven tracks have no
 notes at all, so "no stems" is a normal answer rather than a fault.
 
-Unlike effects, stems are **streamed** through `<audio>` elements rather than
-decoded into `AudioBuffer`s. Decoded audio is about 23MB per minute per stem, and
-`Dungeon3` is 7.3 minutes — half a gigabyte for one dungeon if it were cached the
-way sfx caches wavs. The cost of streaming is that three elements keep three
-clocks, which is what the alignment pass and the drift correction are for.
-
 ```js
 ivanMusic.stats()      // {track, stems, gains, intensity, volume, drift, ...}
 ivanMusic.playlist()   // what the module last handed down
@@ -347,17 +310,7 @@ state, this design is the wrong one.
    picked up when the context resumes rather than dropped, because the main menu
    asks for it before any gesture can have happened.
 
-`music.test.ts` is a port rather than new coverage — the node suite it replaces
-had 61 checks and they are all still here, as independent cases rather than one
-sequential narrative. Three query options that suite never covered are new, and
-they are the ones the move made testable: options are read at call time now, so
-one process can hold more than one page.
-
-## The harness — the third module across
-
-`src/harness/` was `tools/web/harness-pre.js.in`. HARNESS.md §4 and §9.6 have the
-design argument; this is the operating manual, which moved with the code. It had
-no test, so `argv.test.ts` and `report.test.ts` are new rather than ported.
+## The harness — `src/harness/`
 
 Two jobs, and they are the two a browser has no command line for:
 
@@ -371,7 +324,8 @@ flags, produces enough on a crash to find the bug. Two things have to be true
 *before* the crash, because neither can be arranged afterwards: the binary has to
 carry function names, or a trap prints byte offsets nothing can resolve; and the
 session has to have been recording, or there is no way to reproduce it. Both are
-on by default in a `WASM_BROWSER` build.
+on by default in a `WASM_BROWSER` build. `PORTING.md` has the harness reference
+and `docs/port-log.md` §9.6 the argument.
 
 ### What you get when it crashes
 
@@ -405,35 +359,22 @@ ivanHarness.recordingPath()  // where the recording is, or null under ?record=of
 ivanHarness.endpoint()       // where a report would be POSTed, '' for nowhere
 ```
 
-The last three are functions where the `--pre-js` version had them as plain
-values. All three are derived from the query string, and reading them when asked
-rather than at load is what keeps them from disagreeing with what the runtime was
-actually given.
+The last three are functions rather than plain values: all three derive from the
+query string, and reading them when asked rather than at load is what keeps them
+from disagreeing with what the runtime was actually given.
 
 **The recording is the valuable part.** A stack says where it stopped; the
-recording says how to get back there. It carries the seed in its header, so
+recording says how to get back there, because it carries the seed in its header:
 `./ivan --replay session.rec` replays the session on the native build, where gdb,
-valgrind and ASan all apply. That works because `harness::RecordKey` flushes every
-key as it writes it (`FeLib/Source/harness.cpp:545`) — a trap leaves the recording
-complete but for its `# end keys=` trailer, so the keys that led to the crash
-survive it.
+valgrind and ASan all apply. Recording is on by default and changes nothing about
+how the game plays; `?record=off` opts out.
 
-Recording changes nothing about how the game plays. The seed it pins is the same
-`time(0)` the game would have used anyway (`Main/Source/main.cpp:154`); it just
-writes it down. Opt out with `?record=off`.
-
-### Three failure paths, and nothing in them may throw
-
-`onAbort` for a runtime assertion, a rejected promise for a trap unwinding out of
-asyncify (which is the shape a wasm trap takes here, since `ASYNCIFY` means `main`
-runs inside a promise), and the `error` event for anything thrown synchronously.
-
-All of it runs while something has *already* gone wrong, so every entry point is
-wrapped and every failure is swallowed after a console warning. A handler that
-throws replaces the crash being reported with its own, which is a worse bug than
-the one being chased because it is invisible. That is most of what the node tests
-check: storage that refuses still leaves the recording on the console, a crash
-before the runtime attached `FS` reports without one rather than failing twice.
+**Nothing in the three failure paths may throw** — `onAbort`, a rejected promise
+for a trap unwinding out of asyncify, and the `error` event. All of it runs while
+something has *already* gone wrong, so every entry point is wrapped and every
+failure is swallowed after a console warning: a handler that throws replaces the
+crash being reported with its own, which is worse than the bug being chased
+because it is invisible. That is most of what the node tests check.
 
 ### Sending reports somewhere
 
@@ -461,29 +402,20 @@ count says so, and the stored copy keeps its recording.
 
 ### Why the query string is argv
 
-`Module.arguments` is read by the runtime once, at startup. That is the whole
-reason the shell's `<script src="ivan-page.js">` sits before `{{{ SCRIPT }}}` and
-after the `Module` literal, and the reason the browser suite asserts that
-`?seed=999` comes back out of the recording header: a bundle that assigned argv a
-moment too late would lose the seed and the recording with no error anywhere.
+`Module.arguments` is read by the runtime once, at startup, which is the whole
+reason the shell's `<script>` sits before `{{{ SCRIPT }}}` and after the `Module`
+literal — and the reason the browser suite asserts that `?seed=999` comes back out
+of the recording header. Every option the page does not answer itself is forwarded
+verbatim, so `?sfx=off` reaches the game as `--sfx off`: `harness::ParseArgs` is
+an if/else-if chain with no else (`harness.cpp:357`), so it is ignored rather than
+rejected, and the page keeps one list of options rather than two that must agree.
 
-Every option the page does not answer itself is forwarded, so `?sfx=off` reaches
-the game as `--sfx off`. That is deliberate. `harness::ParseArgs` is an
-if/else-if chain with no else (`FeLib/Source/harness.cpp:357`), so an option it
-does not know is ignored rather than rejected — and filtering here would mean a
-second list of page options to keep in step with `platform/query.ts`, where a new
-one forgotten would silently stop reaching the game.
-
-## Saves — the fourth module across
-
-`src/saves/saves.ts` was `tools/web/saves.js`, and it was the last `--pre-js` in
-the build. HARNESS.md §9.10 has the design argument; this is the operating
-manual, which moved with the code.
+## Saves — `src/saves/saves.ts`
 
 The game writes saves with `fopen` and knows nothing about any of this. What
 changed for it is one line: `GetUserDataDir()` answers `/ivan/` on this target
 rather than `PORTABLE_BUILD`'s `"./"` (`save.cpp:838`), and `/ivan` is an IDBFS
-mount.
+mount. `docs/port-log.md` §9.10 has the design argument.
 
 ### What is in the mount
 
@@ -518,29 +450,6 @@ console API that lives behind it. It deletes the database before the mount, so
 there is no open connection to fight. If another tab has the game open, IndexedDB
 queues the delete instead of doing it and the page says so rather than claiming
 success.
-
-### The two things that hold the page's end up
-
-**A run dependency, held across the read.** `Module.addRunDependency('ivan-saves')`
-in a `preRun` hook, released in the `syncfs(true)` callback. Without it `main()`
-reaches the menu and `iosystem::ContinueMenu` enumerates a `Save/` that IndexedDB
-has not been copied into yet — "You don't have any previous saves." over a save
-that was about to arrive. Nothing below the hold may leave it held: a page that
-cannot save is a bad outcome, a page that will not boot is a worse one, so every
-path through `Populate()` ends at `Release()`, including a throw inside a
-callback IndexedDB invoked rather than one this module awaited. That last case is
-not hypothetical — it is what happened the first time this ran against a build
-with no `trackingDelegate`.
-
-**A debounce, and not only to coalesce.** `outputfile` writes to `<name>.tmp` and
-copies it over the final name on close (`save.cpp:31`), so a sync taken mid-save
-would push a megabyte of temporary file into IndexedDB and delete it again on the
-next pass. A sync refuses outright while a `.tmp` is on disk, and retries ten
-times at 400ms before deciding the `.tmp` is stale and going anyway — because a
-crash between opening one and removing it must not wedge saving for the rest of
-the session. The waiting costs nothing: the game blocks inside wasm and only
-returns to the event loop when asyncify unwinds it at the input wait, so a timer
-cannot fire until the game is idle, which is exactly when a sync should happen.
 
 ### When saves do not persist
 
@@ -578,21 +487,15 @@ web/
     main.ts                 the entry point, and the only place a global is assigned
     env.d.ts                IVAN_BUILD_ID and IVAN_CRASH_ENDPOINT, esbuild --define
     audio/
-      sfx.ts                sound effects (§9.7) -- the first module to cross
-      sfx.test.ts
-      music.ts              the soundtrack (§9.8) -- the second
-      music.test.ts
+      sfx.ts                sound effects, and sfx.test.ts
+      music.ts              the soundtrack, and music.test.ts
     harness/
-      argv.ts               the query string as argv (§4) -- the third
-      argv.test.ts
-      report.ts             crash reports (§9.6)
-      report.test.ts
+      argv.ts               the query string as argv, and argv.test.ts
+      report.ts             crash reports, and report.test.ts
     saves/
-      saves.ts              the player's data in IndexedDB (§9.10) -- the fourth
-      saves.test.ts         and the last: tools/web/ has no JavaScript now
+      saves.ts              the player's data in IndexedDB, and saves.test.ts
     platform/
       query.ts              the query string, once, for ?sfx=off ... ?wipesaves
-      query.test.ts
       build.ts              the two esbuild --define values, readable under node
     bridge/
       contract.ts           the six EM_JS targets, checked from both ends
@@ -605,5 +508,5 @@ web/
 Modules cross into `src/` one at a time, and `src/main.ts` keeps the list it has
 initialised so the browser test fails on a module that did not load rather than
 on a feature that is quietly missing. All four of the files that used to be in
-`tools/web/` are here now; graphics, input and the UI are what is left, and they
-are still C++.
+`tools/web/` are here; graphics, input and the UI are what is left, and they are
+still C++.

@@ -1278,7 +1278,7 @@ class character : public entity, public id
   /* Initialize assigns a counter only where the matching TemporaryState bit is
      set, but character::Save writes all STATES of them unconditionally, so the
      slots for inactive states went to the file as raw heap. That is the whole
-     of the level-file leak in HARNESS.md 6.4a: every one of the 1,860 bytes
+     of the level-file leak in docs/port-log.md §6.4a: every one of the 1,860 bytes
      that differ between two MALLOC_PERTURB_ values falls inside one of these
      arrays, sixteen of them, one per character on the level, and the slots
      that hold defined data are exactly the ones whose state bit is set.
@@ -1322,7 +1322,7 @@ class character : public entity, public id
      leg::CalculateAttributeBonuses. So the first CalculateBurdenState of every
      character's life reads CarriedWeight before the function that assigns it has
      run - the one character:: context valgrind still reported on the non-combat
-     corpus after HARNESS.md 6.6a.
+     corpus after docs/port-log.md §6.6a.
 
      Zero is provable for the four of them: CalculateVolumeAndWeight assigns
      Weight and CarriedWeight from the stack and then adds each bodypart, and a

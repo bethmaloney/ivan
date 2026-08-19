@@ -4,10 +4,10 @@
 
     tools/web/serve.py [port] [root]        # default 8111, build-web/Main
 
-emrun is single-threaded and wedges when a script drives it (HARNESS.md §3), so
+emrun is single-threaded and wedges when a script drives it, so
 this exists instead. Three things it does that http.server does not:
 
-- **Byte ranges.** The music is streamed through <audio> elements (§9.8), and a
+- **Byte ranges.** The music is streamed through <audio> elements (docs/port-log.md §9.8), and a
   server that cannot answer `Range` makes that degrade quietly rather than
   fail: the element has to pull the whole file before it knows its duration, so
   it starts late, cannot seek, and the page's drift correction sits out
@@ -150,7 +150,7 @@ def main():
     root = sys.argv[2] if len(sys.argv) > 2 else os.path.join(repo, "build-web", "Main")
 
     if not os.path.isdir(root):
-        sys.exit("no such directory: %s\nBuild it first (HARNESS.md §3)." % root)
+        sys.exit("no such directory: %s\nBuild it first (CLAUDE.md)." % root)
 
     print("serving %s on http://localhost:%d/ivan.html" % (root, port))
 

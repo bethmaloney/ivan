@@ -1,23 +1,14 @@
 /*
- * Saves that survive the tab (HARNESS.md §9.10).
+ * Saves that survive the tab. Console API, query options and what to check when
+ * they do not persist are in web/README.md; the design argument, including why
+ * IndexedDB rather than localStorage, is docs/port-log.md §9.10.
  *
- * The game writes saves with fopen and knows nothing about any of this. All
- * that changes for it is where GetUserDataDir() points: /ivan/ on this target
- * rather than "./" (save.cpp), and /ivan is an IDBFS mount. Everything the
- * player accumulates goes there -- Save/, Bones/, ivan.cfg, the highscore
- * table, the answers to the name prompt -- while Graphics/ and Script/ stay in
- * the read-only MEMFS that ivan.data populates at /.
- *
- * IndexedDB rather than localStorage, and the reason is a measurement rather
- * than a preference: one dungeon level of the non-combat corpus is 3.5MB of
- * save files, of which the level file alone is ~1MB, and a real run visits
- * dozens of levels. localStorage is 5-10MB per origin, holds strings (so +33%
- * for base64), and writes synchronously on the main thread. It would run out
- * before the player left Under Water Tunnel.
- *
- * IDBFS keeps a MEMFS in front of IndexedDB and copies between them on demand,
- * so the two jobs here are: read it in before main() runs, and write it back
- * after the game has written a save.
+ * The game writes saves with fopen and knows nothing about any of this. All that
+ * changes for it is where GetUserDataDir() points: /ivan/ on this target rather
+ * than "./" (save.cpp), and /ivan is an IDBFS mount. IDBFS keeps a MEMFS in
+ * front of IndexedDB and copies between them on demand, so the two jobs here
+ * are: read it in before main() runs, and write it back after the game has
+ * written a save.
  *
  * WRITING BACK IS DEBOUNCED, AND NOT ONLY TO COALESCE. outputfile writes to
  * <name>.tmp and copies it over the final name on close (save.cpp:31), so a
@@ -25,27 +16,10 @@
  * and delete it again on the next pass. Flush waits for the writes to stop and
  * refuses outright while a .tmp is on disk.
  *
- * The wait costs nothing, because of how the module runs: the game blocks
- * inside wasm and only returns to the JS event loop when asyncify unwinds it
- * at the input wait. A timer therefore cannot fire until the game is idle,
- * which is exactly when a sync should happen.
- *
- * From the console:
- *
- *   ivanSaves.stats()      mounted, dirty, syncs, failures, lastError
- *   ivanSaves.flush()      sync now; resolves when IndexedDB has it
- *   ivanSaves.estimate()   navigator.storage.estimate(), in MB
- *   ivanSaves.files()      what is in the mount, with sizes
- *   ivanSaves.wipe()       delete every save, then reload
- *
- * Query string:
- *
- *   ?saves=off             do not mount; play in a scratch filesystem
- *   ?wipesaves             delete the database before mounting
- *
- * ?wipesaves is the escape hatch that has to exist. Persistent saves mean a
- * save that crashes on load crashes on every load, and a player who cannot
- * reach the menu cannot use a console API that lives behind it.
+ * The wait costs nothing, because of how the module runs: the game blocks inside
+ * wasm and only returns to the JS event loop when asyncify unwinds it at the
+ * input wait. A timer therefore cannot fire until the game is idle, which is
+ * exactly when a sync should happen.
  */
 
 import * as Query from '../platform/query.ts';

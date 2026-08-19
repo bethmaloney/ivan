@@ -8,7 +8,7 @@
  * feeds those results through int() and (short) truncation, so one ulp becomes
  * a different tile, a different continent, a different game.
  *
- * See portmath/README.md for the measurement and HARNESS.md §6.3.
+ * See portmath/README.md for the measurement and docs/port-log.md §6.3.
  *
  * Use these in anything that reaches game state or the framebuffer. Calling
  * <cmath> directly from Main/ or FeLib/ reintroduces the divergence silently,

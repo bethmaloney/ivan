@@ -2,7 +2,7 @@
   "name": "ivan-web",
   "version": "0.0.0",
   "private": true,
-  "description": "The browser frontend for IVAN: everything the page owns rather than the wasm module (HARNESS.md §9)",
+  "description": "The browser frontend for IVAN: everything the page owns rather than the wasm module (docs/port-log.md §9)",
   "type": "module",
   "scripts": {
     "build": "node build.mjs",

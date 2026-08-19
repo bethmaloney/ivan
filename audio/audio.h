@@ -32,7 +32,7 @@
 #include <vector>
 
 /* On Emscripten the page plays the music and nothing here synthesizes it
-   (HARNESS.md §9.8), so the MIDI machinery is not merely unused -- it is not
+   (docs/port-log.md §9.8), so the MIDI machinery is not merely unused -- it is not
    compiled at all. RtMidi cannot work on this target in any case: it would
    auto-select its dummy backend, which is 2,800 lines that answer "no devices"
    to everything.

@@ -148,7 +148,7 @@ if(EMSCRIPTEN)
   # *compile* flag as well as a link flag -- it is what puts the port's headers
   # on the include path -- so a target that misses it cannot find SDL.h, and a
   # target that gets a different set from its neighbours is the exact shape of
-  # bug HARNESS.md §7.7 records: -DGCC in one sibling directory gave graphicid
+  # bug docs/port-log.md §7.7 records: -DGCC in one sibling directory gave graphicid
   # two layouts inside one binary. Uniform beats scoped here, which is why this
   # is add_compile_options at the top level and not add_definitions per
   # directory.
@@ -201,8 +201,8 @@ if(EMSCRIPTEN)
   endif()
 
   # Asyncify unwinds the stack around the blocking SDL_WaitEvent inside
-  # globalwindowhandler::GetKey (§9 step 3). Note a *replay* never reaches it --
-  # the harness returns the recorded key first (§4) -- so seam-1 differential
+  # globalwindowhandler::GetKey (§9.3). Note a *replay* never reaches it --
+  # the harness returns the recorded key first (PORTING.md) -- so seam-1 differential
   # runs do not need this and are faster without it. Interactive play does.
   if(WASM_ASYNCIFY)
     set(IVAN_WASM_LINK_FLAGS "${IVAN_WASM_LINK_FLAGS} -sASYNCIFY=1")

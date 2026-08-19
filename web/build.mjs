@@ -1,5 +1,5 @@
 /*
- * Bundle the page's own JavaScript (HARNESS.md §9).
+ * Bundle the page's own JavaScript (docs/port-log.md §9).
  *
  *   node build.mjs [--outdir <dir>] [--watch] [--dev]
  *

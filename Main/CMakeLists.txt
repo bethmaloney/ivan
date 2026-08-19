@@ -77,8 +77,9 @@ if(EMSCRIPTEN)
     add_dependencies(ivan ivan-page)
 
     # Sound/ and Music/ are the data directories the page fetches over HTTP
-    # instead of reading out of ivan.data -- effects per §9.7, music per §9.8 --
-    # so both have to be reachable at a URL relative to ivan.html. Symlinked
+    # instead of reading out of ivan.data -- effects per docs/port-log.md §9.7,
+    # music per §9.8 -- so both have to be reachable at a URL relative to
+    # ivan.html. Symlinked
     # rather than copied: together they are ~28MB, they are read-only, and a
     # copy would go stale the moment a wav or a stem changed. This is what keeps
     # the documented `emrun --no_browser build-web/Main` serving a complete game

@@ -2286,7 +2286,7 @@ void cachedfont::PrintCharacter(cblitdata B) const
      Copying pixel by pixel is width-independent, aligned by construction, and
      agrees with the fallback. Nine iterations of a two-byte load, and, or and
      store is not the part of this program worth optimising. Found by the
-     native-vs-WASM frame comparison, HARNESS.md §9.4: it is one pixel, and the
+     native-vs-WASM frame comparison, docs/port-log.md §9.4: it is one pixel, and the
      frame hashes disagreed on it immediately. */
 
   packcol16** SrcLine = &Image[B.Src.Y];

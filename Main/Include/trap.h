@@ -65,7 +65,7 @@ class itemtrapbase
   /* The constructor above initialises Active and stops, but Save writes Team
      unconditionally, so an item trap that was never armed put four bytes of
      heap into every level file that held one and two ordinary replays produced
-     different level files (HARNESS.md §6.6e). NO_TEAM is the value
+     different level files (docs/port-log.md §6.6e). NO_TEAM is the value
      TeleportRandomly resets it to (trap.cpp:123) and means exactly what an
      unarmed trap needs it to mean - nobody owns this. Nothing reads it while
      Active is false: CanBeSeenBy short circuits on !Active. */

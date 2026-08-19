@@ -1,5 +1,5 @@
 /*
- * The query string, as argv (HARNESS.md §4, §9.6).
+ * The query string, as argv. PORTING.md has the harness reference.
  *
  * The node host gets its harness arguments from the command line. A browser has
  * no command line, so this is it: ?seed=999&headless becomes
@@ -7,12 +7,9 @@
  * Emscripten's runtime looks for argv before it calls main().
  *
  * RECORDING IS ON BY DEFAULT, and that is the whole point. A crash you have to
- * have predicted is no use: by the time you know you want a recording, the
- * session that would have produced one is gone. Recording costs nothing that
- * matters -- harness::RecordKey appends a line per keystroke -- and it changes
- * nothing about how the game plays, because the seed it pins is the same
- * time(0) main.cpp would have used anyway (main.cpp:154). Opt out with
- * ?record=off.
+ * have predicted is no use. It changes nothing about how the game plays, because
+ * the seed it pins is the same time(0) main.cpp would have used anyway
+ * (main.cpp:154). Opt out with ?record=off.
  */
 
 import * as Query from '../platform/query.ts';

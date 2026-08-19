@@ -2,10 +2,8 @@
  * The globals the page puts on the window, as the console and the browser test
  * see them.
  *
- * Every one of them has crossed now, so each declaration below is the type its
- * module is checked against rather than a description of someone else's object.
- * The looseness ivanSaves used to be declared with -- it was the last file in
- * tools/web/ -- went with it.
+ * Each declaration is the type its own module is checked against, not a
+ * description of someone else's object.
  *
  * `var` rather than `const`: it is the only declaration form that puts a name on
  * globalThis, which is where both an EM_JS body and a page.evaluate() look.

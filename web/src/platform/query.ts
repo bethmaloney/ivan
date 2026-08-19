@@ -3,9 +3,8 @@
  *
  * Every one of the page's modules is switched by the query string rather than
  * at build time -- ?sfx=off, ?musicbase=, ?saves=off, ?wipesaves, ?record=off,
- * ?crashlog= -- because they have to be changeable without a rebuild of an
- * 8MB wasm binary (tools/web/README.md). Four files were each opening their own
- * URLSearchParams over location.search; this is that, once.
+ * ?crashlog= -- because they have to be changeable without a rebuild of an 8MB
+ * wasm binary. web/README.md lists them all.
  *
  * Read at call time rather than cached at module load. The string cannot change
  * without a reload, so the only thing caching would buy is a few microseconds

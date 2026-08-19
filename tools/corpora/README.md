@@ -1,7 +1,7 @@
 # tools/corpora — the committed differential corpora
 
 Three recordings, their golden traces and golden text logs, and the scripts that
-replay and check them. This is the oracle HARNESS.md is built around, in the one
+replay and check them. This is the oracle PORTING.md is built around, in the one
 form that makes it an oracle: committed artifacts rather than instructions for
 regenerating some.
 
@@ -37,14 +37,14 @@ about 4x the wall clock of the other two together, and it is the only corpus tha
 leaves the first dungeon level: the AI descends to UT 2 in the last quarter of
 the run and crosses back and forth afterwards. That is what makes it the one to
 reach for when the thing under test scales with the save set or with level size —
-the browser save path (HARNESS.md §9.10) is measured on it, because on
+the browser save path (docs/port-log.md §9.10) is measured on it, because on
 `autoplay-200` the save set never exceeds one level and the cost being measured
 never shows up.
 
 ### Check values
 
 These are the numbers that say a regenerated corpus is *the same* corpus. They
-are recorded across HARNESS.md §6.6a–d as the check values for those fixes.
+are recorded across docs/port-log.md §6.6a–d as the check values for those fixes.
 
 | | noncombat | autoplay-200 | autoplay-2000 |
 |---|---|---|---|
@@ -54,7 +54,7 @@ are recorded across HARNESS.md §6.6a–d as the check values for those fixes.
 | final turn | 3 | 161 | 1,763 |
 
 These moved once, deliberately, in the commit that made the game compiler
-independent (HARNESS.md §9.4). The key sequences did not change and neither did
+independent (docs/port-log.md §9.4). The key sequences did not change and neither did
 the seed; what changed is that a dozen expressions used to let the compiler
 decide which random draw went where, so the world these 210 keys generate is
 now the same world under GCC and under Clang instead of two different ones. The
@@ -69,7 +69,7 @@ says the fixes were as narrow as they claimed. Its old values (2,698 frames,
 no-monster-generation flag out of freed heap.
 
 `nest` must be 0 on every frame of both. If it ever goes positive the single
-`mtb` backup slot is corrupting the game stream — HARNESS.md §6.5a.
+`mtb` backup slot is corrupting the game stream — docs/port-log.md §6.5a.
 
 ## Regenerating
 
@@ -108,7 +108,7 @@ Check the HP against the table above before trusting a regenerated corpus.
 
 Recording this corpus produced two disagreements that no earlier corpus could
 reach, because both live on the *reload* path and neither shorter corpus ever
-reloads a level. They are written up in HARNESS.md §9.11; the short version is
+reloads a level. They are written up in docs/port-log.md §9.11; the short version is
 that one was `--text` changing the native run and the other was native and WASM
 parting company by 1,600 draws, and both turned out to be reads of memory the
 program never wrote. Neither was an unsequenced RNG draw, which is what the
@@ -129,7 +129,7 @@ is worth taking as seriously as a cross-target one: it means the golden is not
 
 ## Two things that will bite you
 
-**The harness options are pinned in `run-corpus.sh`.** HARNESS.md §6.6 records
+**The harness options are pinned in `run-corpus.sh`.** docs/port-log.md §6.6 records
 that changing them changes the process's allocation history, which used to change
 the run with it. That sensitivity is closed, but a golden trace only means
 anything if the command line that produced it is fixed. Change the options and
@@ -158,7 +158,7 @@ without letting it decide the exit status; since §9.11 every level file and `.w
 of all three corpora is byte-identical there, and `GetTimeSpent` is the only
 thing left that differs.
 
-**Anything outside these three corpora.** Every determinism number in HARNESS.md
+**Anything outside these three corpora.** Every determinism number in PORTING.md
 is a property of the levels these key sequences generate. `autoplay-2000` reaches
 a second dungeon level; none of them visits the whole world map. Widening the
 corpus is how the remaining coverage qualifier gets retired.

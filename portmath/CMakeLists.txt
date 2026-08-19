@@ -6,7 +6,7 @@ target_include_directories(portmath PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}
                                     PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 
 # Both of these are load-bearing, and both are set on the target rather than
-# with add_definitions(). HARNESS.md §7.7 is what a directory-scoped flag costs:
+# with add_definitions(). docs/port-log.md §7.7 is what a directory-scoped flag costs:
 # -DGCC in a sibling directory gave one struct two layouts in one binary.
 #
 #   -ffp-contract=off  stops GCC fusing a*b+c into an FMA. The fused form is

@@ -59,7 +59,7 @@ is **not** that world generation is insensitive to the last ulp. Per call site:
 | `worldmap::PeriodicSimplexNoiseAltitude` | `sincos` | 9,604 | **0** |
 | every `log` site | `log` | 8,967 | **0** |
 
-World generation — the site HARNESS.md §6.3 singles out — is where the two
+World generation — the site docs/port-log.md §6.3 singles out — is where the two
 libms agree *exactly*. Its arguments are `x/XSize * 2π` for integer `x`, and
 both implementations round those identically. The disagreements are everywhere
 else, including 106 in `NormalDistributedRand`, which decides which way
@@ -104,7 +104,7 @@ a real behaviour change and needs the goldens regenerated deliberately, not
 ## Two build flags that are load-bearing
 
 Both are set on the target in `CMakeLists.txt`, never with `add_definitions()`
-— HARNESS.md §7.7 records what a directory-scoped flag costs here.
+— docs/port-log.md §7.7 records what a directory-scoped flag costs here.
 
 - **`-ffp-contract=off`** stops GCC fusing `a*b+c` into an FMA. The fused form
   is *more* accurate, which is the problem: WASM has no FMA, so a contracted

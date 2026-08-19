@@ -194,7 +194,7 @@ ITEM(bodypart, item)
   /* bodypart() initialised Master and nothing else, so every scalar below was
      indeterminate on a freshly Spawned part. Nine of them are written straight
      to the level file by bodypart::Save, which is where the uninitialised heap
-     in HARNESS.md 6.4a comes from, and HP and MaxHP are read by CalculateMaxHP
+     in docs/port-log.md §6.4a comes from, and HP and MaxHP are read by CalculateMaxHP
      before anything assigns them.
 
      Zero is not filler for HP and MaxHP. CalculateMaxHP opens with

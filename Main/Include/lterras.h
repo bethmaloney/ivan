@@ -218,7 +218,7 @@ OLTERRAIN(earth, olterrain)
   /* PostConstruct picks one of the four earth tiles at random, but it does not
      run on every path that creates an earth, and Save writes this field on all
      of them - so a level file carried four uninitialised bytes of heap and two
-     ordinary replays produced different level files (HARNESS.md §6.6e). Zero is
+     ordinary replays produced different level files (docs/port-log.md §6.6e). Zero is
      one of the four values PostConstruct itself chooses, so an earth that
      misses PostConstruct now draws a real tile instead of an arbitrary one, and
      draws the same one every time. */

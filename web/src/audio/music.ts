@@ -1,56 +1,25 @@
 /*
- * Browser-side music (HARNESS.md §9.8).
+ * Browser-side music. Console API, query options and what to check when it is
+ * silent are in web/README.md; the design argument is docs/port-log.md §9.8.
  *
- * The companion to sfx.ts, and it splits the work the same way: the wasm module
- * decides *what* should be playing and this decides *how*. What crosses the
- * boundary is a playlist of MIDI filenames -- the same strings the level scripts
- * name and audio.cpp keeps in `Tracks` -- plus master volume and the intensity
- * the game recomputes every turn.
+ * The companion to sfx.ts, splitting the work the same way: the wasm module
+ * decides *what* should be playing and this decides *how*. What crosses is a
+ * playlist of MIDI filenames -- the same strings the level scripts name and
+ * audio.cpp keeps in `Tracks` -- plus master volume and the intensity the game
+ * recomputes every turn.
  *
  * Nothing here synthesizes MIDI. `Music/*.mid` are never fetched by the page;
  * they are rendered ahead of time into OGG stems (tools/music/split-stems.py,
- * tools/music/render-stems.py) and this plays those. That is what lets the
- * browser build drop RtMidi, the MIDI parser and the playback engine -- about
- * 4,700 lines that could not have worked on this target anyway -- rather than
- * port them.
+ * tools/music/render-stems.py) and this plays those. Three stems reproduce the
+ * native adaptive mix exactly rather than approximating it, because audio.cpp's
+ * per-channel volumes only ever take three shapes -- split-stems.py has the
+ * derivation.
  *
- * ---- why the stems ----
- *
- * IVAN's music is adaptive: `character::Be` sets an intensity from the
- * player's worst body part every turn (char.cpp:1062), and audio.cpp turns it
- * into a per-channel MIDI volume. Those volumes only ever take three shapes --
- * constant, falling with intensity, rising with intensity -- so three
- * pre-rendered stems behind three gain nodes reproduce the native mix exactly
- * rather than approximating it. split-stems.py has the derivation.
- *
- * It matters more than it sounds: 62% of all the notes in the game's music sit
- * on the rising curve, so a player at full health is meant to be hearing about
- * a third of the piece. Rendering one flat mix would have shipped music that
- * was missing most of itself.
- *
- * ---- why this streams and sfx does not ----
- *
- * The one real structural difference from sfx.ts. Effects are decoded into
- * AudioBuffers and cached, which is right for a few hundred KB of wav. Music
- * cannot be: decoded audio is float32 at the context rate, about 23MB per
- * minute per stereo stem, and Dungeon3 is 7.3 minutes -- half a gigabyte for
- * one dungeon's three stems, for audio that is played once through.
- *
- * So each stem is an <audio> element behind a MediaElementAudioSourceNode.
- * Memory stays flat, and playback starts on the first few KB instead of after
- * a multi-megabyte fetch completes. The cost is that three elements keep three
- * independent clocks, which is what Sync below is for.
- *
- * From the console:
- *
- *   ivanMusic.stats()     track, stems, intensity, volume, drift, counters
- *   ivanMusic.playlist()  what the module last handed down
- *
- * Query string:
- *
- *   ?music=off            never play anything (still tracks what would have)
- *   ?musicbase=<url>      fetch from somewhere other than the page's own Music/
- *   ?musiccurve=linear    volume as a straight ratio instead of the GM square law
+ * Unlike sfx.ts these stream through <audio> elements rather than being decoded
+ * and cached: decoded audio is about 23MB per minute per stereo stem, and
+ * Dungeon3 is 7.3 minutes. Memory stays flat and playback starts on the first
+ * few KB, at the cost of three elements keeping three independent clocks, which
+ * is what Sync below is for.
  */
 
 import * as Query from '../platform/query.ts';

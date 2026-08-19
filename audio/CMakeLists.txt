@@ -1,6 +1,6 @@
 if(EMSCRIPTEN)
   # Nothing on this target synthesizes MIDI: the page plays pre-rendered stems
-  # instead (HARNESS.md §9.8), so RtMidi, the MIDI parser, the playback engine
+  # instead (docs/port-log.md §9.8), so RtMidi, the MIDI parser, the playback engine
   # and their helpers are not compiled at all rather than compiled and unused.
   #
   # That is about 4,700 lines, and none of it could have worked here. RtMidi

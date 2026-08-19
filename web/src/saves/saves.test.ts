@@ -17,7 +17,7 @@
  *   - a second tab does not write at all
  *
  * What it cannot check is that IndexedDB survives a reload. That needs a
- * browser; see HARNESS.md §9.10 and e2e/boot.spec.ts.
+ * browser; see docs/port-log.md §9.10 and e2e/boot.spec.ts.
  */
 
 import { test } from 'node:test';

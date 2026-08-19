@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-"""Render the MIDI stems to OGG for the browser build (HARNESS.md §9.8).
+"""Render the MIDI stems to OGG for the browser build (docs/port-log.md §9.8).
 
 split-stems.py cuts each track into the three curves the intensity system
 drives; this turns those into audio the page can stream, and drops the result
