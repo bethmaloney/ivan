@@ -795,9 +795,6 @@ std::vector<festring> ListFiles(festring Directory, cfestring& Extension)
   while(::FindNextFile(hFind, &fd));
   ::FindClose(hFind);
 #else
-#ifdef __DJGPP__
-#error "ListFiles() not implemented on DOS!"
-#else
   DIR* dirp = opendir(Directory.CStr());
   if(!dirp)
     ABORT("Cannot open directory %s", Directory.CStr());
@@ -811,7 +808,6 @@ std::vector<festring> ListFiles(festring Directory, cfestring& Extension)
       Files.push_back(Directory + dp->d_name);
   }
   closedir(dirp);
-#endif
 #endif
   return Files;
 }
@@ -868,7 +864,7 @@ festring GetUserDataDir()
   return Dir;
 #endif /* UNIX */
 
-#if defined(WIN32) || defined(__DJGPP__)
+#ifdef WIN32
   return "./";
 #endif
 #endif

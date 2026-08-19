@@ -650,11 +650,10 @@ truth harness::NextReplayKey(int& Key)
  * padding, so it is only correct when the width happens to be a multiple of
  * four.
  *
- * libpng is not linked into FeLib and this file is compiled in the DJGPP and
- * SDL1 branches too, so taking a dependency here would break builds that
- * cannot be tested from this machine. Deflate "stored" blocks need no
- * compressor: the result is a valid, universally readable PNG that costs
- * about 1.4MB at 800x600. That is the right trade for a debugging capture -
+ * libpng is linked into FeLib, but zlib only transitively, and this file is
+ * compiled in the SDL1 branch too, which has no toolchain here to test a new
+ * dependency against. Deflate "stored" blocks need no compressor: the result
+ * is a valid, universally readable PNG that costs about 1.4MB at 800x600. That is the right trade for a debugging capture -
  * no new dependency in any branch, and nothing to go wrong.
  */
 
@@ -1078,9 +1077,9 @@ void harness::TraceFrame()
   if(!Buffer)
     return;
 
-  /* Never cache the bitmap, its row pointers or the resolution: the DJGPP
-     SetMode reallocates the double buffer, and the row pointer array lives in
-     the same allocation as the pixels. */
+  /* Never cache the bitmap, its row pointers or the resolution: SetMode
+     reallocates the double buffer, and the row pointer array lives in the
+     same allocation as the pixels. */
 
   cv2 Size = Buffer->GetSize();
   packcol16** Image = Buffer->GetImage();

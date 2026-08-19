@@ -96,8 +96,10 @@ generate. Native-vs-WASM is unblocked *for the reached paths* and unproven elsew
   time a corpus change alone surfaced a family that three earlier passes had walked past.
 - **`.wm` still has the §6.2 residue**, and no corpus visits enough of the world map to write the
   whole file.
-- **The DJGPP and SDL1 branches** are edited but have no toolchain to compile them. `--headless` is
-  guarded in the SDL branches only; the DJGPP `BlitDBToScreen` still writes to the VESA frame buffer.
+- **The SDL1 branch** is edited but has no toolchain to compile it. The DOS/DJGPP branch it used to
+  be paired with is gone: this fork does not target DOS, so the VESA framebuffer `BlitDBToScreen`,
+  the DPMI mode setting, the `kbhit`/`getkey` input path and the real-mode signal handler are
+  deleted rather than carried untested.
 
 ## Builds
 
@@ -365,9 +367,9 @@ Four details that were not free:
   writes a *BMP* despite the name it is usually given, stages it through a `.tmp` moved on close —
   wrong for a capture meant to survive a crash — and emits no BMP row padding, so it is only correct
   when the width is a multiple of four. libpng is linked into FeLib but `harness.cpp` compiles in the
-  DJGPP and SDL1 branches too, and zlib is only transitively linked. Stored blocks need no compressor
-  at all. The cost is size, ~1.4MB at 800×600, which is why `--shot-dir` skips frames identical to
-  their predecessor.
+  SDL1 branch too, and zlib is only transitively linked. Stored blocks need no compressor at all. The
+  cost is size, ~1.4MB at 800×600, which is why `--shot-dir` skips frames identical to their
+  predecessor.
 
 ## savediff — `tools/savediff/`
 

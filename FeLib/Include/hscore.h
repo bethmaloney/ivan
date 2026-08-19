@@ -26,7 +26,7 @@
 #define HIGH_SCORE_FILENAME "ivan-highscore.scores"
 #endif
 
-#if defined(WIN32) || defined(__DJGPP__)
+#ifdef WIN32
 #define HIGH_SCORE_FILENAME "HScore.dat"
 #endif
 #endif

@@ -15,12 +15,6 @@
 #include <cstdlib>
 #include <cstdio>
 
-#ifdef __DJGPP__
-#include <conio.h>
-#include <csignal>
-#include "graphics.h"
-#endif
-
 #ifdef BACKTRACE
 #include <execinfo.h>
 #endif
@@ -61,12 +55,6 @@ int (*globalerrorhandler::OldNewHandler)(size_t) = 0;
 void (*globalerrorhandler::OldNewHandler)() = 0;
 #endif
 
-#ifdef __DJGPP__
-void (*globalerrorhandler::OldSignal[SIGNALS])(int);
-int globalerrorhandler::Signal[SIGNALS]
-= { SIGABRT, SIGFPE, SIGILL, SIGSEGV, SIGTERM, SIGINT, SIGKILL, SIGQUIT };
-#endif
-
 #ifdef BACKTRACE
 void globalerrorhandler::DumpStackTraceToStdErr(int Signal){
   // Prints stack trace to stderr.
@@ -94,22 +82,12 @@ void globalerrorhandler::Install()
     AlreadyInstalled = true;
     OldNewHandler = set_new_handler(NewHandler);
 
-#ifdef __DJGPP__
-    for(int c = 0; c < SIGNALS; ++c)
-      OldSignal[c] = signal(Signal[c], SignalHandler);
-#endif
-
     atexit(globalerrorhandler::DeInstall);
   }
 }
 
 void globalerrorhandler::DeInstall()
 {
-#ifdef __DJGPP__
-  for(int c = 0; c < SIGNALS; ++c)
-    signal(Signal[c], OldSignal[c]);
-#endif
-
   set_new_handler(OldNewHandler);
 }
 
@@ -136,10 +114,6 @@ void globalerrorhandler::Abort(cchar* Format, ...)
 #ifdef UNIX
   std::cout << Buffer << std::endl;
 #endif
-#ifdef __DJGPP__
-  graphics::DeInit();
-  std::cout << Buffer << std::endl;
-#endif
 
   DBGSTK;DBG2("ABORT:",Buffer);DBGBREAKPOINT;
   exit(4);
@@ -160,10 +134,6 @@ int globalerrorhandler::NewHandler(size_t)
 #ifdef UNIX
   std::cout << Msg << std::endl;
 #endif
-#ifdef __DJGPP__
-  graphics::DeInit();
-  std::cout << Msg << std::endl;
-#endif
 
   exit(1);
 
@@ -171,60 +141,5 @@ int globalerrorhandler::NewHandler(size_t)
   return 0;
 #endif
 }
-
-#ifdef __DJGPP__
-
-void globalerrorhandler::SignalHandler(int Signal)
-{
-  static truth AlreadySignalled = false;
-
-  if(!AlreadySignalled)
-  {
-    AlreadySignalled = true;
-    graphics::DeInit();
-    std::cout << "Fatal Error: ";
-
-    switch (Signal)
-    {
-     case SIGABRT:
-      std::cout << "Abort";
-      break;
-     case SIGFPE:
-      std::cout << "Divide by zero";
-      break;
-     case SIGILL:
-      std::cout << "Invalid/unknown";
-      break;
-     case SIGSEGV:
-      std::cout << "Segmentation violation";
-      break;
-     case SIGTERM:
-      std::cout << "Termination request";
-      break;
-     case SIGINT:
-      std::cout << "Break interrupt";
-      break;
-     case SIGKILL:
-      std::cout << "Kill";
-      break;
-     case SIGQUIT:
-      std::cout << "Quit";
-      break;
-     default:
-      std::cout << "Unknown";
-    }
-
-    std::cout << " exception signalled.";
-
-    if(Signal != SIGINT)
-      std::cout << BugMsg;
-
-    std::cout << std::endl;
-  }
-
-  exit(2);
-}
-
-#endif
 
 truth genericException::bGeneratingNewDungeonLevel=false;

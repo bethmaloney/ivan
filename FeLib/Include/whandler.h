@@ -18,10 +18,6 @@
 #include "SDL.h"
 #endif
 
-#ifdef __DJGPP__
-#include <ctime>
-#endif
-
 #include <queue>
 
 #include "felibdef.h"
@@ -83,13 +79,7 @@ class globalwindowhandler
   static void SetControlKeyHandler(bool (*What)(SDL_Keycode)){ ControlKeyHandler = What; }
 #endif
 
-#ifdef __DJGPP__
-  static void Init() { }
-  static void SetQuitMessageHandler(truth (*)()) { }
-  static ulong ReadTick() { return uclock() * 25 / UCLOCKS_PER_SEC; }
-#endif
-
-#if defined(USE_SDL) || defined(__DJGPP__)
+#ifdef USE_SDL
 
   /* Tick is a wall clock reading, but it is not used as one: it picks the
      animation frame of every animated terrain, item and body part drawn, and

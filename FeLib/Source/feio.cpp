@@ -31,10 +31,6 @@
 #include <io.h>
 #endif
 
-#ifdef __DJGPP__
-#include <dir.h>
-#endif
-
 #endif
 
 #ifdef UNIX
@@ -1096,24 +1092,6 @@ festring iosystem::ContinueMenu(col16 TopicColor, col16 ListColor,
   }
 #endif
 
-#ifdef __DJGPP__
-  struct ffblk Found;
-  int Check = 0;
-
-  /* get all filenames. Accepts all files even if they
-     FA_HIDDEN or FA_ARCH flags are set (ie. they are hidden or archives */
-
-  Check = findfirst(festring(DirectoryName + "*").CStr(),
-                    &Found, FA_HIDDEN | FA_ARCH);
-
-  if(!Check)
-  {
-    while(!Check){
-      addFileInfo(Found.ff_name);
-      Check = findnext(&Found);
-    }
-  }
-#endif
 #endif
 
   if(vFiles.size()==0){

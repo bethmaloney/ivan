@@ -13,11 +13,6 @@
 #include <iostream>
 #include <cstdlib>
 
-#ifdef __DJGPP__
-#include <go32.h>
-#include <sys/farptr.h>
-#endif
-
 #ifdef BACKTRACE
 #include <execinfo.h>
 #endif
@@ -141,15 +136,6 @@ int main(int argc, char** argv)
 
   harness::ParseArgs(argc, argv);
 
-#ifdef __DJGPP__
-
-  /* Saves numlock state and toggles it off */
-
-  char ShiftByteState = _farpeekb(_dos_ds, 0x417);
-  _farpokeb(_dos_ds, 0x417, 0);
-
-#endif /* __DJGPP__ */
-
   audio::Init(game::GetMusicDir());
 
   culong Seed = harness::HasSeedOverride() ? harness::GetSeedOverride()
@@ -249,15 +235,6 @@ int main(int argc, char** argv)
         break;
       }
      case 4:
-
-#ifdef __DJGPP__
-
-      /* Loads numlock state */
-
-      _farpokeb(_dos_ds, 0x417, ShiftByteState);
-
-#endif
-
       running = 0;
       break;
     }

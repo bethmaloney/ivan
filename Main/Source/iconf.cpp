@@ -354,7 +354,6 @@ numberoption ivanconfig::WorldSeedConfig("WorldSeedConfig",
                                           &WorldSeedConfigChangeInterface,
                                           &WorldSeedConfigChanger);
 
-#ifndef __DJGPP__
 cycleoption ivanconfig::GraphicsScale(    "GraphicsScale",
                                           "Select window scaling factor",
                                           "",
@@ -381,7 +380,6 @@ truthoption ivanconfig::UseExtraMenuGraphics("UseExtraMenuGraphics",
                                           &configsystem::NormalTruthDisplayer,
                                           &configsystem::NormalTruthChangeInterface,
                                           &UseExtraMenuGraphicsChanger);
-#endif
 col24 ivanconfig::ContrastLuminance = NORMAL_LUMINANCE;
 truthoption ivanconfig::PlaySounds(       "PlaySounds",
                                           "Use sound effects",
@@ -1031,8 +1029,6 @@ void ivanconfig::WorldSeedConfigChanger(numberoption* O, long What)
   O->Value = What;
 }
 
-#ifndef __DJGPP__
-
 void ivanconfig::GraphicsScaleDisplayer(const cycleoption* O, festring& Entry)
 {
   Entry << O->Value << 'x';
@@ -1154,8 +1150,6 @@ void ivanconfig::ScalingQualityDisplayer(const cycleoption* O, festring& Entry)
   }
 }
 
-#endif
-
 void ivanconfig::Show()
 {
   game::SRegionAroundDeny();
@@ -1197,15 +1191,11 @@ void ivanconfig::SfxVolumeHandler(long Value)
   }
 }
 
-#ifndef __DJGPP__
-
 void ivanconfig::SwitchModeHandler()
 {
   FullScreenMode.Value = !FullScreenMode.Value;
   Save();
 }
-
-#endif
 
 void ivanconfig::CalculateContrastLuminance()
 {
@@ -1254,15 +1244,11 @@ void ivanconfig::Initialize()
   configsystem::AddOption(fsCategory,&Contrast);
   configsystem::AddOption(fsCategory,&WindowWidth);
   configsystem::AddOption(fsCategory,&WindowHeight);
-#ifndef __DJGPP__
   configsystem::AddOption(fsCategory,&GraphicsScale);
   configsystem::AddOption(fsCategory,&FullScreenMode);
-#endif
 
   fsCategory="Graphics";
-#ifndef __DJGPP__
   configsystem::AddOption(fsCategory,&ScalingQuality);
-#endif
   configsystem::AddOption(fsCategory,&LookZoom);
   configsystem::AddOption(fsCategory,&XBRZScale);
   configsystem::AddOption(fsCategory,&XBRZSquaresAroundPlayer);
@@ -1325,7 +1311,7 @@ void ivanconfig::Initialize()
   /********************************
    * LOAD AND APPLY some SETTINGS *
    ********************************/
-#if defined(WIN32) || defined(__DJGPP__)
+#ifdef WIN32
   configsystem::SetConfigFileName(GetUserDataDir() + "ivan.cfg");
 #else
   configsystem::SetConfigFileName(GetUserDataDir() + "ivan.conf");

@@ -17,10 +17,6 @@
 
 #define ABORT globalerrorhandler::Abort
 
-#ifdef __DJGPP__
-#define SIGNALS 8
-#endif
-
 class genericException 
 {
   public:
@@ -51,11 +47,6 @@ class globalerrorhandler
 #else
   static void NewHandler();
   static void (*OldNewHandler)();
-#endif
-#ifdef __DJGPP__
-  static void SignalHandler(int);
-  static void (*OldSignal[SIGNALS])(int);
-  static int Signal[SIGNALS];
 #endif
 };
 

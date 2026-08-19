@@ -20,7 +20,7 @@
 #include <ctime>
 #include <regex>
 
-#if defined(UNIX) || defined(__DJGPP__)
+#ifdef UNIX
 #include <sys/stat.h>
 #endif
 
@@ -744,12 +744,6 @@ truth game::Init(cfestring& loadBaseName)
   _mkdir("Save");
   _mkdir("Bones");
   _mkdir("Scrshot");
-#endif
-
-#ifdef __DJGPP__
-  mkdir("Save", S_IWUSR);
-  mkdir("Bones", S_IWUSR);
-  mkdir("Scrshot", S_IWUSR);
 #endif
 
 #ifdef UNIX
@@ -3683,11 +3677,6 @@ festring game::SaveName(cfestring& Base,bool bLoadingFromAnAutosave)
 
   DBG4(PlayerName.CStr(), PathAndBaseSaveName.CStr(), Base.CStr(), CurrentBaseSaveFileName.CStr());
 
-#if defined(__DJGPP__)
-  if(PathAndBaseSaveName.GetSize() > 13)
-    PathAndBaseSaveName.Resize(13);
-#endif
-
   if(!bLoadingFromAnAutosave){ //very specific use case
     if(chkAutoSaveSuffix(PathAndBaseSaveName)){
       /**
@@ -5434,7 +5423,7 @@ festring game::GetDataDir()
 #endif
 #endif
 
-#if defined(WIN32) || defined(__DJGPP__)
+#ifdef WIN32
   return GetUserDataDir();
 #endif
 #endif

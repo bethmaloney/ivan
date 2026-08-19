@@ -84,14 +84,10 @@ class ivanconfig
   static int GetWorldSeedConfig() { return WorldSeedConfig.Value; }
   static int GetWorldSizeNumber() { return WorldSizeConfig.Value; }
 
-#ifndef __DJGPP__
   static int GetGraphicsScale() { return GraphicsScale.Value; }
   static int GetScalingQuality() { return ScalingQuality.Value; }
   static truth GetFullScreenMode() { return FullScreenMode.Value; }
   static void SwitchModeHandler();
-#else
-  static truth GetFullScreenMode() { return true; }
-#endif
 
   static long ApplyContrastTo(long);
   static void Save() { configsystem::Save(); }
@@ -163,13 +159,11 @@ class ivanconfig
   static truth WorldSeedConfigChangeInterface(numberoption* O);
   static void WorldSeedConfigChanger(numberoption* O, long What);
 
-#ifndef __DJGPP__
   static void GraphicsScaleDisplayer(const cycleoption*, festring&);
   static void ScalingQualityDisplayer(const cycleoption*, festring&);
   static truth GraphicsScaleChangeInterface(cycleoption*);
   static void GraphicsScaleChanger(cycleoption*, long);
   static void FullScreenModeChanger(truthoption*, truth);
-#endif
 
   static void DungeonGfxScaleDisplayer(const cycleoption*, festring&);
   static void FontGfxDisplayer(const cycleoption*, festring&);
@@ -267,11 +261,9 @@ class ivanconfig
   static cycleoption WorldShapeConfig;
   static numberoption WorldSeedConfig;
 
-#ifndef __DJGPP__
   static cycleoption GraphicsScale;
   static truthoption FullScreenMode;
   static cycleoption ScalingQuality;
-#endif
 
   static col24 ContrastLuminance;
   static truthoption PlaySounds;

@@ -46,11 +46,6 @@ class graphics
   static void SetMode(cchar*, cchar*, v2, int, int, truth);
 #endif
 
-#ifdef __DJGPP__
-  static void SwitchMode() { }
-  static void SetMode(cchar*, cchar*, v2, truth);
-#endif
-
   static void Stretch(bool, bitmap*, blitdata&, bool);
   static void DrawRectangleOutlineAround(bitmap* bmpAt, v2 v2TopLeft, v2 v2Border, col16 color, bool wide);
   static void BlitDBToScreen();
@@ -105,58 +100,6 @@ class graphics
 
  private:
   static void (*SwitchModeHandler)();
-#ifdef __DJGPP__
-  static ulong BufferSize;
-  static ushort ScreenSelector;
-  static struct vesainfo
-  {
-    void Retrieve();
-    ulong Signature HARDWARE_LAYOUT;
-    ushort Version HARDWARE_LAYOUT;
-    ulong OEMString HARDWARE_LAYOUT;
-    ulong Capabilities HARDWARE_LAYOUT;
-    ulong ModeList HARDWARE_LAYOUT;
-    ushort Memory HARDWARE_LAYOUT;
-    uchar Shit[493] HARDWARE_LAYOUT;
-  } VesaInfo;
-  static struct modeinfo
-  {
-    void Retrieve(ushort);
-    ushort Attribs1 HARDWARE_LAYOUT;
-    uchar AWindowAttribs HARDWARE_LAYOUT;
-    uchar BWindowAttribs HARDWARE_LAYOUT;
-    ushort Granularity HARDWARE_LAYOUT;
-    ushort WindowSize HARDWARE_LAYOUT;
-    ushort WindowASegment HARDWARE_LAYOUT;
-    ushort WindowBSegment HARDWARE_LAYOUT;
-    ulong WindowMoveFunction HARDWARE_LAYOUT;
-    ushort BytesPerLine HARDWARE_LAYOUT;
-    ushort Width HARDWARE_LAYOUT;
-    ushort Height HARDWARE_LAYOUT;
-    uchar CharWidth HARDWARE_LAYOUT;
-    uchar CharHeight HARDWARE_LAYOUT;
-    uchar Planes HARDWARE_LAYOUT;
-    uchar BitsPerPixel HARDWARE_LAYOUT;
-    uchar Banks HARDWARE_LAYOUT;
-    uchar MemoryModel HARDWARE_LAYOUT;
-    uchar BankSize HARDWARE_LAYOUT;
-    uchar ImagePages HARDWARE_LAYOUT;
-    uchar Reserved1 HARDWARE_LAYOUT;
-    uchar RedBits HARDWARE_LAYOUT;
-    uchar RedShift HARDWARE_LAYOUT;
-    uchar GreenBits HARDWARE_LAYOUT;
-    uchar GreenShift HARDWARE_LAYOUT;
-    uchar BlueBits HARDWARE_LAYOUT;
-    uchar BlueShift HARDWARE_LAYOUT;
-    uchar ResBits HARDWARE_LAYOUT;
-    uchar ResShift HARDWARE_LAYOUT;
-    uchar Attribs2 HARDWARE_LAYOUT;
-    ulong PhysicalLFBAddress HARDWARE_LAYOUT;
-    ulong OffScreenMem HARDWARE_LAYOUT;
-    ushort OffScreenMemSize HARDWARE_LAYOUT;
-    uchar Reserved2[206] HARDWARE_LAYOUT;
-  } ModeInfo;
-#endif
   static bitmap* DoubleBuffer;
   static bitmap* StretchedBuffer;
   static truth bAllowStretchedRegionsBlit;

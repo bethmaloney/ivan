@@ -76,16 +76,12 @@ void igraph::Init()
                       NULL,
 #endif
                       v2(ivanconfig::GetStartingWindowWidth(), ivanconfig::GetStartingWindowHeight()),
-#ifndef __DJGPP__
                       ivanconfig::GetGraphicsScale(),
                       ivanconfig::GetScalingQuality(),
-#endif
                       ivanconfig::GetFullScreenMode());
     DOUBLE_BUFFER->ClearToColor(0);
     graphics::BlitDBToScreen();
-#ifndef __DJGPP__
     graphics::SetSwitchModeHandler(ivanconfig::SwitchModeHandler);
-#endif
       if(ivanconfig::GetStartingFontGfx()==1){
     graphics::LoadDefaultFont(game::GetDataDir() + "Graphics/Font.png");
     }

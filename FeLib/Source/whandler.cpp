@@ -93,10 +93,10 @@ bool globalwindowhandler::IsKeyPressed(int iSDLScanCode)
   return SDL_GetKeyboardState(NULL)[iSDLScanCode];
 }
 
-/* Serves the replay short circuits in both the DJGPP and the SDL branch. When
-   the recording runs out there is nothing left to drive the game, so the run
-   ends here: quitrequest is caught in game::Run but not in main's menu loop,
-   which is exactly where a replay begins and where exhaustion is likeliest.
+/* Serves the replay short circuits in GetKey and ReadKey. When the recording
+   runs out there is nothing left to drive the game, so the run ends here:
+   quitrequest is caught in game::Run but not in main's menu loop, which is
+   exactly where a replay begins and where exhaustion is likeliest.
    exit(0) from inside GetKey already happens on SDL_QUIT below. */
 
 static int ReplayKey()
@@ -114,77 +114,6 @@ static int ReplayKey()
   harness::RecordKey(Key);
   return Key;
 }
-
-
-#ifdef __DJGPP__
-
-#include <pc.h>
-#include <keys.h>
-
-int globalwindowhandler::GetKey(truth EmptyBuffer)
-{
-  if(harness::IsReplaying())
-    return ReplayKey();
-
-  if(EmptyBuffer)
-    while(kbhit())
-      getkey();
-
-  int Key = 0;
-
-  while(!Key)
-  {
-    while(!kbhit())
-      if(Controls && ControlLoopsEnabled)
-      {
-        static ulong LastTick = 0;
-        UpdateTick();
-
-        if(LastTick != Tick)
-        {
-          LastTick = Tick;
-          truth Draw = false;
-
-          for(int c = 0; c < Controls; ++c)
-            if(ControlLoop[c]())
-              Draw = true;
-
-          if(Draw)
-            graphics::BlitDBToScreen();
-        }
-      }
-
-    Key = getkey();
-
-    if(Key == K_Control_Print && !ScrshotDirectoryName.IsEmpty())
-    {
-      mkdir(ScrshotDirectoryName.CStr(), S_IRUSR|S_IWUSR);
-      DOUBLE_BUFFER->Save(ScrshotNameHandler());
-      Key = 0;
-    }
-  }
-
-  harness::RecordKey(Key);
-  return Key;
-}
-
-int globalwindowhandler::ReadKey()
-{
-  /* Unlike the SDL version this does not delegate to GetKey, so it needs its
-     own instrumentation. Zero means no key and is not a record. */
-
-  if(harness::IsReplaying())
-    return GetKey(false);
-
-  int Key = kbhit() ? getkey() : 0;
-
-  if(Key)
-    harness::RecordKey(Key);
-
-  return Key;
-}
-
-#endif
 
 #ifdef USE_SDL
 
@@ -855,7 +784,7 @@ void globalwindowhandler::ProcessKeyDownMessage(SDL_Event* Event)
         return;
 #endif
 
-//TODO SDL1 still compiles? anyone uses it yet??? the same question about DJGPP...
+//TODO SDL1 still compiles? anyone uses it yet???
 #if SDL_MAJOR_VERSION == 1 
    default:
     KeyPressed = Event->key.keysym.unicode;
