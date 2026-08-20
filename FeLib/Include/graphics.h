@@ -15,9 +15,7 @@
 
 #include <vector>
 
-#ifdef USE_SDL
 #include "SDL.h"
-#endif
 
 #include "v2.h"
 
@@ -40,11 +38,9 @@ class graphics
   static void SetAllowMouseInFullScreen(bool b);
   static int GetScale(){return Scale;}
 
-#ifdef USE_SDL
   static void SetScale(int);
   static void SwitchMode();
   static void SetMode(cchar*, cchar*, v2, int, int, truth);
-#endif
 
   static void Stretch(bool, bitmap*, blitdata&, bool);
   static void DrawRectangleOutlineAround(bitmap* bmpAt, v2 v2TopLeft, v2 v2Border, col16 color, bool wide);
@@ -82,16 +78,12 @@ class graphics
   static int  SetSRegionBlitdata(int iIndex, blitdata B);
   static void SetSRegionClearSquaresAt(int iIndex, v2 v2Size, std::vector<v2> vv2);
 
-#ifdef USE_SDL
- public:
   static SDL_Window* GetWindow(){return Window;};
- private:
-  static SDL_Window* Window;
-  static SDL_Renderer *Renderer;
-  static SDL_Texture *Texture;
-#endif
 
  private:
+  static SDL_Window* Window;
+  static SDL_Renderer* Renderer;
+  static SDL_Texture* Texture;
   static void (*SwitchModeHandler)();
   static bitmap* DoubleBuffer;
   static bitmap* StretchedBuffer;

@@ -129,6 +129,14 @@ nowhere in the tree, and put `graphics::Stretch`, every `SetSRegion*`, `DrawAbov
 is a different thing and stays: 2.26 moved the mouse position onto `SDL_MouseWheelEvent`, and the
 port's SDL may be older than the system's.
 
+**There is no `USE_SDL` any more either.** The top level defined it unconditionally, nothing could
+unset it, and none of its sixteen `#ifdef` blocks had an `#else` — it was the switch against
+upstream's FeDX backend, and that side went with the DOS build. The configuration it appeared to
+protect could not have compiled regardless: `bitmap.h`, `specialkeys.h` and `devcons.cpp` include
+`SDL.h` unguarded, and `whandler.h` used `SDL_Event`, `SDL_Keycode`, `SDL_GetTicks` and
+`SDL_GameController*` outside its own guards. **SDL is a hard dependency of this codebase and reads
+as one now.**
+
 **The toolchain is pinned to emsdk 6.0.6**, and pinning it is the same argument as pinning musl
 (§6.7): a different LLVM can change float codegen or struct layout, and the first symptom would be an
 unexplained frame-hash divergence thousands of frames from the cause. `latest` is not a toolchain, it

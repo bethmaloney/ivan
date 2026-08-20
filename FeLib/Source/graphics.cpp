@@ -10,9 +10,7 @@
  *
  */
 
-#ifdef USE_SDL
 #include "SDL.h"
-#endif
 
 #include <iostream>
 #include <sstream>
@@ -28,11 +26,9 @@
 
 void (*graphics::SwitchModeHandler)();
 
-#ifdef USE_SDL
 SDL_Window* graphics::Window;
 SDL_Renderer* graphics::Renderer;
 SDL_Texture* graphics::Texture;
-#endif
 
 //TODO create a utility `class sregion{}` to set it's values outside here w/o using graphics::...
 struct stretchRegion //TODO all these booleans could be a single uint32? unnececessarily complicated?
@@ -93,8 +89,6 @@ void graphics::Init()
   {
     AlreadyInstalled = true;
 
-#ifdef USE_SDL
-
     /* --headless drops SDL_INIT_VIDEO, and with it every display the rest of
        this file would otherwise ask SDL for. The timer subsystem stays: it
        needs no device on any platform, and SDL_GetTicks/SDL_Delay are read by
@@ -117,7 +111,6 @@ void graphics::Init()
       SDL_SetHint(SDL_HINT_RENDER_DRIVER, "opengl");
       SDL_InitSubSystem(SDL_INIT_GAMECONTROLLER);
     }
-#endif
 
     atexit(graphics::DeInit);
   }
@@ -128,7 +121,6 @@ void graphics::DeInit()
   delete DefaultFont;
   DefaultFont = 0;
 
-#ifdef USE_SDL
   if(Texture)
     SDL_DestroyTexture(Texture);
 
@@ -138,10 +130,7 @@ void graphics::DeInit()
   if(Window)
     SDL_DestroyWindow(Window);
   SDL_Quit();
-#endif
 }
-
-#ifdef USE_SDL
 
 bool bAllowMouseInFullScreen=false;
 void graphics::SetAllowMouseInFullScreen(bool b)
@@ -686,8 +675,6 @@ void graphics::SwitchMode()
   if(SwitchModeHandler)
     SwitchModeHandler();
 }
-
-#endif
 
 void graphics::LoadDefaultFont(cfestring& FileName)
 {

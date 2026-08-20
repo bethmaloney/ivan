@@ -23,9 +23,7 @@
 #define __AUDIO_H__
 
 
-#ifdef USE_SDL
 #include "SDL.h"
-#endif
 
 #include "error.h"
 #include "festring.h"

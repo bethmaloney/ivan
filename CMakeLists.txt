@@ -10,7 +10,7 @@ set(PROJECT_VERSION "${VERSION_MAJOR}.${VERSION_MINOR}")
 #set(PROJECT_VERSION "${VERSION_MAJOR}.${VERSION_MINOR}.${VERSION_PATCH}")
 
 set(CMAKE_CXX_FLAGS "-std=c++11 ${CMAKE_CXX_FLAGS}")
-add_definitions(-DIVAN_VERSION="${PROJECT_VERSION}" -DUSE_SDL)
+add_definitions(-DIVAN_VERSION="${PROJECT_VERSION}")
 
 option(BUILD_MAC_APP "Build standalone application for MacOS" OFF)
 option(USE_HOME_FOR_STATE_DIR "Statedir will be /.ivan/ in current user's homedir" OFF)

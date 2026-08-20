@@ -99,8 +99,6 @@ static int ReplayKey()
   return Key;
 }
 
-#ifdef USE_SDL
-
 #include <algorithm>
 
 std::vector<int> globalwindowhandler::KeyBuffer;
@@ -915,4 +913,3 @@ void globalwindowhandler::WaitUntil(ulong t)
   ulong current = GetClock();
   if(current < t) SDL_Delay(t - current);
 }
-#endif /* USE_SDL */

@@ -21,13 +21,11 @@
 */
 
 
-#ifdef USE_SDL
 #include "SDL.h"
 #include "SDL_thread.h"
 #include "SDL_timer.h"
 
 
-#endif
 
 #include "audio.h"
 #include <iostream>

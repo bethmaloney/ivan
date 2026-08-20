@@ -13,10 +13,8 @@
 #ifndef __WHANDLER_H__
 #define __WHANDLER_H__
 
-#ifdef USE_SDL
 #include <vector>
 #include "SDL.h"
-#endif
 
 #include <queue>
 
@@ -71,15 +69,11 @@ class globalwindowhandler
   static void SetScrshotDirectory(cfestring& DirectoryName){ ScrshotDirectoryName = DirectoryName; }
   static festring ScrshotNameHandler(); // Number successive screenshots based on existing filenames
   static void SetAddFrameSkip(int i);
-#ifdef USE_SDL
   static void Init();
   static void SetQuitMessageHandler(truth (*What)()){ QuitMessageHandler = What; }
   static ulong ReadTick() { return SDL_GetTicks() / 40; }
   static void SetFunctionKeyHandler(bool (*What)(SDL_Keycode)){ FunctionKeyHandler = What; }
   static void SetControlKeyHandler(bool (*What)(SDL_Keycode)){ ControlKeyHandler = What; }
-#endif
-
-#ifdef USE_SDL
 
   /* Tick is a wall clock reading, but it is not used as one: it picks the
      animation frame of every animated terrain, item and body part drawn, and
@@ -91,8 +85,6 @@ class globalwindowhandler
   {
     return Tick = harness::IsReplaying() ? Tick + 1 : ReadTick();
   }
-
-#endif
 
   const static int iRestWaitKey;
   static void AddKeyToBuffer(int KeyPressed);
@@ -108,7 +100,6 @@ class globalwindowhandler
   static void WaitUntil(ulong t);
 
  private:
-#ifdef USE_SDL
   static int ChkCtrlKey(SDL_Event* Event);
   static void ProcessMessage(SDL_Event*);
   static void ProcessKeyDownMessage(SDL_Event* Event);
@@ -116,7 +107,6 @@ class globalwindowhandler
   static truth (*QuitMessageHandler)();
   static bool (*FunctionKeyHandler)(SDL_Keycode);
   static bool (*ControlKeyHandler)(SDL_Keycode);
-#endif
   static truth (*ControlLoop[MAX_CONTROLS])();
   static int Controls;
   static ulong Tick;
