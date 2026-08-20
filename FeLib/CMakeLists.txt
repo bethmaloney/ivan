@@ -8,8 +8,10 @@ option(IGNORE_EXTRA_WHITESPACES "Strip stray whitespace from linked library name
 # trailing whitespace in library names. CMake 4 removed that OLD behaviour
 # outright -- setting it is a hard error -- so the whitespace has to be stripped
 # rather than tolerated. Stripping is what CMP0004 NEW wants anyway and works on
-# every CMake version. The whitespace comes from pkg-config: several ${X_LDFLAGS}
-# results below are assigned straight into ${X_LIBRARIES}.
+# every CMake version. The whitespace comes from pkg-config, and ${PNG_LDFLAGS}
+# into ${PNG_LIBRARIES} below is the one assignment that carries it; the SDL
+# variables come from FIND_LIBRARY and are stripped only because a hand-set cache
+# entry can carry whitespace too.
 function(ivan_strip_library_whitespace VarName)
   set(Stripped "")
   foreach(Lib IN LISTS ${VarName})
@@ -53,7 +55,6 @@ if(MINGW)
 
   if((NOT BUILD_SHARED_LIBS) AND BUILD_STATIC_LIBS)
     set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -static")
-    set(SDL2_LIBRARIES ${SDL2_LIBRARY} ${SDL2_LDFLAGS})
   else()
     cmake_policy(SET CMP0087 NEW)
     set(IVAN_DEPENDENCY_PATHS "${deps_path}/bin/")
@@ -106,15 +107,17 @@ target_include_directories(FeLib PUBLIC ../portmath)
 if(IGNORE_EXTRA_WHITESPACES)
   ivan_strip_library_whitespace(PNG_LIBRARIES)
   ivan_strip_library_whitespace(SDL2_LIBRARY)
-  ivan_strip_library_whitespace(SDL2_LIBRARIES)
   ivan_strip_library_whitespace(SDL2_mixer_LIBRARY)
 endif()
 
+# The two branches differ only in the -static-libgcc/-static-libstdc++ pair. They
+# used to differ in the SDL variable too, and that was a bug: the static one read
+# ${SDL2_LIBRARIES}, which is assigned nowhere outside if(MINGW) above, so on any
+# other host it expanded to nothing and SDL2 left the link line. It linked anyway,
+# by accident -- libSDL2_mixer.so carries DT_NEEDED libSDL2-2.0.so.0.
 if((NOT BUILD_SHARED_LIBS) AND BUILD_STATIC_LIBS)
-  target_link_libraries(FeLib ${PNG_LIBRARIES} ${SDL2_LIBRARIES} portmath ${SDL2_mixer_LIBRARY} -static-libgcc -static-libstdc++)
+  target_link_libraries(FeLib ${PNG_LIBRARIES} ${SDL2_LIBRARY} portmath ${SDL2_mixer_LIBRARY} -static-libgcc -static-libstdc++)
 else()
   target_link_libraries(FeLib ${PNG_LIBRARIES} ${SDL2_LIBRARY} portmath ${SDL2_mixer_LIBRARY})
 endif()
-
-target_compile_options(FeLib PUBLIC ${SDL2_CFLAGS} ${SDL2_CFLAGS_OTHER})
 

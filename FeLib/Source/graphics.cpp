@@ -94,7 +94,7 @@ void graphics::Init()
        needs no device on any platform, and SDL_GetTicks/SDL_Delay are read by
        the key timeout and the audio loop whether or not anything is drawn. */
 
-    ulong Subsystems = SDL_INIT_TIMER | SDL_INIT_NOPARACHUTE;
+    ulong Subsystems = SDL_INIT_TIMER;
 
     if(!harness::IsHeadless())
       Subsystems |= SDL_INIT_VIDEO;
@@ -149,7 +149,7 @@ void graphics::SetMode(cchar* Title, cchar* IconName,
 
   ctruth NoVideo = harness::IsHeadless();
 
-  ulong Flags = SDL_SWSURFACE;
+  ulong Flags = 0;   /* seeds the SDL_WINDOW_* bits below */
 
   if(FullScreen)
   {

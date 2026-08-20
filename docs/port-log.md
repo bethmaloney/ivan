@@ -853,6 +853,20 @@ errors, against a baseline where two of the four cells failed. The raised floor 
 defaults from 3.5 to the running version, so the build was re-verified rather than assumed: a
 CMake 4-built binary replays both corpora 8/8 against the goldens.
 
+**Two of FeLib's SDL variables were never set by anything.** `cmake/FindSDL2.cmake` defines
+`SDL2_LIBRARY`, `SDL2_INCLUDE_DIR`, `SDL2_mixer_LIBRARY` and `SDL2_mixer_INCLUDE_DIR`, and nothing
+else — no `SDL2_CFLAGS`, no `SDL2_LDFLAGS`, no `SDL2_LIBRARIES`, and none of the three appear in
+`CMakeCache.txt`. So `target_compile_options(FeLib PUBLIC ${SDL2_CFLAGS} ${SDL2_CFLAGS_OTHER})` had
+been a no-op for as long as it has existed: the only SDL item on FeLib's compile line is
+`/usr/include/SDL2`, and `target_include_directories` puts it there. The second one mattered.
+`SDL2_LIBRARIES` was assigned in exactly one place, inside `if(MINGW)`, but read from the
+`BUILD_STATIC_LIBS` branch at the bottom of the file, which no host reaches through that `if`.
+Measured with `-DBUILD_SHARED_LIBS=OFF -DBUILD_STATIC_LIBS=ON` on Linux: `libSDL2.so` and
+`libSDL2main.a` dropped off `ivan`'s link line, 4 SDL entries down to 2. **It linked anyway, which
+is why nobody noticed** — `libSDL2_mixer.so` carries `DT_NEEDED libSDL2-2.0.so.0`, so SDL arrived
+transitively through the library beside it. Both branches read `${SDL2_LIBRARY}` now and differ only
+in `-static-libgcc -static-libstdc++`; that configuration builds and links, verified.
+
 ### 9.3 The Emscripten build, and the headless path
 
 `emcmake cmake` configures with zero warnings and zero errors and the build exits 0. SDL2,
