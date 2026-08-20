@@ -1935,7 +1935,10 @@ dependency alive, and it will be in a destructor rather than anywhere the featur
 `SDL2_MIXER_FORMATS`, so the port Emscripten was building is `libSDL2_mixer.a` with **zero
 decoders** (`tools/ports/sdl2_mixer.py`, `formats` defaulting to the empty set) — a mixer that could
 not have decoded a wav if something had asked it to. So this removes a port to fetch and build and a
-sentence to explain from four documents, and no meaningful download.
+sentence to explain from four documents, and no meaningful download. **Measured rather than assumed,
+once CI could build it:** `dist.py` reports the game at **11.0MB on disk**, which is the figure §9.9
+recorded before this change — at its 0.1MB granularity nothing came off, exactly as a decoderless
+library nobody called should predict.
 
 **What is unchanged, deliberately.** SDL_mixer is still the native playback path and
 `libsdl2-mixer-dev` is still a required native dependency: `sfx.cpp`'s non-Emscripten branch is real
@@ -1957,4 +1960,5 @@ function body gives an object with **zero** undefined `Mix_*` symbols, against t
 — and with `IvanSfxPlay` defined in it, which is what says the branch under test is the branch that
 compiled. **A different codegen backend cannot reintroduce a symbol the preprocessor removed**, so
 this settles the link question that emcc was needed for; what CI adds is that the port flag's removal
-does not disturb anything else.
+does not disturb anything else. It does not: `package` built both WASM targets and `browser` passed
+Playwright against the assembled `dist/`, first try.
