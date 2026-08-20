@@ -29,16 +29,9 @@
 void (*graphics::SwitchModeHandler)();
 
 #ifdef USE_SDL
-#if SDL_MAJOR_VERSION == 1
-SDL_Surface* graphics::Screen;
-#if SDL_BYTEORDER == SDL_BIG_ENDIAN
-SDL_Surface* graphics::TempSurface;
-#endif
-#else
 SDL_Window* graphics::Window;
 SDL_Renderer* graphics::Renderer;
 SDL_Texture* graphics::Texture;
-#endif
 #endif
 
 //TODO create a utility `class sregion{}` to set it's values outside here w/o using graphics::...
@@ -114,7 +107,6 @@ void graphics::Init()
 
     if(SDL_Init(Subsystems))
       ABORT("Can't initialize SDL: %s", SDL_GetError());
-#if SDL_MAJOR_VERSION == 2
 
     /* Both are display and input device business: the render driver hint is
        read by SDL_CreateRenderer, which headless never calls, and opening a
@@ -125,7 +117,6 @@ void graphics::Init()
       SDL_SetHint(SDL_HINT_RENDER_DRIVER, "opengl");
       SDL_InitSubSystem(SDL_INIT_GAMECONTROLLER);
     }
-#endif
 #endif
 
     atexit(graphics::DeInit);
@@ -138,11 +129,6 @@ void graphics::DeInit()
   DefaultFont = 0;
 
 #ifdef USE_SDL
-#if SDL_MAJOR_VERSION == 1
-#if SDL_BYTEORDER == SDL_BIG_ENDIAN
-  SDL_FreeSurface(TempSurface);
-#endif
-#else
   if(Texture)
     SDL_DestroyTexture(Texture);
 
@@ -151,7 +137,6 @@ void graphics::DeInit()
 
   if(Window)
     SDL_DestroyWindow(Window);
-#endif
   SDL_Quit();
 #endif
 }
@@ -175,39 +160,15 @@ void graphics::SetMode(cchar* Title, cchar* IconName,
 
   ctruth NoVideo = harness::IsHeadless();
 
-#if SDL_MAJOR_VERSION == 1
-  if(IconName && !NoVideo)
-  {
-    SDL_Surface* Icon = SDL_LoadBMP(IconName);
-    SDL_SetColorKey(Icon, SDL_SRCCOLORKEY,
-                    SDL_MapRGB(Icon->format, 255, 255, 255));
-    SDL_WM_SetIcon(Icon, NULL);
-  }
-#endif
-
   ulong Flags = SDL_SWSURFACE;
 
   if(FullScreen)
   {
     if(!bAllowMouseInFullScreen && !NoVideo)
       SDL_ShowCursor(SDL_DISABLE);
-#if SDL_MAJOR_VERSION == 1
-    Flags |= SDL_FULLSCREEN;
-#else
     Flags |= SDL_WINDOW_FULLSCREEN_DESKTOP;
-#endif
   }
 
-#if SDL_MAJOR_VERSION == 1
-  if(!NoVideo)
-  {
-    Screen = SDL_SetVideoMode(NewRes.X, NewRes.Y, 16, Flags);
-    if(!Screen)
-      ABORT("Couldn't set video mode.");
-
-    SDL_WM_SetCaption(Title, 0);
-  }
-#else
   Flags |= SDL_WINDOW_ALLOW_HIGHDPI|SDL_WINDOW_HIDDEN;
 
   if(!NoVideo)
@@ -245,7 +206,6 @@ void graphics::SetMode(cchar* Title, cchar* IconName,
                                 SDL_TEXTUREACCESS_STREAMING,
                                 NewRes.X, NewRes.Y);
   }
-#endif
 
   globalwindowhandler::Init();
 
@@ -259,58 +219,7 @@ void graphics::SetMode(cchar* Title, cchar* IconName,
   Res = NewRes;
   SetScale(NewScale);
   ColorDepth = 16;
-
-#if SDL_MAJOR_VERSION == 1
-#if SDL_BYTEORDER == SDL_BIG_ENDIAN
-
-  if(!NoVideo)
-  {
-    Uint32 rmask, gmask, bmask;
-    rmask = 0xF800;
-    gmask = 0x7E0;
-    bmask = 0x1F;
-
-    TempSurface = SDL_CreateRGBSurface(SDL_SWSURFACE, Res.X, Res.Y, 16,
-                                       rmask, gmask, bmask, 0);
-
-    if(!TempSurface)
-      ABORT("CreateRGBSurface failed: %s\n", SDL_GetError());
-  }
-
-#endif
-#endif
 }
-
-#if SDL_BYTEORDER == SDL_BIG_ENDIAN
-
-void graphics::BlitDBToScreen()
-{
-  harness::TraceFrame();
-
-  if(harness::IsHeadless())
-    return;
-
-#if SDL_MAJOR_VERSION == 1
-  SDL_LockSurface(TempSurface);
-  packcol16* SrcPtr = DoubleBuffer->GetImage()[0];
-  packcol16* DestPtr = static_cast<packcol16*>(TempSurface->pixels);
-  ulong ScreenYMove = (TempSurface->pitch >> 1);
-  ulong LineSize = Res.X << 1;
-
-  for(int y = 0; y < Res.Y; ++y, SrcPtr += Res.X, DestPtr += ScreenYMove)
-    memcpy(DestPtr, SrcPtr, LineSize);
-
-  SDL_UnlockSurface(TempSurface);
-  SDL_Surface* S = SDL_DisplayFormat(TempSurface);
-  SDL_BlitSurface(S, NULL, Screen, NULL);
-  SDL_FreeSurface(S);
-  SDL_UpdateRect(Screen, 0, 0, Res.X, Res.Y);
-#else
-  SDL_UpdateTexture(sdlTexture, NULL, myPixels, 640 * sizeof (Uint32));
-#endif
-}
-
-#else
 
 void graphics::Stretch(bool bXbrzMode, bitmap* pBmpFrom, blitdata& rBto, bool bAllowTransparency){
   if(bXbrzMode){
@@ -701,27 +610,6 @@ void graphics::BlitDBToScreen()
 
   harness::TraceFrame();
 
-#if SDL_MAJOR_VERSION == 1
-  if(harness::IsHeadless())
-    return;
-
-  if(SDL_MUSTLOCK(Screen) && SDL_LockSurface(Screen) < 0)
-    ABORT("Can't lock screen");
-
-  packcol16* SrcPtr = DoubleBuffer->GetImage()[0];
-
-  packcol16* DestPtr = static_cast<packcol16*>(Screen->pixels);
-  ulong ScreenYMove = (Screen->pitch >> 1);
-  ulong LineSize = Res.X << 1;
-
-  for(int y = 0; y < Res.Y; ++y, SrcPtr += Res.X, DestPtr += ScreenYMove)
-    memcpy(DestPtr, SrcPtr, LineSize);
-
-  if(SDL_MUSTLOCK(Screen))
-    SDL_UnlockSurface(Screen);
-
-  SDL_UpdateRect(Screen, 0, 0, Res.X, Res.Y);
-#else
   /* PrepareBuffer() runs headless too, and deliberately. It is not only the
      scaler: when no stretch region fires it hands back DOUBLE_BUFFER itself
      and DrawAboveAll() then draws the map and dialog overlays into it, which
@@ -750,10 +638,7 @@ void graphics::BlitDBToScreen()
   SDL_RenderClear(Renderer);
   SDL_RenderCopy(Renderer, Texture, NULL, NULL);
   SDL_RenderPresent(Renderer);
-#endif
 }
-
-#endif
 
 void graphics::SetScale(int NewScale)
 {
@@ -762,9 +647,6 @@ void graphics::SetScale(int NewScale)
      scale it was configured with, it just has no window to resize. */
 
   Scale = NewScale;
-#if SDL_MAJOR_VERSION == 1
-#warning Graphics scaling not implemented for SDL v1
-#else
   if(harness::IsHeadless())
     return;
 
@@ -776,7 +658,6 @@ void graphics::SetScale(int NewScale)
   SDL_SetWindowPosition(Window, WindowPos.X, WindowPos.Y);
   SDL_SetWindowSize(Window, Res.X * NewScale, Res.Y * NewScale);
   SDL_RenderSetScale(Renderer, NewScale, NewScale);
-#endif
 }
 
 void graphics::SwitchMode()
@@ -787,27 +668,6 @@ void graphics::SwitchMode()
   if(harness::IsHeadless())
     return;
 
-#if SDL_MAJOR_VERSION == 1
-  ulong Flags;
-
-  if(Screen->flags & SDL_FULLSCREEN)
-  {
-    SDL_ShowCursor(SDL_ENABLE);
-    Flags = SDL_SWSURFACE;
-  }
-  else
-  {
-    SDL_ShowCursor(SDL_DISABLE);
-    Flags = SDL_SWSURFACE|SDL_FULLSCREEN;
-  }
-
-  Screen = SDL_SetVideoMode(Res.X, Res.Y, ColorDepth, Flags);
-
-  if(!Screen)
-    ABORT("Couldn't toggle fullscreen mode.");
-
-  BlitDBToScreen();
-#else
   ulong Flags = SDL_GetWindowFlags(Window);
   if(Flags & SDL_WINDOW_FULLSCREEN_DESKTOP)
   {
@@ -822,7 +682,6 @@ void graphics::SwitchMode()
     SDL_SetWindowFullscreen(Window, SDL_WINDOW_FULLSCREEN_DESKTOP);
   }
   BlitDBToScreen();
-#endif
 
   if(SwitchModeHandler)
     SwitchModeHandler();

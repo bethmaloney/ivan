@@ -26,22 +26,6 @@
 
 #include "dbgmsgproj.h"
 
-#if SDL_MAJOR_VERSION == 1
-/* redefine SDL2 to SDL1 */
-#define SDL_WINDOWEVENT SDL_VIDEOEXPOSE
-#define SDLK_PRINTSCREEN SDLK_PRINT
-#define SDLK_KP_0 SDLK_KP0
-#define SDLK_KP_1 SDLK_KP1
-#define SDLK_KP_2 SDLK_KP2
-#define SDLK_KP_3 SDLK_KP3
-#define SDLK_KP_4 SDLK_KP4
-#define SDLK_KP_5 SDLK_KP5
-#define SDLK_KP_6 SDLK_KP6
-#define SDLK_KP_7 SDLK_KP7
-#define SDLK_KP_8 SDLK_KP8
-#define SDLK_KP_9 SDLK_KP9
-#endif
-
 truth (*globalwindowhandler::ControlLoop[MAX_CONTROLS])();
 int globalwindowhandler::Controls = 0;
 ulong globalwindowhandler::Tick;
@@ -126,18 +110,11 @@ bool (*globalwindowhandler::ControlKeyHandler)(SDL_Keycode) = 0;
 
 void globalwindowhandler::Init()
 {
-#if SDL_MAJOR_VERSION == 1
-  SDL_EnableUNICODE(1);
-  SDL_EnableKeyRepeat(500, 30);
-#else
-  //FIXSDL2 SDL_EnableKeyRepeat(500, 30);
-
   /* graphics::SetMode creates no window when headless, and SDL_ShowWindow of
      a null one is an error rather than a no-op. */
 
   if(!harness::IsHeadless())
     SDL_ShowWindow(graphics::GetWindow());
-#endif
 }
 
 int iCountFPS=0;
@@ -414,12 +391,7 @@ int globalwindowhandler::GetKey(truth EmptyBuffer)
     }
     else
     {
-      bool bHasFocus=false;
-#if SDL_MAJOR_VERSION == 1
-      bHasFocus = SDL_GetAppState() & SDL_APPACTIVE;
-#else
-      bHasFocus = SDL_GetWindowFlags(graphics::GetWindow()) & (SDL_WINDOW_MOUSE_FOCUS | SDL_WINDOW_INPUT_FOCUS);
-#endif
+      bool bHasFocus = SDL_GetWindowFlags(graphics::GetWindow()) & (SDL_WINDOW_MOUSE_FOCUS | SDL_WINDOW_INPUT_FOCUS);
 
       bool bPlay=true;
 
@@ -532,11 +504,7 @@ int globalwindowhandler::ReadKey()
   if(harness::IsReplaying())
     return GetKey(false);
 
-#if SDL_MAJOR_VERSION == 1
-  if(SDL_GetAppState() & SDL_APPACTIVE)
-#else
   if( playInBackground || (SDL_GetWindowFlags(graphics::GetWindow()) & (SDL_WINDOW_MOUSE_FOCUS | SDL_WINDOW_INPUT_FOCUS)) )
-#endif
   {
     PollEvents(&Event);
   }
@@ -564,21 +532,11 @@ truth globalwindowhandler::WaitForKeyEvent(uint Key)
   if(harness::IsReplaying())
     return false;
 
-#if SDL_MAJOR_VERSION == 1
-  if(SDL_GetAppState() & SDL_APPACTIVE)
-#else
   if( playInBackground || (SDL_GetWindowFlags(graphics::GetWindow()) & (SDL_WINDOW_MOUSE_FOCUS | SDL_WINDOW_INPUT_FOCUS)) )
-#endif
   {
-#if SDL_MAJOR_VERSION == 2
     while(SDL_PollEvent(&Event))
       if(Event.type == Key)
         return true;
-#else
-    while(SDL_PollEvent(&Event))
-      if(Event.active.type == Key)
-        return true;
-#endif
   }
   else
     SDL_WaitEvent(&Event);
@@ -722,7 +680,7 @@ void globalwindowhandler::ProcessKeyDownMessage(SDL_Event* Event)
     case SDLK_RETURN:
     case SDLK_KP_ENTER:
       // ex.: both SDL keys are mixed into KEY_ENTER
-      KeyPressed = KEY_ENTER; //TODO SDL1? old comment tip or deadCode: Event->key.keysym.unicode;
+      KeyPressed = KEY_ENTER;
       break;
 
     case SDLK_DOWN:
@@ -777,21 +735,10 @@ void globalwindowhandler::ProcessKeyDownMessage(SDL_Event* Event)
       KeyPressed = iRestWaitKey;
       break;
     
-#if SDL_MAJOR_VERSION == 2 
     default:
       KeyPressed = Event->key.keysym.sym;
       if(!KeyPressed)
         return;
-#endif
-
-//TODO SDL1 still compiles? anyone uses it yet???
-#if SDL_MAJOR_VERSION == 1 
-   default:
-    KeyPressed = Event->key.keysym.unicode;
-
-    if(!KeyPressed)
-      return;
-#endif
   }
   AddKeyToBuffer(KeyPressed);
 }
@@ -814,20 +761,11 @@ void globalwindowhandler::BufferMouseEvent(mouseclick mc)
 
 void globalwindowhandler::ProcessMessage(SDL_Event* Event)
 {
-  Uint32 type;
-#if SDL_MAJOR_VERSION == 1
-  type=(Event->active.type);
-#else
-  type=(Event->type);
-#endif
+  Uint32 type = Event->type;
 
   switch(type)
   {
 
-#if SDL_MAJOR_VERSION == 1
-   case SDL_VIDEOEXPOSE:
-    graphics::BlitDBToScreen();
-#else
    case SDL_WINDOWEVENT:
     switch(Event->window.event)
     {
@@ -837,7 +775,6 @@ void globalwindowhandler::ProcessMessage(SDL_Event* Event)
       graphics::BlitDBToScreen();
       break;
     }
-#endif
     break;
 
    case SDL_QUIT:
@@ -878,7 +815,6 @@ void globalwindowhandler::ProcessMessage(SDL_Event* Event)
      break;
    }
 
-#if SDL_MAJOR_VERSION == 2 //BEFORE key up or down
    case SDL_TEXTINPUT: DBG2(Event->key.keysym.sym,Event->text.text[0]);
      AddKeyToBuffer(Event->text.text[0]);
      break;
@@ -925,7 +861,6 @@ void globalwindowhandler::ProcessMessage(SDL_Event* Event)
     if(Event->cbutton.button == SDL_CONTROLLER_BUTTON_X) AddKeyToBuffer(0xE000 + KEY_CONTROLLER_X);
     if(Event->cbutton.button == SDL_CONTROLLER_BUTTON_Y) AddKeyToBuffer(0xE000 + KEY_CONTROLLER_Y);
     break;
-#endif
 
    case SDL_KEYUP: DBGLN;
      bLastSDLkeyEventIsKeyUp=true;

@@ -650,11 +650,11 @@ truth harness::NextReplayKey(int& Key)
  * padding, so it is only correct when the width happens to be a multiple of
  * four.
  *
- * libpng is linked into FeLib, but zlib only transitively, and this file is
- * compiled in the SDL1 branch too, which has no toolchain here to test a new
- * dependency against. Deflate "stored" blocks need no compressor: the result
- * is a valid, universally readable PNG that costs about 1.4MB at 800x600. That is the right trade for a debugging capture -
- * no new dependency in any branch, and nothing to go wrong.
+ * libpng is linked into FeLib, but zlib only transitively, so compressing here
+ * would mean linking one more library than the build currently needs. Deflate
+ * "stored" blocks need no compressor at all: the result is a valid, universally
+ * readable PNG that costs about 1.4MB at 800x600. That is the right trade for a
+ * debugging capture - no new dependency, and nothing to go wrong.
  */
 
 typedef unsigned int hash32;

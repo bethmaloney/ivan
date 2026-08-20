@@ -83,19 +83,12 @@ class graphics
   static void SetSRegionClearSquaresAt(int iIndex, v2 v2Size, std::vector<v2> vv2);
 
 #ifdef USE_SDL
-  #if SDL_MAJOR_VERSION == 1
-    static SDL_Surface* Screen;
-    #if SDL_BYTEORDER == SDL_BIG_ENDIAN
-      static SDL_Surface* TempSurface;
-    #endif
-  #else
-    public:
-      static SDL_Window* GetWindow(){return Window;};
-    private:
-      static SDL_Window* Window;
-      static SDL_Renderer *Renderer;
-      static SDL_Texture *Texture;
-  #endif
+ public:
+  static SDL_Window* GetWindow(){return Window;};
+ private:
+  static SDL_Window* Window;
+  static SDL_Renderer *Renderer;
+  static SDL_Texture *Texture;
 #endif
 
  private:

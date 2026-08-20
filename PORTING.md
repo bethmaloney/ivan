@@ -96,10 +96,6 @@ generate. Native-vs-WASM is unblocked *for the reached paths* and unproven elsew
   time a corpus change alone surfaced a family that three earlier passes had walked past.
 - **`.wm` still has the §6.2 residue**, and no corpus visits enough of the world map to write the
   whole file.
-- **The SDL1 branch** is edited but has no toolchain to compile it. The DOS/DJGPP branch it used to
-  be paired with is gone: this fork does not target DOS, so the VESA framebuffer `BlitDBToScreen`,
-  the DPMI mode setting, the `kbhit`/`getkey` input path and the real-mode signal handler are
-  deleted rather than carried untested.
 
 ## Builds
 
@@ -121,6 +117,17 @@ SDL2_mixer the link fails. The WASM targets take SDL2, SDL2_mixer and libpng fro
 **gcc and clang are the only supported compilers.** The top-level `-std=c++11` already assumed it —
 MSVC rejects that spelling — so upstream's MSVC paths could never have run, and they are deleted
 rather than carried untested. emcc is clang, so the WASM targets need no case of their own.
+
+**SDL2 is the only SDL, and little-endian the only byte order.** `find_package(SDL2 REQUIRED)` is the
+only lookup in the tree and Emscripten is pinned to `-sUSE_SDL=2`, so `SDL_MAJOR_VERSION` is 2 on
+every target — measured 2.30.0 natively. Upstream's `SDL_MAJOR_VERSION == 1` branches and the
+`SDL_BYTEORDER == SDL_BIG_ENDIAN` ones are deleted rather than carried untested: they had no
+toolchain here, and they had stopped compiling anyway. The big-endian arm of `graphics.cpp` was the
+worse of the two — it replaced `BlitDBToScreen` with a body referencing two identifiers that exist
+nowhere in the tree, and put `graphics::Stretch`, every `SetSRegion*`, `DrawAboveAll` and
+`PrepareBuffer` in the `#else`, so the file it produced could not have linked. `SDL_VERSION_ATLEAST`
+is a different thing and stays: 2.26 moved the mouse position onto `SDL_MouseWheelEvent`, and the
+port's SDL may be older than the system's.
 
 **The toolchain is pinned to emsdk 6.0.6**, and pinning it is the same argument as pinning musl
 (§6.7): a different LLVM can change float codegen or struct layout, and the first symptom would be an
@@ -370,10 +377,10 @@ Four details that were not free:
 - **The PNG writer is ~90 lines by hand, using deflate stored blocks.** `bitmap::Save(cfestring&)`
   writes a *BMP* despite the name it is usually given, stages it through a `.tmp` moved on close —
   wrong for a capture meant to survive a crash — and emits no BMP row padding, so it is only correct
-  when the width is a multiple of four. libpng is linked into FeLib but `harness.cpp` compiles in the
-  SDL1 branch too, and zlib is only transitively linked. Stored blocks need no compressor at all. The
-  cost is size, ~1.4MB at 800×600, which is why `--shot-dir` skips frames identical to their
-  predecessor.
+  when the width is a multiple of four. libpng is linked into FeLib but zlib only transitively, so
+  compressing would mean linking one more library than the build needs. Stored blocks need no
+  compressor at all. The cost is size, ~1.4MB at 800×600, which is why `--shot-dir` skips frames
+  identical to their predecessor.
 
 ## savediff — `tools/savediff/`
 

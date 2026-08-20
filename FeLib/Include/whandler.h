@@ -97,20 +97,8 @@ class globalwindowhandler
   const static int iRestWaitKey;
   static void AddKeyToBuffer(int KeyPressed);
 
-  static bool ControllerEnabled() {
-    #if SDL_MAJOR_VERSION == 2
-    return controllers.size() > 0;
-    #else
-    return false;
-    #endif
-    }
-  static v2 GetControllerDirection() {
-    #if SDL_MAJOR_VERSION == 2
-    return controller_direction;
-    #else
-    return v2(0, 0);
-    #endif
-    }
+  static bool ControllerEnabled() { return controllers.size() > 0; }
+  static v2 GetControllerDirection() { return controller_direction; }
 
   static ulong GetClock()
   {
@@ -138,10 +126,8 @@ class globalwindowhandler
   static void BufferMouseEvent(mouseclick mc);
   static std::queue<mouseclick> MouseBuffer;
   static mouseclick LastMouseEvent;
-#if SDL_MAJOR_VERSION == 2
   static std::vector<SDL_GameController*> controllers;
   static v2 controller_direction;
-#endif
 };
 
 #endif

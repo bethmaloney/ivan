@@ -705,6 +705,17 @@ And `#pragma pack(1)` under `#ifdef VC` wrapped both structs; `VC` is defined no
 defined it, `graphicid` would have been 47 on MSVC against 48 everywhere else. `VC` has since gone
 entirely, with the rest of upstream's MSVC support — six dead branches behind a flag nothing defined.
 
+The same pattern, one step worse, in `FeLib`'s SDL branches. `SDL_BYTEORDER == SDL_BIG_ENDIAN` did
+not select a variant of `graphics.cpp` — it selected a *different file*, one `BlitDBToScreen` whose
+SDL2 arm names `sdlTexture` and `myPixels` (neither exists in the tree, both are from the SDL2
+migration wiki) and none of the 440 lines in its `#else`, where `graphics::Stretch`, the fourteen
+`SetSRegion*` entry points, `DrawAboveAll` and `PrepareBuffer` live. All of them are declared in
+`graphics.h` and called from `Main`, so the big-endian build could not have linked, let alone drawn.
+Nothing evaluates a branch nobody compiles: `SDL_MAJOR_VERSION == 1` had drifted the same way, with
+`whandler.cpp` defining `controllers` unguarded against an `#if SDL_MAJOR_VERSION == 2` declaration
+and `graphics.cpp` carrying `#warning Graphics scaling not implemented for SDL v1`. Both families are
+deleted; the surviving `SDL_VERSION_ATLEAST(2, 26, 0)` is a real check against a real range.
+
 `NO_ALIGNMENT` is gone. `HARDWARE_LAYOUT` replaces it and applies only to `graphics.h`'s
 `vesainfo`/`modeinfo`, which are VESA BIOS blocks filled by a real-mode interrupt at spec-defined
 offsets — there packing is mandatory, because the layout is defined outside this program. Naming the
@@ -795,7 +806,7 @@ Nothing is being fixed or hidden when it does.
 
 ### 9.1 Native scaling — not started
 
-The window is created without `SDL_WINDOW_RESIZABLE` (`graphics.cpp:207`), `GraphicsScale` is
+The window is created without `SDL_WINDOW_RESIZABLE` (`graphics.cpp:176`), `GraphicsScale` is
 integer-only, and `SetMode` sets both `SDL_RenderSetLogicalSize` and `SDL_RenderSetScale`, which
 manage the same state. Scaling pixels bigger is *not* the same as showing more dungeon — see the
 comment at `game.cpp:287` ("no way to fit as scaler is integer and not float"). SDL3's
