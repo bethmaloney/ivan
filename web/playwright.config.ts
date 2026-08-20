@@ -28,6 +28,12 @@ import { defineConfig, devices } from '@playwright/test';
 
 const Port = 8114;
 
+/* A Claude Code on the web container ships one pre-installed Chromium and cannot
+   download another, so its revision need not be the one this Playwright pins.
+   IVAN_CHROMIUM lets such an environment name the browser it already has; unset
+   -- CI, and a developer's machine -- Playwright uses its own. */
+const Chromium = process.env.IVAN_CHROMIUM;
+
 export default defineConfig({
   testDir: './e2e',
 
@@ -53,7 +59,13 @@ export default defineConfig({
   },
 
   projects: [
-    { name: 'chromium', use: { ...devices['Desktop Chrome'] } }
+    {
+      name: 'chromium',
+      use: {
+        ...devices['Desktop Chrome'],
+        ...(Chromium ? { launchOptions: { executablePath: Chromium } } : {})
+      }
+    }
   ],
 
   webServer: {

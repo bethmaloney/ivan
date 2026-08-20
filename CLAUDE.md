@@ -40,6 +40,26 @@ emrun --no_browser --port 8111 build-web/Main
 Native dependencies: `libsdl2-dev libsdl2-mixer-dev libpng-dev`. The WASM targets take SDL2,
 SDL2_mixer and libpng from Emscripten's ports, and the toolchain is pinned to emsdk 6.0.6.
 
+## Claude Code on the web
+
+`.claude/hooks/session-start.sh` provisions a session's container, which starts with none
+of the toolchain. It installs SDL2 and libpng from apt, node from `.nvmrc` via nvm,
+`web/node_modules` from the committed lockfile, and emsdk at `deploy.yml`'s `EMSDK_VERSION`
+-- so the versions live in the files that already pin them, not in the hook. It then
+pre-builds the Emscripten ports, points `IVAN_CHROMIUM` at the container's pre-installed
+Chromium when that is not the revision `@playwright/test` pins, and exports `EMSDK` and a
+`PATH` that keeps `.nvmrc`'s node ahead of the SDK's bundled one -- `find_program(IVAN_NODE)`
+takes the first `node` it finds, and that is what bundles `web/`.
+
+It is guarded on `CLAUDE_CODE_REMOTE` and does nothing on a developer's own machine. Cold
+it takes ~35s, almost all of it emsdk's 301MB download; the container's state is cached
+afterwards, so later sessions re-run it in ~2s.
+
+The ports are the one part that needs egress beyond the SDK: emcc fetches each one's source
+from a `github.com` archive URL on first link. Where policy blocks those, the native build
+and `web/` are unaffected and both WASM targets cannot build at all -- the hook says so at
+session start rather than letting the 403 surface as a compile error minutes into a build.
+
 ## Testing
 
 There is no unit test suite for the game. The oracle is three committed recordings with golden
