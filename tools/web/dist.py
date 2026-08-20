@@ -9,7 +9,8 @@ The layout it writes, and why it is this shape:
 
     dist/
       index.html          the landing page
-      icon.png            the game's own icon, 373 bytes
+      favicon.ico         the game's own icon at 16/32/48, for tabs
+      icon.png            the same icon at 128, for everything else
       screenshot.webp     a frame from a recorded session
       fonts/              woff2 + fonts.css, self-hosted
       _headers            Cloudflare Pages cache and security policy
@@ -38,8 +39,10 @@ What is deliberately NOT copied:
     Sound/SoundEffects.cfg
                   already inside ivan.data, where initSound fopen()s it out of
                   MEMFS. A second copy on disk would never be read.
-    fonts/fetch-fonts.py
-                  build-time tooling.
+    fonts/fetch-fonts.py, site/make-icons.py, site/ivan.ico
+                  build-time tooling, and the icon master the second of them
+                  reads. favicon.ico and icon.png are generated from it and
+                  committed, so a deploy never needs Pillow.
 """
 
 import argparse
@@ -109,6 +112,9 @@ HEADERS = """\
   Cache-Control: public, max-age=604800
 
 /icon.png
+  Cache-Control: public, max-age=604800
+
+/favicon.ico
   Cache-Control: public, max-age=604800
 """
 
@@ -253,6 +259,7 @@ def main():
     # ---- the site itself
     shutil.copy2(os.path.join(SITE, "index.html"), os.path.join(out, "index.html"))
     shutil.copy2(os.path.join(SITE, "icon.png"), os.path.join(out, "icon.png"))
+    shutil.copy2(os.path.join(SITE, "favicon.ico"), os.path.join(out, "favicon.ico"))
     shutil.copy2(os.path.join(SITE, "screenshot.webp"), os.path.join(out, "screenshot.webp"))
 
     fonts = copy_dir(os.path.join(SITE, "fonts"), os.path.join(out, "fonts"),

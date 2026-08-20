@@ -72,11 +72,21 @@ Static, self-contained, and deliberately not the game: the front door is a 30KB 
 ```
 site/
   index.html        the whole page -- markup and CSS, no script
-  icon.png          Graphics/Icon.bmp at 128px. A pick-axe and a banana.
+  ivan.ico          the icon master: six hand-drawn sizes, 16 to 256
+  make-icons.py     derives the two below from it; not run at build time
+  favicon.ico       16/32/48, PNG-encoded. A pick-axe and a banana.
+  icon.png          the 128 layer, RGBA
   screenshot.webp   frame 594 of the autoplay-200 corpus, lossless, 60KB
   fonts/            Grenze, Spectral and IBM Plex Mono, latin subset only
     fetch-fonts.py  regenerates the above; not run at build time
 ```
+
+**The favicon is an `.ico` for one reason: the 16 and 32 layers are drawn, not scaled.** Hand a
+browser only the 128 and ask it for 16 and it smooth-scales, which turns pixel art to mush. The
+master `ivan.ico` was `Main/Resource/Ivan.ico`, the Windows build's resource icon, until that build
+went; it is a better image than `Graphics/Icon.bmp`, which is 32x32, 8-bit and has no alpha. `icon.png`
+used to be that BMP upscaled to 128, which is why it was blocky and sat on a white box. `Icon.bmp`
+itself stays where it is — `igraph.cpp:74` hands it to `SDL_SetWindowIcon` at runtime.
 
 **The fonts are self-hosted on purpose.** A page that pulls them from `fonts.gstatic.com` tells
 Google who is playing IVAN, which is not something a page needs to do to draw a headline.
@@ -101,7 +111,7 @@ Built from `build-web/Main` plus the repo's asset directories:
 
 ```
 dist/
-  index.html  icon.png  screenshot.webp  fonts/  _headers
+  index.html  favicon.ico  icon.png  screenshot.webp  fonts/  _headers
   play/
     index.html                    emcc's ivan.html, renamed
     ivan.js  ivan.wasm  ivan.data
