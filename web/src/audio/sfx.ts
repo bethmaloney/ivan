@@ -32,6 +32,27 @@ const MaxVoices = 16;
 
 const MaxVolume = 127;
 
+/* And full scale is too loud, which is a property of the files rather than of
+   anything here: 98 of the 155 decodable wavs under Sound/ peak within 1dB of
+   0dBFS, and the ones that fire on every blow are dense as well as hot --
+   blunt3.wav is -9.2dBFS RMS beneath a 0dBFS peak. Sixteen of those can sum
+   here with nothing limiting them.
+
+   The port did not make them loud and this is not a fix for the port. Native
+   scales a chunk by (master * channel * chunk) / 128^2, which for
+   Mix_Volume(channel, lSfxVol) is lSfxVol (SDL_mixer's mixer.c:385), and then
+   by volume/128 per sample (SDL's SDL_mixer.c:84). So native plays a wav at
+   127/128 where this plays it at 127/127: 0.07dB apart, and both at the level
+   the file was mastered at.
+
+   This is therefore the one place the page deliberately disagrees with the
+   reference build, and it is a trim rather than a curve -- the slider stays
+   linear, as SDL_mixer's is, and one node takes 12dB off everything the
+   effects path plays. It hangs below the shared master rather than on it, so
+   the music that same master carries keeps its own level. */
+
+const Headroom = 0.25;
+
 const MaxLog = 256;
 
 /* How late a sound may arrive and still be worth playing. The first time an
@@ -54,11 +75,32 @@ type Slot = AudioBuffer | Promise<AudioBuffer | null> | null;
 
 let Ctx: AudioContext | null = null;
 let Master: GainNode | null = null;
+let Effects: GainNode | null = null;   /* the trim, and what every voice connects to */
 
 const Buffers = new Map<string, Slot>();
 let Voices = 0;
 const Log: string[] = [];
 const Counts = { played: 0, dropped: 0, failed: 0 };
+
+/* ?sfxgain=0.5 to try another level by ear, ?sfxgain=1 for what native sounds
+   like. Anything that is not a number in 0..1 is ignored rather than argued
+   with, and a bare ?sfxgain= is a typo rather than a request for silence: a
+   query string must not be a way to put a gain of 40 into the graph, or a
+   trailing = a way to lose the sound and have nothing say why. */
+
+function Trim(): number {
+  const Asked = Query.Setting('sfxgain');
+
+  if(Asked === null || Asked === '')
+    return Headroom;
+
+  const Level = Number(Asked);
+
+  if(!Number.isFinite(Level) || Level < 0 || Level > 1)
+    return Headroom;
+
+  return Level;
+}
 
 /* ---- the audio context ------------------------------------------------
    Created on demand rather than at load, because a context created before
@@ -85,6 +127,10 @@ export function Context(): AudioContext | null {
   Ctx = Opened;
   Master = Opened.createGain();
   Master.connect(Opened.destination);
+
+  Effects = Opened.createGain();
+  Effects.gain.value = Trim();
+  Effects.connect(Master);
 
   for(const Name of ['keydown', 'mousedown', 'touchstart']) {
     document.addEventListener(Name, () => {
@@ -156,7 +202,7 @@ function Load(Path: string): Slot {
 /* ---- playing ---------------------------------------------------------- */
 
 function Start(Buffer: AudioBuffer | null, Volume: number): void {
-  if(!Buffer || !Ctx || !Master || Voices >= MaxVoices) {
+  if(!Buffer || !Ctx || !Effects || Voices >= MaxVoices) {
     Counts.dropped++;
     return;
   }
@@ -167,7 +213,7 @@ function Start(Buffer: AudioBuffer | null, Volume: number): void {
   const Source = Ctx.createBufferSource();
   Source.buffer = Buffer;
   Source.connect(Gain);
-  Gain.connect(Master);
+  Gain.connect(Effects);
 
   Voices++;
   Source.onended = () => {
@@ -247,12 +293,22 @@ export const Api: IvanSfx = {
 
   context: Context,
   master: () => Master,
+
+  /* Console API, unlike master(): tuning the effects level is done by ear, and
+     `ivanSfx.bus().gain.value = 0.4` is how you try one without a reload. */
+
+  bus: () => Effects,
   stats: () => ({
     played: Counts.played,
     dropped: Counts.dropped,
     failed: Counts.failed,
     cached: Buffers.size,
-    voices: Voices
+    voices: Voices,
+
+    /* What is in the graph rather than what the constant says, so a level
+       changed through bus() reads back. */
+
+    trim: Effects ? Effects.gain.value : Trim()
   }),
   played: () => Log.slice(),
   state: () => (Ctx ? Ctx.state : 'none')
@@ -265,6 +321,7 @@ export const Api: IvanSfx = {
 export function Reset(): void {
   Ctx = null;
   Master = null;
+  Effects = null;
   Buffers.clear();
   Voices = 0;
   Log.length = 0;

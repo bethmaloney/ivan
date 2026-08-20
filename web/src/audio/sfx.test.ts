@@ -15,8 +15,14 @@ import * as Sfx from './sfx.ts';
 
 interface FakeGain {
   gain: { value: number };
-  connect(): void;
+  connect(Target: unknown): void;
   disconnect(): void;
+
+  /* What this node was connected to. The trim lives on a node between the
+     voices and the master, so where a voice is wired is now part of the
+     behaviour and not an implementation detail. */
+
+  To: unknown[];
 }
 
 interface FakeSource {
@@ -27,6 +33,7 @@ interface FakeSource {
 }
 
 interface World {
+  Gains: FakeGain[];
   Fetched: string[];
   Playing: { gain: number; source: FakeSource }[];
   Ctx: { state: string };
@@ -54,7 +61,13 @@ function Visit(Search: string): World {
     destination: { name: 'destination' },
 
     createGain(): FakeGain {
-      const Node: FakeGain = { gain: { value: 1 }, connect: () => {}, disconnect: () => {} };
+      const Node: FakeGain = {
+        gain: { value: 1 },
+        connect(Target: unknown): void { Node.To.push(Target); },
+        disconnect: () => {},
+        To: []
+      };
+
       Gains.push(Node);
       return Node;
     },
@@ -105,6 +118,7 @@ function Visit(Search: string): World {
   }) as typeof fetch;
 
   return {
+    Gains,
     Fetched,
     Playing,
     Ctx,
@@ -161,6 +175,49 @@ test('volume is ivanconfig 0..127 scaled to unity', async () => {
 
   Sfx.Play('./Sound/hit.wav', 254);
   strictEqual(Page.Playing[2]?.gain, 1);
+});
+
+test('the trim is on the bus, 12dB down, and every voice routes through it', async () => {
+  const Page = Visit('');
+
+  Sfx.Play('./Sound/hit.wav', 127);
+  await Settle();
+
+  const Master = Page.Gains[0];
+  const Bus = Page.Gains[1];
+  const Voice = Page.Gains[2];
+
+  /* The voice still spans SDL_mixer's linear 0..127 -> 0..1 and the trim is one
+     number in one place, which is what makes it one deliberate divergence from
+     native rather than a scale factor smeared across every sound. */
+
+  strictEqual(Voice?.gain.value, 1);
+  strictEqual(Bus?.gain.value, 0.25);
+
+  /* voice -> bus -> master -> destination. A voice reconnected straight to the
+     master would play at native's level again and nothing else would notice. */
+
+  deepStrictEqual(Voice?.To, [Bus]);
+  deepStrictEqual(Bus?.To, [Master]);
+  strictEqual(Master?.To.length, 1);
+});
+
+test('?sfxgain= moves the trim; nonsense and a bare = leave it alone', () => {
+  const Level = (Search: string): number | undefined => {
+    const Page = Visit(Search);
+
+    Sfx.Api.context();
+
+    return Page.Gains[1]?.gain.value;
+  };
+
+  strictEqual(Level(''), 0.25);
+  strictEqual(Level('?sfxgain=1'), 1);          /* what native sounds like */
+  strictEqual(Level('?sfxgain=0.5'), 0.5);
+  strictEqual(Level('?sfxgain=0'), 0);          /* silence, if that is the ask */
+  strictEqual(Level('?sfxgain=4'), 0.25);       /* out of range */
+  strictEqual(Level('?sfxgain=loud'), 0.25);
+  strictEqual(Level('?sfxgain='), 0.25);        /* a typo, not a request for silence */
 });
 
 test('?sfx=off still records what it would have played', async () => {
@@ -292,10 +349,25 @@ test('the console API and the contract music depends on', () => {
 
   strictEqual(typeof Sfx.Api.context, 'function');
   strictEqual(typeof Sfx.Api.master, 'function');
+  strictEqual(typeof Sfx.Api.bus, 'function');
 
   strictEqual(Sfx.Api.master(), null);
+  strictEqual(Sfx.Api.bus(), null);
   ok(Sfx.Api.context());
   ok(Sfx.Api.master());
+  ok(Sfx.Api.bus());
+
+  /* stats() reports the node rather than the constant, so a level moved through
+     bus() reads back out. */
+
+  strictEqual(Sfx.Api.stats().trim, 0.25);
+
+  const Bus = Sfx.Api.bus();
+
+  if(Bus)
+    Bus.gain.value = 0.4;
+
+  strictEqual(Sfx.Api.stats().trim, 0.4);
 });
 
 test('the log keeps the last 256 paths, newest last', () => {

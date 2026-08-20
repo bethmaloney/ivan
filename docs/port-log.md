@@ -1251,6 +1251,70 @@ browser build now: nothing calls `Mix_*` there. Dropping the port has a wider bl
 looks — `FeAudio` links it too — so it is left alone deliberately. **§9.13 did it, and found both
 halves of that sentence wrong.**
 
+#### 9.7a Effects at full scale, and the one place the page disagrees with native
+
+§9.7 left "nobody has listened to it" open. Somebody has now, and the answer was that the sound
+effects are about four times louder than they should be while the music is fine. Four times is 12dB,
+which is a big enough number to be a bug, so the first question was whether the port had introduced
+one. It had not.
+
+**Both paths take the same `lSfxVol` and apply it the same way, within 0.07dB.** The bridge hands
+over `lSfxVol` (`sfx.cpp:381`) and SDL_mixer is given the same number by `Mix_Volume(iChannel,
+lSfxVol)` (`sfx.cpp:396`). Native then computes `(master * channel * chunk) / MIX_MAX_VOLUME^2`,
+which for a chunk loaded at `MIX_MAX_VOLUME` and a master left alone is `lSfxVol` exactly
+(SDL_mixer's `mixer.c:385`), and scales each sample by `volume / SDL_MIX_MAXVOLUME` (SDL's
+`SDL_mixer.c:84`). At the default `SfxVolume` of 127 that is **×127/128**; `sfx.ts` applies
+**×127/127**. The port is 0.07dB louder than the reference build, which is nothing, and both play the
+file at the level it was mastered at.
+
+**The level is in the files.** Decoding every wav under `Sound/` — 155 of the 159 without needing a
+codec — gives a median peak of **−0.21dBFS**, with **98 of 155 peaking within 1dB of full scale**,
+and a median RMS of **−15.9dBFS**. The effects that fire constantly are the dense ones as well as the
+hot ones: `blunt3.wav` is **−9.2dBFS RMS beneath a 0dBFS peak**, `punch3.wav` −9.8, `Hiccup.wav`
+−9.6. Sixteen voices may sum over that with nothing limiting them, in either build. So the effects
+are loud natively too, and always have been.
+
+| | |
+|---|---|
+| native per-sample scale at `SfxVolume` 127 | ×0.9922 (`mixer.c:385`, `SDL_mixer.c:84`) |
+| page per-sample scale at `SfxVolume` 127 | ×1.0 (`sfx.ts`) |
+| difference | **0.07dB** — not the 12dB reported |
+| wavs decoded | 155 of 159 (`punch.wav` MP3, three ADPCM) |
+| median peak / median RMS | **−0.21dBFS** / **−15.9dBFS** |
+| peaking within 1dB of full scale | **98 of 155** |
+| hottest of the constantly-firing effects | `blunt3.wav`, **−9.2dBFS RMS** at a 0dBFS peak |
+
+**So the change is a deliberate divergence rather than a fix, and it is written as one.** A gain node
+between the voices and the shared master takes **12dB** off everything the effects path plays, and
+nothing else changes: the slider stays linear, as `Mix_Volume`'s is, and the trim is one number in one
+place rather than a factor folded into every voice. It hangs *below* the master rather than on it
+because the master is shared — `music.ts` connects its stems to the same node, and the mute button
+drives it — so the music that was already fine is untouched. `?sfxgain=` overrides the number without
+a rebuild and `?sfxgain=1` is what native sounds like, which is the comparison anyone doubting this
+paragraph should run first.
+
+**Two things found on the way that are not about gain.**
+
+- **`punch.wav` has never played natively.** It is MPEG Layer 3 inside a RIFF container (format tag
+  0x55), and SDL's wav loader answers that with `SDL_SetError("MPEG formats not supported")`
+  (`SDL_wave.c:1753`), so `Mix_LoadWAV` returns NULL and `playSound` falls through to silence. It is
+  one of the five files `SoundEffects.cfg:95` picks between for `You.* hit`, the most frequent combat
+  message in the game, so **one hit in five has been silent on every native build**. The page does not
+  use SDL's decoder, so it probably plays it and is that much busier than native — unverified here,
+  and checkable from `ivanSfx.played()` against `stats().failed` after a few blows. The other three
+  exotic files are ADPCM, which SDL does support: `lightning.wav` and `vomit.wav` MS, `destroyed.wav`
+  IMA.
+- **The two volume sliders diverge as they come down, faithfully.** Music is `(v/127)^2` because that
+  is what a synth does with CC7 (§9.8); effects are linear because that is what `Mix_Volume` does. At
+  64/64 the effects sit 2× above the music, at 32/32 **4×**. Native behaves identically, so this is
+  upstream IVAN and not something the port should quietly correct — but it is the other way to arrive
+  at "four times too loud", and worth knowing before reaching for the trim above.
+
+**What is not measured.** Neither build's output was captured. The two gain chains were read from
+source on both sides and the file levels decoded from the wavs themselves; that is arithmetic and
+content, not a recording. A capture of the native path — SDL's `disk` audio driver writes the mixed
+stream to a file — would close it, and would also settle the `punch.wav` question in the browser.
+
 ### 9.8 Music, played by the page
 
 This is the change that **retires `audio/` on this target** rather than porting it. RtMidi, the MIDI

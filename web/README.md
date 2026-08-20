@@ -185,15 +185,24 @@ sound. Everything that can fail — a missing file, a decode error, a context th
 autoplay policy has not released — fails on the JS side and is silent, which is
 what the SDL_mixer path does with a null chunk.
 
+**Effects play 12dB below native, on purpose.** The wavs are mastered at full scale — 98 of the 155
+decodable files under `Sound/` peak within 1dB of 0dBFS, and `blunt3.wav` is −9.2dBFS RMS under a
+0dBFS peak — and both builds play them at that level, 0.07dB apart. So a gain node between the voices
+and the shared master takes a quarter of it, and the master is left alone because the music hangs off
+it too. `docs/port-log.md` §9.7a has the arithmetic on both sides and the numbers. `?sfxgain=1` is
+native's level if you want to hear what was changed.
+
 ```js
-ivanSfx.stats()     // {played, dropped, failed, cached, voices}
+ivanSfx.stats()     // {played, dropped, failed, cached, voices, trim}
 ivanSfx.played()    // the last few hundred paths, newest last
 ivanSfx.state()     // AudioContext state, or 'none' before the first sound
+ivanSfx.bus()       // the effects gain node; set .gain.value to try a level by ear
 ```
 
 ```
 ?sfx=off              never play anything (still records what would have)
 ?sfxbase=<url>        fetch from somewhere other than the page's own Sound/
+?sfxgain=<0..1>       the effects trim, default 0.25; 1 is what native sounds like
 ```
 
 `played()` is the useful one when something is wrong, because it records the call
@@ -224,8 +233,10 @@ decode or the context.
 `sfx.test.ts` pins the parts that are deliberate rather than incidental and that
 a reader would otherwise be free to "fix": the 16-voice cap drops rather than
 mixes, a failed fetch is cached as a failure so one missing file is one console
-line per session, a sound arriving more than 250ms late is thrown away, and a
-suspended context drops instead of queueing.
+line per session, a sound arriving more than 250ms late is thrown away, a
+suspended context drops instead of queueing, and the trim is on the bus with
+every voice routed through it — a voice reconnected straight to the master would
+play at native's level again and nothing else would notice.
 
 ## Music — `src/audio/music.ts`
 
