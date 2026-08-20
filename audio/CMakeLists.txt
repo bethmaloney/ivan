@@ -42,9 +42,6 @@ endif(APPLE)
 target_include_directories(FeAudio PUBLIC ../FeLib/Include ../Main/Include)
 target_link_libraries(FeAudio ${RTMIDI_DEPENDENCIES})
 
-if(NOT EMSCRIPTEN)
-  find_package(SDL2 REQUIRED)
-endif()
-
-target_include_directories(FeAudio SYSTEM PUBLIC ${SDL2_mixer_INCLUDE_DIR})
-target_link_libraries(FeAudio ${SDL2_mixer_LIBRARY})
+# No SDL lookup and no SDL_mixer here. Nothing under audio/ names a Mix_* symbol
+# -- audio.cpp wants plain SDL for its thread and timer, and gets it from FeLib's
+# PUBLIC include directories, the way xbrzscale does.

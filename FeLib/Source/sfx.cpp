@@ -24,6 +24,12 @@
 #include <emscripten.h>
 #endif
 
+/* This is the only translation unit that ever needed the mixer, and on
+   Emscripten it does not need it either -- see the SoundFile guard below. */
+#ifndef __EMSCRIPTEN__
+#include "SDL_mixer.h"
+#endif
+
 #include "festring.h"
 #include "felist.h"
 #include "graphics.h"
@@ -48,15 +54,22 @@ festring soundeffects::fsDataDir="";
 struct SoundFile
 {
   festring filename;
+
+  /* No chunk on Emscripten: the page owns playback (docs/port-log.md §9.7), and
+     ~SoundFile's Mix_FreeChunk was the last thing making the port load-bearing. */
+#ifndef __EMSCRIPTEN__
   std::unique_ptr<Mix_Chunk*> chunk = std::unique_ptr<Mix_Chunk*>(new (Mix_Chunk*)(NULL));
   //Mix_Music *music;
+#endif
 
   SoundFile() = default;
   SoundFile(SoundFile&) = delete;
   SoundFile(SoundFile&&) = default;
   ~SoundFile()
   {
+#ifndef __EMSCRIPTEN__
     if(chunk.get() && *chunk) Mix_FreeChunk(*chunk);
+#endif
   }
 };
 
@@ -312,8 +325,10 @@ int soundeffects::addFile(festring filename) {
     if(files[i].filename == filename) return i;
   SoundFile p;
   p.filename = filename;
+#ifndef __EMSCRIPTEN__
   *p.chunk = NULL;
   //p.music = NULL;
+#endif
   files.push_back(std::move(p));
   DBG2(files.size(),filename.CStr());
   return files.size() - 1;

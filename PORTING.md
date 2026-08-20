@@ -112,7 +112,8 @@ Use a **separate directory** for each. `build-wasm` is the oracle and the two WA
 a configuration.
 
 Native dependencies: `libsdl2-dev libsdl2-mixer-dev libpng-dev`, all three required — without
-SDL2_mixer the link fails. The WASM targets take SDL2, SDL2_mixer and libpng from Emscripten's ports.
+SDL2_mixer the link fails. The WASM targets take SDL2 and libpng from Emscripten's ports, and not
+SDL2_mixer: nothing there calls a `Mix_*` symbol, because playback belongs to the page (§9.13).
 
 **gcc and clang are the only supported compilers.** The top-level `-std=c++11` already assumed it —
 MSVC rejects that spelling — so upstream's MSVC paths could never have run, and they are deleted

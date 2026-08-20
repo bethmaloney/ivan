@@ -143,9 +143,9 @@ jobs:
         working-directory: web
         run: npm ci
 
-      # Covers the SDK and the compiled ports (SDL2, SDL2_mixer, libpng), which
-      # live inside it. Keyed on the version alone -- nothing else in the repo
-      # changes what an emsdk install contains.
+      # Covers the SDK and the compiled ports (SDL2, libpng), which live inside
+      # it. Keyed on the version alone -- nothing else in the repo changes what an
+      # emsdk install contains.
       - name: Restore emsdk
         id: emsdk-cache
         uses: actions/cache@v4

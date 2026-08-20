@@ -1,9 +1,5 @@
 include(FindPkgConfig)
 
-if(NOT EMSCRIPTEN)
-  find_package(SDL2 REQUIRED)
-endif()
-
 file(GLOB IVAN_SOURCES Include/*.h Source/*.cpp)
 # The following files are #included from other .cpp files and so shouldn't be
 # compiled directly. Setting the HEADER_FILE_ONLY property to TRUE prevents it.
@@ -23,8 +19,10 @@ set_source_files_properties(
     PROPERTIES HEADER_FILE_ONLY TRUE)
 
 add_executable(ivan ${IVAN_SOURCES})
-target_include_directories(ivan PUBLIC Include ../Felib/Include ../audio ../fantasyname ../FastNoise ${SDL2_mixer_INCLUDE_DIR})
-target_link_libraries(ivan FeLib FeAudio xbrzscale fantasyname fastnoise portmath ${SDL2_mixer_LIBRARY})
+# SDL_mixer is FeLib's alone: sfx.cpp is the one file that names a Mix_* symbol,
+# and FeLib links it PUBLIC, so it reaches the executable from there.
+target_include_directories(ivan PUBLIC Include ../Felib/Include ../audio ../fantasyname ../FastNoise)
+target_link_libraries(ivan FeLib FeAudio xbrzscale fantasyname fastnoise portmath)
 
 if(EMSCRIPTEN)
   # Assembled in the top-level CMakeLists so the knobs live in one place.

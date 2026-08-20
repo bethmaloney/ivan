@@ -14,7 +14,6 @@
 #define __SFX_H__
 
 #ifndef NOSOUND
-#include "SDL_mixer.h"
 #include <vector>
 #include "festring.h"
 
