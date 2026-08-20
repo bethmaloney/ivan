@@ -41,6 +41,41 @@ Native dependencies: `libsdl2-dev libsdl2-mixer-dev libpng-dev`. The WASM target
 libpng from Emscripten's ports — not SDL2_mixer, which only the native playback path needs — and the
 toolchain is pinned to emsdk 6.0.6.
 
+## Claude Code on the web
+
+`.claude/hooks/session-start.sh` provisions a session's container, which starts with none
+of the toolchain. It installs SDL2 and libpng from apt, node from `.nvmrc` via nvm,
+`web/node_modules` from the committed lockfile, and emsdk at `deploy.yml`'s `EMSDK_VERSION`
+-- so the versions live in the files that already pin them, not in the hook. It then
+pre-builds the Emscripten ports, points `IVAN_CHROMIUM` at the container's pre-installed
+Chromium when that is not the revision `@playwright/test` pins, and exports `EMSDK` and a
+`PATH` that keeps `.nvmrc`'s node ahead of the SDK's bundled one -- `find_program(IVAN_NODE)`
+takes the first `node` it finds, and that is what bundles `web/`.
+
+It is guarded on `CLAUDE_CODE_REMOTE` and does nothing on a developer's own machine. Cold
+it takes ~62s -- 35s of that is emsdk's 301MB download and ~25s the ports; the container's
+state is cached afterwards, so later sessions re-run it in ~2s.
+
+The ports are the one part that needs egress beyond the SDK: emcc fetches each one's source
+the first time it links it. On Claude Code on the web `github.com/<owner>/<repo>/archive/...`
+answers **403** -- and only that endpoint. `/releases/download/` is fine, which is how the
+`ogg` port arrives, and so is `git clone` of the very same tag. `libpng` comes from
+`storage.googleapis.com` and was never affected; it only failed because `zlib` is its
+dependency.
+
+So `.claude/hooks/seed-emscripten-ports.py` clones the refused repos -- today `libsdl-org/SDL`,
+`libsdl-org/SDL_mixer` and `madler/zlib` -- into the port cache at the tag emcc asked for,
+beside the `.emscripten_url` marker that makes `up_to_date()` accept them. A seeded port is
+never fetched and never hash-checked, which is required rather than incidental: a clone is not
+byte-identical to GitHub's generated tarball and would fail the port's sha512. The script reads
+the tags out of emcc's own "retrieving port" output rather than naming any, so an emsdk bump
+moves them without editing it. `EMCC_LOCAL_PORTS` is the mechanism that looks right for this
+and is not -- it needs a `SUBDIR` attribute that only `sdl2` defines.
+
+With that, all three targets build in a web session and `compare-targets.sh` reports native and
+WASM agreeing. Where the archive endpoint is *not* blocked the script is a plain `embuilder`
+call and clones nothing.
+
 ## Testing
 
 There is no unit test suite for the game. The oracle is three committed recordings with golden
