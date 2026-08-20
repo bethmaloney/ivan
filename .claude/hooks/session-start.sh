@@ -131,9 +131,13 @@ echo "emcc $(emcc -dumpversion)"
 # time it links one. Pre-building them here puts both the sources and the built
 # libraries in the container's cached state, so later WASM builds need no network.
 #
-# When egress policy blocks those URLs this is where it becomes visible, and that
-# is the point -- otherwise the same 403 surfaces as a compile error in an
-# unrelated-looking translation unit several minutes into a build.
+# Where those URLs 403 this is where it becomes visible, and that is the point --
+# otherwise the same 403 surfaces as a compile error in an unrelated-looking
+# translation unit several minutes into a build. On Claude Code on the web the
+# cause is the GitHub proxy rather than the domain allowlist: it scopes archive
+# and release-asset requests to the repositories attached to the session, so an
+# unattached third-party repo answers 403 at any network access level. Cloning
+# the same repo works, which is the opening a local-ports workaround would use.
 say "emscripten ports (SDL2, SDL2_mixer, libpng)"
 ports_log="$(mktemp)"
 if embuilder build sdl2 sdl2_mixer libpng > "$ports_log" 2>&1; then
@@ -146,12 +150,14 @@ else
     [ -n "$blocked" ] && echo "$blocked" | sed 's/^/  /'
     grep -oE 'HTTP Error [0-9]+: .*' "$ports_log" | sort -u | sed 's/^/  /' || true
     echo
-    echo "  The native build and web/ are unaffected; both WASM targets are not"
-    echo "  buildable until these hosts are reachable. A 403 here is an egress"
-    echo "  policy denial rather than something to retry -- see /root/.ccr/README.md."
+    echo "  The native build and web/ are unaffected; both WASM targets cannot"
+    echo "  build until these fetches succeed. A 403 here is a policy denial"
+    echo "  rather than something to retry: on Claude Code on the web it is the"
+    echo "  GitHub proxy scoping archives to the session's attached repositories,"
+    echo "  which no network access level changes. See CLAUDE.md."
     echo "  Full log: $ports_log"
     echo
-  } >&2
+  }
 fi
 
 # ------------------------------------------------------- persist for the session

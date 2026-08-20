@@ -56,9 +56,18 @@ it takes ~35s, almost all of it emsdk's 301MB download; the container's state is
 afterwards, so later sessions re-run it in ~2s.
 
 The ports are the one part that needs egress beyond the SDK: emcc fetches each one's source
-from a `github.com` archive URL on first link. Where policy blocks those, the native build
-and `web/` are unaffected and both WASM targets cannot build at all -- the hook says so at
-session start rather than letting the 403 surface as a compile error minutes into a build.
+from a `github.com` archive URL on first link, and on Claude Code on the web those answer
+**403**. The cause is not the domain allowlist -- `github.com` and `codeload.github.com` are
+both in the default Trusted list, and arbitrary hosts answer 200 here. It is the GitHub
+proxy, which scopes archive and release-asset requests to the repositories attached to the
+session; an unattached third-party repo is refused at any network access level. `git clone`
+of the same repo and tag works, so the sources are reachable, just not that way.
+
+So in a web session the native build and `web/` are unaffected and both WASM targets cannot
+build. The hook says so at session start rather than letting the 403 surface as a compile
+error minutes into a build. Attaching `madler/zlib` and `libsdl-org/SDL` to the session, or
+pointing `EMCC_LOCAL_PORTS` at clones of them, are the two ways out; neither is wired up
+here yet.
 
 ## Testing
 
