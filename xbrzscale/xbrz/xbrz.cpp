@@ -383,7 +383,7 @@ template <> inline unsigned char rotateBlendInfo<ROT_270>(unsigned char b) { ret
 #ifndef NDEBUG
     int debugPixelX = -1;
     int debugPixelY = 12;
-    __declspec(thread) bool breakIntoDebugger = false;
+    thread_local bool breakIntoDebugger = false; //was __declspec(thread): MSVC-only, and gcc/clang build this
 #endif
 
 
@@ -416,7 +416,7 @@ void blendPixel(const Kernel_3x3& ker,
 
 #ifndef NDEBUG
     if (breakIntoDebugger)
-        __debugbreak(); //__asm int 3;
+        __builtin_trap(); //was __debugbreak(), an MSVC intrinsic
 #endif
 
     const unsigned char blend = rotateBlendInfo<rotDeg>(blendInfo);

@@ -38,9 +38,6 @@ target/
 .idea/
 venv/
 
-# Visual Studio
-.vs*
-
 # Unit test reports
 TEST*.xml
 

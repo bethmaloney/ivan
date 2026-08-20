@@ -118,6 +118,10 @@ a configuration.
 Native dependencies: `libsdl2-dev libsdl2-mixer-dev libpng-dev`, all three required — without
 SDL2_mixer the link fails. The WASM targets take SDL2, SDL2_mixer and libpng from Emscripten's ports.
 
+**gcc and clang are the only supported compilers.** The top-level `-std=c++11` already assumed it —
+MSVC rejects that spelling — so upstream's MSVC paths could never have run, and they are deleted
+rather than carried untested. emcc is clang, so the WASM targets need no case of their own.
+
 **The toolchain is pinned to emsdk 6.0.6**, and pinning it is the same argument as pinning musl
 (§6.7): a different LLVM can change float codegen or struct layout, and the first symptom would be an
 unexplained frame-hash divergence thousands of frames from the cause. `latest` is not a toolchain, it

@@ -22,7 +22,7 @@ set_source_files_properties(
     Source/cmdswapweap.cpp
     PROPERTIES HEADER_FILE_ONLY TRUE)
 
-add_executable(ivan ${IVAN_SOURCES} Resource/Ivan.rc)
+add_executable(ivan ${IVAN_SOURCES})
 target_include_directories(ivan PUBLIC Include ../Felib/Include ../audio ../fantasyname ../FastNoise ${SDL2_mixer_INCLUDE_DIR})
 target_link_libraries(ivan FeLib FeAudio xbrzscale fantasyname fastnoise portmath ${SDL2_mixer_LIBRARY})
 

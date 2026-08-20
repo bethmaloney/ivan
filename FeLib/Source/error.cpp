@@ -30,13 +30,7 @@
 #include <unistd.h>
 #endif
 
-#ifdef VC
-#include <new.h>
-#define set_new_handler _set_new_handler
-#else
 #include <new>
-#define set_new_handler std::set_new_handler
-#endif
 
 #include "dbgmsgproj.h"
 
@@ -49,11 +43,7 @@ cchar* globalerrorhandler::BugMsg
 "including a brief description of what you did, what version\n"
 "you are running and which kind of system you are using.";
 
-#ifdef VC
-int (*globalerrorhandler::OldNewHandler)(size_t) = 0;
-#else
 void (*globalerrorhandler::OldNewHandler)() = 0;
-#endif
 
 #ifdef BACKTRACE
 void globalerrorhandler::DumpStackTraceToStdErr(int Signal){
@@ -80,7 +70,7 @@ void globalerrorhandler::Install()
   if(!AlreadyInstalled)
   {
     AlreadyInstalled = true;
-    OldNewHandler = set_new_handler(NewHandler);
+    OldNewHandler = std::set_new_handler(NewHandler);
 
     atexit(globalerrorhandler::DeInstall);
   }
@@ -88,7 +78,7 @@ void globalerrorhandler::Install()
 
 void globalerrorhandler::DeInstall()
 {
-  set_new_handler(OldNewHandler);
+  std::set_new_handler(OldNewHandler);
 }
 
 void globalerrorhandler::Abort(cchar* Format, ...)
@@ -119,11 +109,7 @@ void globalerrorhandler::Abort(cchar* Format, ...)
   exit(4);
 }
 
-#ifdef VC
-int globalerrorhandler::NewHandler(size_t)
-#else
-  void globalerrorhandler::NewHandler()
-#endif
+void globalerrorhandler::NewHandler()
 {
   cchar* Msg = "Fatal Error: Memory depleted.\n"
                     "Get more RAM and hard disk space.";
@@ -136,10 +122,6 @@ int globalerrorhandler::NewHandler(size_t)
 #endif
 
   exit(1);
-
-#ifdef VC
-  return 0;
-#endif
 }
 
 truth genericException::bGeneratingNewDungeonLevel=false;

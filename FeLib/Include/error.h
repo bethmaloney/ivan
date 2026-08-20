@@ -41,13 +41,8 @@ class globalerrorhandler
   static cchar* GetBugMsg() { return BugMsg; }
  private:
   static cchar* BugMsg;
-#ifdef VC
-  static int NewHandler(size_t);
-  static int (*OldNewHandler)(size_t);
-#else
   static void NewHandler();
   static void (*OldNewHandler)();
-#endif
 };
 
 #endif

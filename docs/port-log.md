@@ -702,7 +702,8 @@ Two other things this turned up. `configid`'s packing was always a no-op — two
 on any platform, and it was applied by pattern-match from `graphicid` during that same 64-bit port.
 And `#pragma pack(1)` under `#ifdef VC` wrapped both structs; `VC` is defined nowhere (MSVC sets
 `_MSC_VER`), so it was dead — but it is the identical hand-maintained-flag pattern, and had anyone
-defined it, `graphicid` would have been 47 on MSVC against 48 everywhere else.
+defined it, `graphicid` would have been 47 on MSVC against 48 everywhere else. `VC` has since gone
+entirely, with the rest of upstream's MSVC support — six dead branches behind a flag nothing defined.
 
 `NO_ALIGNMENT` is gone. `HARDWARE_LAYOUT` replaces it and applies only to `graphics.h`'s
 `vesainfo`/`modeinfo`, which are VESA BIOS blocks filled by a real-mode interrupt at spec-defined
