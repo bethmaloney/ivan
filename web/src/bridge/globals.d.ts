@@ -18,7 +18,15 @@ interface IvanSfx {
   context(): AudioContext | null;
   master(): GainNode | null;
 
-  stats(): { played: number; dropped: number; failed: number; cached: number; voices: number };
+  /* Console API: the effects trim, which is the one gain a listener may want to
+     move by ear. Below the master, so it does not touch the music. */
+
+  bus(): GainNode | null;
+
+  stats(): {
+    played: number; dropped: number; failed: number; cached: number;
+    voices: number; trim: number;
+  };
   played(): string[];
   state(): string;
 }
