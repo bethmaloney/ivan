@@ -131,12 +131,16 @@ if(EMSCRIPTEN)
             "module and there is no such thing in a browser.")
   endif()
 
-  # SDL2, SDL2_mixer and libpng come from Emscripten's own ports rather than
-  # from the system, so the find_package(SDL2/PNG REQUIRED) calls in FeLib,
-  # Main and audio are skipped and their result variables are simply left
-  # empty. Nothing else in those files has to change: they interpolate the
-  # variables into target_link_libraries, and an empty variable expands to
-  # nothing.
+  # SDL2 and libpng come from Emscripten's own ports rather than from the system,
+  # so the find_package(SDL2/PNG REQUIRED) calls in FeLib are skipped and their
+  # result variables are simply left empty. Nothing else in that file has to
+  # change: it interpolates the variables into target_link_libraries, and an
+  # empty variable expands to nothing.
+  #
+  # SDL2_mixer is not in the list, and that is the point: on this target nothing
+  # calls a Mix_* symbol, because playback belongs to the page
+  # (docs/port-log.md §9.7 and §9.13). FeLib still links it natively, where
+  # sfx.cpp's non-Emscripten branch is the real playback path.
   #
   # The port flags are set globally, and that is deliberate. -sUSE_SDL=2 is a
   # *compile* flag as well as a link flag -- it is what puts the port's headers
@@ -162,7 +166,7 @@ if(EMSCRIPTEN)
   # -fexceptions (the JS-based lowering) rather than -fwasm-exceptions, because
   # ASYNCIFY below does not support native Wasm EH. Revisit the pair together if
   # asyncify is ever replaced by JSPI.
-  set(IVAN_WASM_GLOBAL_FLAGS -sUSE_SDL=2 -sUSE_SDL_MIXER=2 -sUSE_LIBPNG=1 -fexceptions)
+  set(IVAN_WASM_GLOBAL_FLAGS -sUSE_SDL=2 -sUSE_LIBPNG=1 -fexceptions)
   add_compile_options(${IVAN_WASM_GLOBAL_FLAGS})
   string(REPLACE ";" " " IVAN_WASM_GLOBAL_FLAGS_LINK "${IVAN_WASM_GLOBAL_FLAGS}")
   set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${IVAN_WASM_GLOBAL_FLAGS_LINK}")

@@ -1247,9 +1247,9 @@ that, by accident). The wavs are still wavs: 26MB across 153 files, now fetched 
 Converting them to OGG is a data-only change — `Mix_LoadWAV_RW` falls through to `Mix_LoadMusic_RW`
 for non-RIFF magic (`mixer.c:822`) so the native path takes them too, and only the filenames in
 `SoundEffects.cfg` change. Expect roughly 26MB → 2MB. And `-sUSE_SDL_MIXER=2` is dead weight on the
-browser build now: nothing calls `Mix_*` there, and `sfx.h` includes `SDL_mixer.h` for the
-`Mix_Chunk*` in `SoundFile` and that is all. Dropping the port has a wider blast radius than it looks
-— `FeAudio` links it too — so it is left alone deliberately.
+browser build now: nothing calls `Mix_*` there. Dropping the port has a wider blast radius than it
+looks — `FeAudio` links it too — so it is left alone deliberately. **§9.13 did it, and found both
+halves of that sentence wrong.**
 
 ### 9.8 Music, played by the page
 
@@ -1899,3 +1899,66 @@ the key handling, the progress bar, the crash panel and mute. And the GitHub act
 behind — `checkout`, `setup-node`, `cache` and `upload-artifact` are all `@v4`, target Node 20 and are
 being force-run on Node 24 with a deprecation warning every run. Pre-existing, unrelated to anything
 above, and worth its own commit so a failure points at the right cause.
+
+### 9.13 Retiring SDL_mixer on the targets that do not use it
+
+§9.7 moved sound effects to the page and left `-sUSE_SDL_MIXER=2` in place, recording two reasons.
+Both were wrong, and the way they were wrong is the more useful half of this entry.
+
+**The blast radius was the opposite of what was recorded.** The note said dropping the port "has a
+wider blast radius than it looks — `FeAudio` links it too". `FeAudio` does link it, and that was the
+whole of the problem: **nothing under `audio/` names a `Mix_*` symbol at all**, and neither does
+anything under `Main/`. `audio.cpp` includes `SDL.h`, `SDL_thread.h` and `SDL_timer.h` — plain SDL2,
+for the playback thread §9.8 stopped compiling. Measured on a native build: exactly one object file
+in the tree references the mixer, `FeLib/.../sfx.cpp.o`, with 11 undefined `Mix_*` symbols. The other
+two link lines were stale, not load-bearing. **A link line that names a library is not evidence that
+anything uses it, and `nm` settles in one command what reading CMake does not.**
+
+Removing both, natively: same binary size to the byte (9,180,440), the same eight `DT_NEEDED`
+entries, with `libSDL2_mixer-2.0.so.0` merely reordered because it now arrives through FeLib's
+`PUBLIC` link rather than Main's own. Their `find_package(SDL2 REQUIRED)` calls went with them, being
+dead once the last `SDL2_mixer_*` interpolation was gone; `xbrzscale` already read `SDL2_INCLUDE_DIR`
+out of the cache FeLib populates, with no lookup of its own, so this is the pattern the tree had
+rather than a new one. FeLib is now the single owner of both the lookup and the link.
+
+**The port was load-bearing, for a reason §9.7 stated and then mis-scoped.** The note said `sfx.h`
+includes `SDL_mixer.h` "for the `Mix_Chunk*` in `SoundFile` and that is all". A pointer member only
+needs a declaration; what actually needed the library was `~SoundFile`, which calls `Mix_FreeChunk`
+(`sfx.cpp:71`) — and `SoundFile` was compiled on **both** branches, so the Emscripten link had a
+genuine undefined symbol to satisfy. Dropping the flag alone would not have linked. The member, that
+call and `addFile`'s redundant re-null are behind `#ifndef __EMSCRIPTEN__` now, and the include moved
+out of `sfx.h` into `sfx.cpp` behind the same guard — four other translation units include that
+header and none of them ever wanted the mixer. **One undefined symbol is all it takes to keep a
+dependency alive, and it will be in a destructor rather than anywhere the feature is mentioned.**
+
+**The payoff is build surface, not bytes, and the reason is worth knowing.** Nothing sets
+`SDL2_MIXER_FORMATS`, so the port Emscripten was building is `libSDL2_mixer.a` with **zero
+decoders** (`tools/ports/sdl2_mixer.py`, `formats` defaulting to the empty set) — a mixer that could
+not have decoded a wav if something had asked it to. So this removes a port to fetch and build and a
+sentence to explain from four documents, and no meaningful download. **Measured rather than assumed,
+once CI could build it:** `dist.py` reports the game at **11.0MB on disk**, which is the figure §9.9
+recorded before this change — at its 0.1MB granularity nothing came off, exactly as a decoderless
+library nobody called should predict.
+
+**What is unchanged, deliberately.** SDL_mixer is still the native playback path and
+`libsdl2-mixer-dev` is still a required native dependency: `sfx.cpp`'s non-Emscripten branch is real
+code and this fork's native build is the reference the corpora run against. `-sUSE_SDL=2` stays for
+the same reason it always did — graphics, input and `audio.cpp`'s threading. Worth noting that the
+native mixer path is required to *link* and exercised by no test: corpora run `--headless`, which
+returns from `initSound` at `sfx.cpp:150` before opening a device.
+
+**Verification split across two hosts, which is the constraint this entry was written under.**
+Native is measured above; `verify-corpora.sh` matches golden on all three corpora at 8 runs each, and
+`npm run check` passes 100 tests including the bridge contract, which parses `EM_JS` blocks out of the
+file this changed. The WASM builds could not be built where the work was done — Emscripten fetches
+every port from `github.com` archive URLs and that egress was refused — so the two WASM targets were
+first built in CI, by the `package` and `browser` jobs the pull request runs.
+
+What *was* checkable without emcc is the claim that actually matters. Compiling `sfx.cpp` with the
+native compiler, `-D__EMSCRIPTEN__` and a stub `emscripten.h` whose `EM_JS` expands to an empty
+function body gives an object with **zero** undefined `Mix_*` symbols, against the native object's 11
+— and with `IvanSfxPlay` defined in it, which is what says the branch under test is the branch that
+compiled. **A different codegen backend cannot reintroduce a symbol the preprocessor removed**, so
+this settles the link question that emcc was needed for; what CI adds is that the port flag's removal
+does not disturb anything else. It does not: `package` built both WASM targets and `browser` passed
+Playwright against the assembled `dist/`, first try.

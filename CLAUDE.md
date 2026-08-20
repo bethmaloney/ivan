@@ -37,8 +37,9 @@ cmake --build build-web -j$(nproc)
 emrun --no_browser --port 8111 build-web/Main
 ```
 
-Native dependencies: `libsdl2-dev libsdl2-mixer-dev libpng-dev`. The WASM targets take SDL2,
-SDL2_mixer and libpng from Emscripten's ports, and the toolchain is pinned to emsdk 6.0.6.
+Native dependencies: `libsdl2-dev libsdl2-mixer-dev libpng-dev`. The WASM targets take SDL2 and
+libpng from Emscripten's ports — not SDL2_mixer, which only the native playback path needs — and the
+toolchain is pinned to emsdk 6.0.6.
 
 ## Testing
 
