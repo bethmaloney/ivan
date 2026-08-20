@@ -127,38 +127,17 @@ echo "emcc $(emcc -dumpversion)"
 
 # -------------------------------------------------------------- emscripten ports
 # -sUSE_SDL=2 / -sUSE_SDL_MIXER=2 / -sUSE_LIBPNG=1 (CMakeLists.txt:165) are not in
-# the SDK: emcc fetches each port's source from a github.com archive URL the first
-# time it links one. Pre-building them here puts both the sources and the built
-# libraries in the container's cached state, so later WASM builds need no network.
+# the SDK: emcc fetches each port's source the first time it links one. Building
+# them here puts the sources and the built libraries in the container's cached
+# state, so later WASM builds need no network at all.
 #
-# Where those URLs 403 this is where it becomes visible, and that is the point --
-# otherwise the same 403 surfaces as a compile error in an unrelated-looking
-# translation unit several minutes into a build. On Claude Code on the web the
-# cause is the GitHub proxy rather than the domain allowlist: it scopes archive
-# and release-asset requests to the repositories attached to the session, so an
-# unattached third-party repo answers 403 at any network access level. Cloning
-# the same repo works, which is the opening a local-ports workaround would use.
+# On Claude Code on the web the github.com archive endpoint answers 403 for these,
+# so the helper clones the refused repos at the tag emcc asked for instead -- see
+# its docstring for why that is the mechanism that works. It reports and returns
+# non-zero if a port still cannot be built; that must not fail the session, since
+# the native build and web/ do not depend on any of it.
 say "emscripten ports (SDL2, SDL2_mixer, libpng)"
-ports_log="$(mktemp)"
-if embuilder build sdl2 sdl2_mixer libpng > "$ports_log" 2>&1; then
-  echo "cached in $EMSDK/upstream/emscripten/cache"
-else
-  blocked="$(grep -oE 'retrieving port: [a-z0-9_]+ from https://[^ ]+' "$ports_log" | sort -u || true)"
-  {
-    echo
-    echo "WARNING: could not fetch the Emscripten ports."
-    [ -n "$blocked" ] && echo "$blocked" | sed 's/^/  /'
-    grep -oE 'HTTP Error [0-9]+: .*' "$ports_log" | sort -u | sed 's/^/  /' || true
-    echo
-    echo "  The native build and web/ are unaffected; both WASM targets cannot"
-    echo "  build until these fetches succeed. A 403 here is a policy denial"
-    echo "  rather than something to retry: on Claude Code on the web it is the"
-    echo "  GitHub proxy scoping archives to the session's attached repositories,"
-    echo "  which no network access level changes. See CLAUDE.md."
-    echo "  Full log: $ports_log"
-    echo
-  }
-fi
+"$repo/.claude/hooks/seed-emscripten-ports.py" || true
 
 # ------------------------------------------------------- persist for the session
 if [ -n "${CLAUDE_ENV_FILE:-}" ]; then

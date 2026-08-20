@@ -52,22 +52,28 @@ Chromium when that is not the revision `@playwright/test` pins, and exports `EMS
 takes the first `node` it finds, and that is what bundles `web/`.
 
 It is guarded on `CLAUDE_CODE_REMOTE` and does nothing on a developer's own machine. Cold
-it takes ~35s, almost all of it emsdk's 301MB download; the container's state is cached
-afterwards, so later sessions re-run it in ~2s.
+it takes ~62s -- 35s of that is emsdk's 301MB download and ~25s the ports; the container's
+state is cached afterwards, so later sessions re-run it in ~2s.
 
 The ports are the one part that needs egress beyond the SDK: emcc fetches each one's source
-from a `github.com` archive URL on first link, and on Claude Code on the web those answer
-**403**. The cause is not the domain allowlist -- `github.com` and `codeload.github.com` are
-both in the default Trusted list, and arbitrary hosts answer 200 here. It is the GitHub
-proxy, which scopes archive and release-asset requests to the repositories attached to the
-session; an unattached third-party repo is refused at any network access level. `git clone`
-of the same repo and tag works, so the sources are reachable, just not that way.
+the first time it links it. On Claude Code on the web `github.com/<owner>/<repo>/archive/...`
+answers **403** -- and only that endpoint. `/releases/download/` is fine, which is how the
+`ogg` port arrives, and so is `git clone` of the very same tag. `libpng` comes from
+`storage.googleapis.com` and was never affected; it only failed because `zlib` is its
+dependency.
 
-So in a web session the native build and `web/` are unaffected and both WASM targets cannot
-build. The hook says so at session start rather than letting the 403 surface as a compile
-error minutes into a build. Attaching `madler/zlib` and `libsdl-org/SDL` to the session, or
-pointing `EMCC_LOCAL_PORTS` at clones of them, are the two ways out; neither is wired up
-here yet.
+So `.claude/hooks/seed-emscripten-ports.py` clones the refused repos -- today `libsdl-org/SDL`,
+`libsdl-org/SDL_mixer` and `madler/zlib` -- into the port cache at the tag emcc asked for,
+beside the `.emscripten_url` marker that makes `up_to_date()` accept them. A seeded port is
+never fetched and never hash-checked, which is required rather than incidental: a clone is not
+byte-identical to GitHub's generated tarball and would fail the port's sha512. The script reads
+the tags out of emcc's own "retrieving port" output rather than naming any, so an emsdk bump
+moves them without editing it. `EMCC_LOCAL_PORTS` is the mechanism that looks right for this
+and is not -- it needs a `SUBDIR` attribute that only `sdl2` defines.
+
+With that, all three targets build in a web session and `compare-targets.sh` reports native and
+WASM agreeing. Where the archive endpoint is *not* blocked the script is a plain `embuilder`
+call and clones nothing.
 
 ## Testing
 
