@@ -1194,6 +1194,19 @@ void lsquare::ChangeOLTerrainAndUpdateLights(olterrain* NewTerrain)
   }
 }
 
+/* Consecutive calls -- every square of a beam -- would otherwise rewind to the same state and draw
+   the identical effect; the seed brackets in bitmap.cpp reseed for the same reason. */
+
+static ulong VisualEffectSeed(v2 Pos)
+{
+  static int SeedModifier = 1;
+
+  if(++SeedModifier > 0x10)
+    SeedModifier = 1;
+
+  return (Pos.X << 8) + Pos.Y + (SeedModifier << 16);
+}
+
 void lsquare::DrawParticles(long Color, truth DrawHere)
 {
   if(!game::PosCurrentlyOnScreen(GetPos())
@@ -1205,6 +1218,12 @@ void lsquare::DrawParticles(long Color, truth DrawHere)
 
   if(DrawHere)
     game::DrawEverythingNoBlit();
+
+  /* The gate above makes this 20 draws when the square is visible, 23 with RANDOM_COLOR, and none
+     when it is not, so unbracketed the window size and the zoom level would move the game's random
+     stream (docs/port-log.md §6.10). */
+  femath::SaveSeed();
+  femath::SetSeed(VisualEffectSeed(GetPos()));
 
   if(Color & RANDOM_COLOR)
   {
@@ -1223,6 +1242,7 @@ void lsquare::DrawParticles(long Color, truth DrawHere)
     DOUBLE_BUFFER->PutPixel(Pos + v2(1 + X, 1 + Y), Color);
   }
 
+  femath::LoadSeed();
   Flags |= STRONG_NEW_DRAW_REQUEST; // Clean the pixels from the screen afterwards
 
   if(DrawHere)
@@ -1424,19 +1444,32 @@ void lsquare::AddItem(item* Item)
 
 v2 lsquare::DrawLightning(v2 StartPos, long Color, int Direction, truth DrawHere)
 {
+  /* Bracketed like DrawParticles, restructured so all five exits reach the LoadSeed: four of them
+     draw once and the default not at all, so this count follows the camera too. */
   if(!game::PosCurrentlyOnScreen(GetPos()) || !CanBeSeenByPlayer(true))
+  {
+    femath::SaveSeed();
+    femath::SetSeed(VisualEffectSeed(GetPos()));
+    v2 OffScreenPos;
+
     switch(Direction)
     {
-     case NORTH: return v2(RAND() & 15, 15);
-     case WEST: return v2(15, RAND() & 15);
-     case EAST: return v2(0, RAND() & 15);
-     case SOUTH: return v2(RAND() & 15, 0);
-     default: return StartPos;
+     case NORTH: OffScreenPos = v2(RAND() & 15, 15); break;
+     case WEST: OffScreenPos = v2(15, RAND() & 15); break;
+     case EAST: OffScreenPos = v2(0, RAND() & 15); break;
+     case SOUTH: OffScreenPos = v2(RAND() & 15, 0); break;
+     default: OffScreenPos = StartPos; break;
     }
+
+    femath::LoadSeed();
+    return OffScreenPos;
+  }
 
   auto StartTime = globalwindowhandler::GetClock();
   bitmap Empty(TILE_V2, TRANSPARENT_COLOR);
   Empty.ActivateFastFlag();
+  femath::SaveSeed();
+  femath::SetSeed(VisualEffectSeed(GetPos()));
 
   if(Color & RANDOM_COLOR)
   {
@@ -1472,6 +1505,8 @@ v2 lsquare::DrawLightning(v2 StartPos, long Color, int Direction, truth DrawHere
     for(int d = 0; d < 4; ++d)
       while(!Empty.CreateLightning(StartPos + Dir[d], ZERO_V2, 10, Color));
   }
+
+  femath::LoadSeed();
 
   if(DrawHere)
     game::DrawEverythingNoBlit();

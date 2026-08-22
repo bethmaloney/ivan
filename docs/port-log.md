@@ -35,6 +35,9 @@ Latent in the shipping game; visible only once two runs were compared.
   save filename. Game decisions now draw from the pinned MT via `femath::Shuffle`; the audio
   thread and `sfx.cpp` each got a private xorshift; namegen is pinned to the harness seed. The
   fourth stream was `clock()` in the auto-play AI — §6.5, found later and much more consequential.
+  The fifth is not a second generator at all: four visual effects drew from the *game's* stream on
+  the visible side of a screen test, so the count depended on the player's window size and zoom —
+  §6.10, found later still and by a different instrument.
 
 - **MIDI failure aborted startup.** `audio::Init` called `ABORT("MIDI Out Error")` when
   `RtMidiOut` construction threw, which happens on any machine with no ALSA sequencer — every
@@ -213,16 +216,20 @@ wander durations and retreat targets the same way.
 Sites, all `RAND_N` now: `char.cpp` 2929, 3007, 3018, 3035, 3075, 3331, 3343, 3346, 3361, 3383,
 3458, 3497, 3498, 3500, 3502 and `human.cpp` 3714, 3765, 3797. Fourth member of §6.1's RNG family.
 
-After the fix, 200 auto-play turns give 1 distinct outcome in 8 isolated runs (was 5), and 2,800
-turns with 36 deaths across two dungeon levels give 1 in 16 concurrent runs on a saturated
-machine — identical down to the frame count, the frame hashes, the cumulative RNG count and the
-full string stream.
+After the fix, 200 auto-play turns give 1 distinct outcome in 8 isolated runs (was 5), and the long
+corpus gives 1 in 16 concurrent runs on a saturated machine — identical down to the frame count, the
+frame hashes, the cumulative RNG count and the full string stream, and byte-identical to the same
+corpus replayed on an idle one. *This paragraph used to read "2,800 turns with 36 deaths"; those
+figures came from an ad-hoc auto-play run made while writing the harness, before any corpus was
+committed (`git ls-tree 21a050b:tools/corpora/` is empty), and never described `autoplay-2000.rec`.
+It runs 1,972 turns with 2 deaths across two dungeon levels as of §6.10.*
 
 **All three leads recorded before the fix were wrong**, and each cost real time.
 `SaveSeed`/`LoadSeed` nesting: disproved, `nest` is 0 across every run of every corpus.
 `UpdateTick`: already pinned — `whandler.h:102` makes `Tick` a draw counter during replay and the
 standby-animation loop is never reached. `SeedModifier`/visual randomness: 92 bracketed draws out
-of 1,748,754, and `LoadSeed` discards them anyway. What found it was the `clock()`/`SDL_GetTicks()`
+of 1,748,754, and `LoadSeed` discards them anyway — right about this bug, and wrong about the
+family, because the visual draws that were *not* bracketed turned out to be §6.10. What found it was the `clock()`/`SDL_GetTicks()`
 inventory plus the draw attribution below. Nothing was learned by reasoning about the leads.
 
 #### 6.5a Trace diagnostics, and the eight-run rule
@@ -637,6 +644,283 @@ had already been measured as a native-vs-WASM divergence in §9.4, where it sat 
 correctly-ruled-out causes. What the browser added was a *symptom* — a stack with `character::Die`
 in it — and that was the whole difference between an open item and a one-line fix.
 
+### 6.10 The player's window size and zoom level were in the game's random stream
+
+Two players sharing a seed did not share a game if they had configured the window differently. No
+crash, no divergence any test in this tree could produce, and nothing a player would ever report as
+a bug — the two games are both plausible.
+
+**The mechanism.** `level::Draw` iterates the camera rectangle (`level.cpp:1345-1348`) and the
+effects drawn inside it, or gated on the same rectangle, drew from the game's MT:
+
+- `fluid::imagedata::Animate` (`fluid.cpp:463`) starts a blood drip with `Picture->RandomizePixel()`
+  (`:478`) and picks the delay to the next one with `RAND() % (500000 / AlphaSum)` (`:506`), **once
+  per on-screen stained square**.
+- `level::DrawExplosion` (`level.cpp:1107`) makes one draw, `int Flags = RAND() & 7` (`:1157`),
+  below four clipping tests that return early when the explosion is off screen.
+- `lsquare::DrawParticles` (`lsquare.cpp:1210`) and `lsquare::DrawLightning` (`:1445`) both open on
+  `game::PosCurrentlyOnScreen(GetPos())` (`game.cpp:7250`): 20 draws per visible square in the
+  first, 23 with `RANDOM_COLOR`, and an unbounded `while(!Empty.CreateLightning(...))` rejection
+  loop in the second.
+
+And that rectangle is a config value. `game::GetScreenXSize()` (`game.cpp:286`) is
+`GetMaxScreenXSize()` divided by `ivanconfig::GetStartingDungeonGfxScale()`, and the max is
+`ivanconfig::GetStartingWindowWidth() / TILE_SIZE - 8` (`:268`); `PosCurrentlyOnScreen` is built
+from it. Measured under gdb: the visible dungeon is **42x26 tiles at `DungeonGfxScale` 1, 21x13 at
+2, 14x8 at 3**, with `GetMaxScreenXSize` staying 42 throughout. So the *draw count* differs either
+side of the visibility gate, that count lands on the shared stream, and the player's zoom decides
+which monster is rolled next. Fifth member of §6.1's RNG family, and the first whose input is the
+player rather than the machine or the scheduler.
+
+**Why no corpus could see it.** `run-corpus.sh` pins the harness options and, until this change,
+wrote no config file at all — so every run of every corpus, 8 isolated and 16 concurrent, shared one
+window size and one zoom. `verify-corpora.sh` and `compare-targets.sh` both hold the configuration
+fixed *by design*, which is what makes their comparisons mean anything; neither can find a bug whose
+input they never vary. The new `IVAN_CONF` knob in `run-corpus.sh` is newline-separated
+`Name = value;` lines planted as the run's config file, **empty by default and writing no file**, so
+an unset run is byte-for-byte what it was. Two facts that cost time: it is `ivan.conf`, not
+`ivan.cfg` — the `.cfg` name is inside `#ifdef WIN32` (`iconf.cpp:1315`) and no target here takes
+that branch — and it goes in the run directory, which is what `GetUserDataDir()` returns under
+`PORTABLE_BUILD`. A file is the only way to pin these two options for one run: `ivanconfig::Initialize`
+snapshots the window size and the zoom once, right after `configsystem::Load()`, and nothing
+reassigns them afterwards.
+
+**The ordering is the useful part.** The two `lsquare` sites were found first, by reading code, and
+both turned out to be **golden-neutral**: gdb ignore-counts give **0** hits for
+`lsquare::DrawParticles` and `lsquare::DrawLightning` on all three committed corpora — against a
+control probe on `femath::SaveSeed` that counted 22 / 40 / 15,208 hits on the same runs and proves
+the instrument works. Bracketing them moved no golden and no measurement. The site that mattered,
+`fluid.cpp:478`, the same code read walked straight past: a blood stain does not read as a visual
+effect, and it runs 2,048 times on `autoplay-200` and 6,382 times on `autoplay-2000`. It was found
+by replaying the corpora at several zoom levels and comparing `grng`. `level::DrawExplosion` went
+the same way — flagged by no code read, found by the sweep on one corpus of four, where a scroll of
+earthquake at turn 208 of `autoplay-2000` reaches `level::TriggerExplosions` (`level.cpp:1208`).
+**The code read found the sites that did not matter; the differential test found the ones that did.**
+
+**Localising the second one**, because gdb is the wrong instrument 1.7M draws in — a conditional
+breakpoint or an ignore-count stops 1.7M times. An out-of-tree copy of the build logged
+`RandCount`, `GameRandCount` and `__builtin_return_address(0)` for every draw in a chosen index
+window, the address as an offset from a known symbol because ASLR made the first attempt's logs
+differ on every line. The instrumented build reproduced the release numbers exactly — `autoplay-2000`
+ending at `grng` 7,566,079 at scale 1 and 7,906,963 at scale 2, the two arms as they then stood —
+which is what says it is the same program. The arms then agree in call
+site *and* index for **125,562 consecutive draws**, and at draw 1,710,562 arm A (scale 1) calls
+`level::DrawExplosion` where arm B (scale 2) goes straight on to `smoke::smoke`. One extra draw,
+identical game state, because at scale 2 the camera sits elsewhere and the explosion clips out.
+
+**Three inferences that were wrong.** All three are cheap to make again.
+
+- *"`rng - grng` held constant across the fork, so this is not an unbracketed presentation draw."*
+  Backwards. An **un**bracketed draw increments both counters, so a constant discard count across a
+  fork is exactly that family's signature; constant `rng - grng` rules out a *bracketed* draw and
+  nothing else. That inference hid `DrawExplosion` for a round and sent the next one after
+  `character::ShowNewPosInfo`'s camera update (`char.cpp:4544-4547`), which is not involved.
+- *"`beams`'s `grng` did not move when `DrawExplosion` was bracketed, so it makes no explosion."*
+  The same shape again: a *bracketed* draw does not move `grng`, so an unchanged `grng` says nothing
+  about whether a site was reached. Measured with breakpoints, `beams` draws exactly one explosion.
+- A prediction written into `compare-configs.sh` before the fix — that bracketing the drip alone
+  would settle the two auto-play corpora at `grng` 1,747,149 and 7,468,797 — reproduced under no
+  variant, and could not have: inside a restored bracket the seed choice cannot reach the game
+  stream, so every correct bracket of that function lands on the same number. The measured values
+  are **1,566,177** and **6,612,194**. Bracketing only the `RandomizePixel` line and leaving
+  `:506` behind was tried and is strictly worse — `autoplay-200` 1,733,328 at scale 1 against
+  1,770,483 at 6 — because the delay draw carries the same dependence.
+
+**The fix is four `femath::SaveSeed`/`LoadSeed` brackets, not four deletions.** The draws are what
+makes the effects look like effects — which pixel of a stain drips, how long until the next drip,
+which of eight ways an explosion sprite is mirrored, where each particle lands — so deleting them
+would trade a determinism bug for a visibly worse game. A bracket keeps the randomness and takes it
+off the shared stream, which is what `object::RandomizeSparklePos` (`object.cpp:153`) and
+`bitmap::CreateLightning` (`bitmap.cpp:1672`) already do. Each bracket reseeds from a **rolling**
+counter rather than a constant: consecutive calls — every square of a beam, every explosion in one
+blast, every stain on one screen — would otherwise rewind to a single state and animate in lockstep.
+Deliberately not derived from `this`: a pointer value is not reproducible.
+
+The three boundaries differ, and none of the choices is cosmetic.
+
+- `Animate` is bracketed **whole**, opening after its `if(!AlphaSum) return;` and closing before
+  `--DripTimer`. Everything it writes is animation: `DripTimer`, `DripPos`, `DripColor` and
+  `DripAlpha` are `mutable` (`fluid.h:87-90`), are read nowhere outside the function, and
+  `imagedata::Save` writes only `Picture`, `AlphaSum`, `ShadowPos` and `SpecialFlags` — the drip is
+  not persisted at all. The fluid's real state (volume, the picture, whether it dries) moves through
+  `fluid::SignalVolumeAndWeightChange` → `Fade()`/`AddLiquid` from game logic and keeps drawing from
+  the game stream, correctly.
+- `DrawExplosion` is bracketed around the **single line**, which keeps its
+  `bitmap ExplosionPic(SizeVect)` allocation outside the bracket for no loss. All four early returns
+  sit above the `SaveSeed`, so none of them needs a `LoadSeed`.
+- `DrawLightning`'s off-screen switch had five exits, four of which draw. It is restructured to one
+  return so every path reaches the `LoadSeed`. That is the only structural change in the four.
+
+Nothing in any bracketed region can throw past its `LoadSeed`: none of `RandomizePixel`,
+`GetPixel`, `GetAlpha`, `Rotate`, `AlphaPutPixel` or `CreateLightning` allocates, and `ABORT` is
+`globalerrorhandler::Abort` (`FeLib/Source/error.cpp:84`), which calls `exit(4)` rather than
+throwing — so no `areachangerequest`-style unwind escapes a bracket. Nesting would be the real
+hazard, `femath` having one `mtb`/`mtib` backup slot (`femath.cpp:294-310`), and it does not happen;
+the evidence is below.
+
+**What it cost, and what it did not.** The goldens were rewritten with `verify-corpora.sh --update`
+after self-consistency held on all three corpora, and the written reason is in
+`tools/corpora/README.md` beside the check-value table. Two of the three pairs changed.
+
+| | golden before | golden now |
+|---|---|---|
+| `noncombat` — frames / `rng` / `grng` | 365 / 1,075,023 / 1,074,979 | **byte-identical**, on both artifacts |
+| `autoplay-200` — frames / `rng` / `grng` | 592 / 1,517,713 / 1,517,633 | 595 / 1,772,440 / 1,769,125 |
+| `autoplay-200` — turn / HP | 161 / 24/35 | 197 / 36/36 |
+| `autoplay-2000` — frames / `rng` / `grng` | 2,675 / 6,329,412 / 6,104,870 | 2,758 / 10,714,748 / 10,253,524 |
+| `autoplay-2000` — turn / HP | 1,763 / 43/43 | 1,972 / 202/202 |
+
+`noncombat` coming back byte-identical is the narrowness check: it reaches none of the four
+functions (0 hits on all four). Both auto-play corpora first differ at **frame 381**, and that frame
+is the signature of the fix rather than of a behaviour change — the frame hash is unchanged
+(`309fecf0a8598d40`), `rng` is unchanged (1,119,452), and `grng` drops by exactly five, 1,119,408 to
+1,119,403. Five draws moved off the game stream; the same total was drawn and the same pixels came
+out. The first hash change is one frame later, and the trajectory diverges from there, which is how
+five draws become 36 more turns on `autoplay-200` and 209 more on `autoplay-2000`.
+
+The rest of the oracle, measured after the re-baseline:
+
+- **Native vs WASM still agree.** `compare-targets.sh` exits 0, "targets agree", on all three
+  corpora: trace, text log, screenshot, sidecar, `.wm` and every level file byte-identical, with the
+  single `GetTimeSpent` byte the only divergence. With the goldens now describing a stream no
+  earlier build produced, this is the oracle that still applies to the change itself.
+- **`nest` is 0**, checked two ways because a bracket entered and left between two blits never
+  appears in a trace at all. Every frame row of every trace kept from this work — 54 traces,
+  **84,868 rows** — carries `nest` 0 and `depth` 0, those being the only two values that occur. And
+  `harness::NestedBrackets` and `harness::SeedDepth` read directly at `harness::Shutdown` under gdb
+  are **0 and 0** on all four recordings, at the default config and again at `DungeonGfxScale` 6.
+  `SeedDepth == 0` at shutdown is what the trace column cannot give you: every bracket entered over
+  the whole run was also left, which is the thing worth knowing about `DrawLightning`'s five exits.
+- **Distinct outcomes are unchanged.** 8 isolated runs give 1 distinct trace, text log, PNG and
+  sidecar per corpus, `beams` included. 16 concurrent `autoplay-2000` replays against 22 spinners
+  (loadavg 36.15 on 22 cores) give 1, and each is byte-identical to the unloaded run.
+- **What the corpora reach**, gdb breakpoints with a 1e9 ignore count:
+
+| | `Animate` | `DrawExplosion` | `DrawParticles` | `DrawLightning` |
+|---|---|---|---|---|
+| `noncombat` | 0 | 0 | 0 | 0 |
+| `autoplay-200` | 2,048 | 0 | 0 | 0 |
+| `autoplay-2000` | 6,382 | 1 | 0 | 0 |
+| `effects/beams` | 0 | 1 | 6 | 0 |
+
+That table is the independent cross-check on the whole change. `autoplay-2000` calls
+`DrawExplosion` exactly once, which is why its `rng` moves by exactly one across the scale-4
+boundary (6,756,002 to 6,756,001) while `grng` stays flat — one discarded draw appearing and
+disappearing. And the discard counts confirm the brackets are live rather than vacuous:
+`autoplay-200`'s `rng - grng` went 80 → 3,315 as those 2,048 drip calls left the game stream.
+
+**One coverage loss, named rather than smoothed over.** The auto-play characters now survive: distinct
+death phrases on `autoplay-200` fell 12 → 2 and on `autoplay-2000` 14 → 2, while distinct "is slain"
+subjects rose 1 → 4 and 6 → 8. The death and resurrection path is much less exercised than it was.
+That is not a reason to regenerate the recordings — the keys are unchanged and `autoplay-2000` still
+visits two dungeon levels — but it is a real change in what the oracle covers.
+
+#### 6.10a `compare-configs.sh` — the third question, and what a pass does not mean
+
+`tools/corpora/compare-configs.sh` replays every corpus at several `DungeonGfxScale` values on one
+build and checks that each ends on the same `grng`. It is the third question, beside
+`verify-corpora.sh`'s "did this build change?" and `compare-targets.sh`'s "do these two builds
+agree?": **does one build agree with itself when the player configured it differently?** 16.4s wall
+for four corpora at six scales on 22 idle cores. It sweeps the whole 1-6 range by default and
+rejects anything outside it: `cycleoption::LoadValue` does not clamp (`config.cpp:285`), and
+`DungeonGfxScale = 0` divides by zero in `game::GetScreenXSize`.
+
+Three parts of it are load-bearing and would be easy to drop by accident. The **liveness check** —
+each arm's trace must *not* be identical to the reference arm's — is what stops a planted config the
+game never read from producing a vacuous pass; `ivan.cfg` instead of `ivan.conf` is exactly how you
+get one. `nest` is checked per arm, and is a *cumulative* counter (`if(SeedDepth++) ++NestedBrackets`,
+`harness.h:115`), so 0 on the last row really does mean no bracket nested anywhere in that run.
+And `rng` moving while `grng` does not is reported but never fatal: that is the signature of a
+working bracket, not a failure.
+
+**What a pass establishes**, stated exactly: among the draws these four recordings reach, at 800x600,
+with `EnhancedLights` off, no remaining `RAND` site's call count follows `DungeonGfxScale`. That is
+four key sequences, one camera axis, one window size and one of the config file's options. It is real
+evidence and it is narrow. What it does **not** establish, in the order a future reader is likely to
+need it:
+
+- **It is green in a configuration the shipped game does not run.** `EnhancedLights` defaults to
+  `true` (`iconf.cpp:170-173`) and the script pins it off, because `level::RevealDistantLightsToPlayer`
+  (`level.cpp:3141`) reveals map squares by iterating the on-screen rectangle (`:3152-3155`) — so
+  with it on, the zoom decides how much of the map the player knows and the auto-play corpora part
+  company long before they reach any visual effect. Measured on `autoplay-200`, scale 1 against
+  scale 2: `grng` 1,517,633 against 1,714,427 with distant lights on, and equal with them off. **So
+  the honest claim is "no remaining *draw* follows the zoom, with distant lights off", not "zoom is
+  a preference about pixels".** That function makes no draws at all — it mutates reveal state — so it
+  is not a `SaveSeed` candidate; it is the same defect one layer up, and it is open.
+- **It varies one of the camera's two config inputs.** `WindowWidth` and `WindowHeight` are ordinary
+  player options with a settings-menu entry (`iconf.cpp:102-115`), defaulting to 800x600 with minima
+  of 640x480 and no upper bound. At 800x600 the six arms sample 42/21/14/10/8/7 tiles across; a
+  player at 640 gets 32 and at 1280 gets 72, and the swept set is neither a superset nor a worst
+  case of those. Widening `-s` cannot close this — only a second `IVAN_CONF` axis can.
+- **It cannot see a site the corpora never reach.** That is not hypothetical here: the two `lsquare`
+  sites are reached by no committed corpus, which is why `effects/beams.rec` had to be written at
+  all, and `DrawExplosion` was detected by one recording out of four.
+- **It cannot see a site that is not camera-gated.** Such a site's count is equal at every scale by
+  construction, so the sweep is green whether or not it is bracketed, while the presentation still
+  advances the game's stream. `bodypart::DrawScars` (`bodypart.cpp:3786`) is the concrete example:
+  reached every panel draw through `humanoid::DrawSilhouette` (`human.cpp:2092`, the call at
+  `:2171`), it lazily fills a scar's `PanelBitmap` from `igraph::GenerateScarBitmap`
+  (`bodypart.cpp:3793` → `igraph.cpp:646`), which makes an unbounded number of unbracketed
+  game-stream draws in two rejection loops — `RAND_N` on both silhouette axes, then `RAND_256`
+  through `portmath::SinCos`, on a float path no corpus has compared across targets. No path was
+  established that puts a null-`PanelBitmap` scar on the *player* — `god::TryToAttachBodyPart`
+  (`god.cpp:400`) goes through `FindRandomOwnBodyPart`, which closes the obvious one — so this is a
+  blind spot rather than a live bug. `item::Fly` is the same shape from the other direction: it gates extra
+  `game::DrawEverything()` calls on `game::OnScreen(...)` (`item.cpp:205`) while seeding the
+  rotation from `clock() % 2` (`:168`), so presentation call counts are entangled with the camera
+  *and* the wall clock in the tree today — the §6.5a wall-clock list already names that line as
+  unreached and unsafe in general.
+- **The oracle is a count, sampled once per corpus.** Two remaining sites with opposite screen
+  dependence that sum to the same total pass. So does a screen-derived value that reaches game state
+  without drawing at all, unless it happens to shift the trajectory — the `EnhancedLights` family
+  above, which is pinned off for that reason. `HitIndicator` is the one member of it that was ruled
+  out by measurement: `level::DrawHitEffects` (`level.cpp:1331`) is the other screen-rectangle loop
+  that mutates state, pinning `HitIndicator = 0` leaves all six `autoplay-2000` values
+  byte-identical, and `hiteffect.cpp` contains no `RAND` at all.
+- **Each arm is one run**, against §6.5a's eight-run rule, and there is no self-consistency control
+  in the sweep. A FAIL therefore has to be re-run by hand before it is believed, and a pass says
+  nothing about whether any single arm is reproducible.
+- **Nothing re-runs it.** CI replays the corpora and nothing else (`deploy.yml:79`); neither
+  `compare-configs.sh` nor `compare-targets.sh` is in any job. So the property this whole change
+  exists to establish has no regression test: a future change that reintroduces a camera-gated draw
+  fails `verify-corpora.sh` with moved goldens, which is a symptom a reader is entitled to explain
+  and `--update` away.
+
+Only the *final* `grng` is compared, and that is the shape of the check rather than a weakening of
+it. A record is emitted only when the hash or the `rng` moved, and an effect that draws on fewer
+squares blits fewer times, so two arms can sample one identical stream at different points: measured
+on `autoplay-2000`, scale 1 against scale 2, both ending at `grng` 6,612,194, frame 661 samples
+1,710,053 in one arm and 1,712,375 in the other, which is the first arm's *next* sample. Diffing the
+column would call that a failure. `trace.jsonl`, `screen.png` and the map-area text differ
+legitimately as well — the dungeon is drawn at a different size, which is the point of the option.
+
+#### 6.10b `effects/beams.rec` — a corpus that must never get a golden
+
+No committed corpus casts anything, so without a recording that does, the sweep above would be
+asserting a property that holds vacuously. `tools/corpora/effects/beams.rec` is 84 keys: the seed 999
+prefix the other corpora share, wizard mode, `1` five times so the character survives its own beams,
+`$` for scrolls of wishing, three wishes and two zaps.
+
+It lives under `effects/` and has **no golden trace and no golden text log, and must not acquire
+one**. What it exercises is a wand animation that is *meant* to look different at a different zoom;
+there is nothing in it for `verify-corpora.sh` to pin, its assertion is cross-arm equality rather
+than equality against a committed artifact, and keeping it out of that script's `*.rec` glob
+(`verify-corpora.sh:45`) keeps it out of the way of the three corpora that do have goldens.
+
+The cost of that decision is real and worth knowing: `effects/` is outside
+`compare-targets.sh`'s glob too (`:48`), so the two `lsquare` brackets are the only ones in this
+change never compared native-vs-WASM — on a path holding an unbounded
+`while(!Empty.CreateLightning(...))` rejection loop whose iteration count now depends on the reseeded
+stream. And the recording does not currently reach `lsquare::DrawLightning` at all: measured 0 hits
+on the real out-of-line symbol, so a miss rather than an inlining artifact. Reading the session back
+explains it — the three wishes succeed, but the fireball zap detonates a dwarven gas grenade full of
+warp gas, a whirlpool teleports the character across the level, and the final key lands on an apply
+prompt ("You need to apply something first, potatoes-for-eyes") instead of firing the wand. **The
+most intricate of the four brackets is covered by no recording in the tree.** The fix is to
+re-record, wishing the lightning wand *last* so the fireball cannot displace the character before
+its zap; `tools/play/play.py` is what wrote it. Re-recording it, not giving it a golden.
+
 ---
 
 ## 7. Open items, and one closed one
@@ -773,6 +1057,26 @@ an `int`, 4 bytes on both platforms, so a WASM build can read a native save's ve
 cleanly rather than mis-decoding it. Bundle this into the next version bump. The harness can
 validate it: replay a corpus, save, load, re-save and compare on one platform to prove the format
 round-trips, then native-vs-native savediff to prove semantics did not move.
+
+### 7.10 What §6.10 left open
+
+Four items, in the order they matter, all of them narrow and all of them measured rather than
+suspected.
+
+1. **`EnhancedLights` is on by default and the zoom still forks the game with it on.**
+   `level::RevealDistantLightsToPlayer` (`level.cpp:3141`) reveals map squares by iterating the
+   on-screen rectangle, so how much of the map the player knows follows `DungeonGfxScale`. It makes
+   no draws, so no `SaveSeed` bracket applies; the fix is to stop deriving reveal state from the
+   camera. Until then `compare-configs.sh` has to pin the option off, and the property holds only
+   for the configuration it pins.
+2. **Re-record `effects/beams.rec` so it reaches `lsquare::DrawLightning`** — wish the lightning
+   wand last (§6.10b). Today that bracket, the most intricate of the four, is exercised by nothing.
+3. **Give the sweep a second axis and a self-consistency arm.** `WindowWidth`/`WindowHeight` are the
+   camera's other input and are never varied; each arm is a single run, against §6.5a's eight-run
+   rule.
+4. **Put `compare-configs.sh` in CI.** `deploy.yml` replays the corpora and nothing else, so a
+   reintroduced camera-gated draw shows up only as moved goldens — which a reader is entitled to
+   explain and `--update` away.
 
 ---
 

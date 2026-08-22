@@ -13,6 +13,10 @@
 # two-run comparisons, both of which evaporated at 6-8 samples. Pairs agree by
 # chance often enough to fool you. Use 1 only for a quick smoke test.
 #
+# Recordings under effects/ are deliberately outside this script's *.rec glob:
+# they have no golden and must not acquire one (docs/port-log.md §6.10b).
+# compare-configs.sh is what replays them.
+#
 # Usage: verify-corpora.sh [-n RUNS] [--update]
 #        --update  rewrite the golden files from this build instead of checking
 #                  them. Self-consistency is still enforced first -- a build that

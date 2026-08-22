@@ -1147,7 +1147,16 @@ truth level::DrawExplosion(const explosion* Explosion) const
   if(BPos.Y + SizeVect.Y > RES.Y)
     SizeVect.Y = RES.Y - BPos.Y;
 
+  /* Flags only picks which of eight ways the sprite is mirrored, but the clipping above returns
+     before it when the explosion is off screen and the camera follows game::GetScreenXSize(), so
+     unbracketed the player's zoom would move the game's stream (docs/port-log.md §6.10). The seed
+     rolls so consecutive explosions in one blast do not all draw alike. */
+  static ulong ExplosionSeed = 0;
+  femath::SaveSeed();
+  femath::SetSeed(++ExplosionSeed);
   int Flags = RAND() & 7;
+  femath::LoadSeed();
+
   blitdata BlitData = { 0,
                         { PicPos.X, PicPos.Y },
                         { 0, 0 },
