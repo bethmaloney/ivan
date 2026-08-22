@@ -19,6 +19,10 @@
 #                   ending in .js is run under node, which is how the same
 #                   script replays the Emscripten build.
 #        IVAN_DATA  directory holding Graphics/ Script/ Music/ Sound/ (default .)
+#        IVAN_CONF  newline-separated `Name = value;` lines to plant as the run's
+#                   config file. Empty by default, which writes no file at all, so
+#                   every option keeps its compiled-in default and an unset run is
+#                   byte-for-byte what it was before this knob existed.
 
 set -eu
 
@@ -64,6 +68,15 @@ OUTDIR=$(cd "$OUTDIR" && pwd)
 for d in Graphics Script Music Sound; do
   ln -sfn "$IVAN_DATA/$d" "$OUTDIR/$d"
 done
+
+# A config file is the only way to pin an option for one run: ivanconfig::Initialize
+# snapshots the window size and the zoom once, right after configsystem::Load(), and
+# nothing reassigns them afterwards. It is ivan.conf, not ivan.cfg -- the .cfg name is
+# inside #ifdef WIN32 (iconf.cpp:1315) and no target here takes that branch -- and it
+# goes in the run directory, which is GetUserDataDir() under PORTABLE_BUILD.
+if [ -n "${IVAN_CONF:-}" ]; then
+  printf '%s\n' "$IVAN_CONF" > "$OUTDIR/ivan.conf"
+fi
 
 # The two SDL_*DRIVER variables are redundant now that --headless never asks SDL
 # for a device, and are kept only so that dropping --headless by hand still runs

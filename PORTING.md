@@ -71,7 +71,8 @@ coverage they are about to lose, and why `web/e2e/` exists.
 | | |
 |---|---|
 | Each corpus, 8 isolated runs — trace, text log, PNG | **1 distinct outcome**, matching the committed golden |
-| The longest corpus, 16 concurrent runs on a saturated machine | **1 distinct outcome** — 2,800 turns, 36 deaths, 9.7M RNG draws |
+| The longest corpus, 16 concurrent runs on a saturated machine | **1 distinct outcome**, byte-identical to the unloaded run — 1,972 turns, 2 deaths, 10.7M RNG draws |
+| Each corpus at six `DungeonGfxScale` values, one build | **the same game-stream position (`grng`)** at every scale, with distant lights off (§6.10a) |
 | Native vs WASM, all three corpora | trace, text log, screenshot, sidecar, `.wm` and every level file **byte-identical** |
 | Native `--headless` vs native windowed | **byte-identical** on every artifact |
 | valgrind uninitialized reads, every corpus | **0 errors / 0 contexts** |
@@ -82,7 +83,10 @@ coverage they are about to lose, and why `web/e2e/` exists.
 
 The CPU-load row is the meaningful one *for the risk it was designed to test* — wall-clock leaking
 into game state. Saturating the machine and still getting identical output is real evidence about the
-clock.
+clock. Its turns/deaths/draws read "2,800 turns, 36 deaths, 9.7M RNG draws" until §6.10 re-measured
+them: those figures came from an ad-hoc auto-play run made while the harness was being written,
+before any corpus was committed, and never described `autoplay-2000.rec`. The "1 distinct outcome"
+half was right then and is right now.
 
 **Read all of it narrowly.** Every number is a property of the levels these three key sequences
 generate. Native-vs-WASM is unblocked *for the reached paths* and unproven elsewhere:
@@ -96,6 +100,12 @@ generate. Native-vs-WASM is unblocked *for the reached paths* and unproven elsew
   time a corpus change alone surfaced a family that three earlier passes had walked past.
 - **`.wm` still has the §6.2 residue**, and no corpus visits enough of the world map to write the
   whole file.
+- **Every run above uses one window size and one zoom.** `run-corpus.sh` pins the configuration,
+  which is what makes the comparisons mean anything and is also why the player's `DungeonGfxScale`
+  sat in the game's random stream unnoticed for the whole port (§6.10). `compare-configs.sh` varies
+  that one axis on four recordings and compares one integer each; §6.10a is the list of what it
+  still cannot see, starting with the fact that it pins `EnhancedLights` off and the shipped default
+  is on.
 
 ## Builds
 
@@ -188,16 +198,28 @@ repeatedly, which is what `tools/web/serve.py` is for.
 ## Testing
 
 The oracle is three committed recordings with golden traces, text logs and screenshots —
-`tools/corpora/README.md` has the table, the check values and how to regenerate them. Two scripts
-answer different questions and you want both:
+`tools/corpora/README.md` has the table, the check values and how to regenerate them. Three scripts
+answer three different questions and you want all of them:
 
 - **`verify-corpora.sh`** compares a build against the committed goldens: *did this build change?*
 - **`compare-targets.sh`** replays each corpus on native and WASM and compares them against each
   other: *do these two builds agree?*
+- **`compare-configs.sh`** replays each corpus at every `DungeonGfxScale` on one build and compares
+  the game-stream draw count: *does one build agree with itself when the player configured it
+  differently?* It is the newest and the narrowest — one integer per corpus, one config axis — and
+  §6.10a is the honest account of its reach. **CI runs only the first** (`deploy.yml`), so the
+  config-invariance property has no regression test yet.
 
 A change that moves both builds identically passes the second and fails the first; a
 compiler-dependent expression (§9.4) does the reverse, which is why a dozen such bugs survived every
-determinism test in this repo.
+determinism test in this repo. The third asks about the *player's* configuration rather than the
+build's, and it found a bug the other two could not express: until §6.10 every run in the tree shared
+one window size, so nothing could see that the zoom level was moving the game's random stream.
+
+A fourth recording, `tools/corpora/effects/beams.rec`, sits under `effects/` with **no golden and
+deliberately no way to acquire one** — it exists so `compare-configs.sh` has a corpus that casts
+something, and its animation is *meant* to differ between zoom levels. It is outside the other two
+scripts' globs, which is what §6.10b costs and records.
 
 **Run `verify-corpora.sh` before and after any change to `Main/`, `FeLib/`, the compiler flags or the
 build.** A change that moves the goldens has changed the game. That may be correct, but it is never
@@ -288,6 +310,10 @@ namespace harness
 
   inline void CountRand();         // ++RandCount
   inline ulong GetRandCount();
+  inline ulong GetGameRandCount(); // the same count, brackets excluded
+
+  inline void EnterSeedBracket();  // femath::SaveSeed/LoadSeed only; Enter
+  inline void LeaveSeedBracket();  // counts a bracket entered at depth > 0
 
   truth HasSeedOverride();
   ulong GetSeedOverride();
@@ -302,7 +328,7 @@ formatting or I/O.
 |---|---|
 | `FeLib/Source/whandler.cpp` | record/replay at every `GetKey`/`ReadKey` return path; `IsHeadless()` guards `SDL_ShowWindow` |
 | `FeLib/Source/graphics.cpp` | `TraceFrame()` in all three `BlitDBToScreen` definitions; `IsHeadless()` guards `SDL_Init`'s video bit, the window, the renderer, the texture, `SetScale`, `SwitchMode` and the blit |
-| `FeLib/Source/femath.cpp` | `CountRand()` in `femath::Rand()` |
+| `FeLib/Source/femath.cpp` | `CountRand()` in `femath::Rand()`; `Enter`/`LeaveSeedBracket()` in `SaveSeed`/`LoadSeed` |
 | `FeLib/Source/rawbit.cpp` | `RecordText()` in `Printf` and `PrintfUnshaded` |
 | `FeLib/Source/sfx.cpp` | `IsHeadless()` declines to open an audio device |
 | `Main/Source/main.cpp` | `ParseArgs`, seed override, `Shutdown`, `--help` text |
@@ -459,6 +485,11 @@ Things that have cost real time here, beyond the flags above.
 - **A value that looks like a pointer is evidence about the chunk's history, not the writer's
   intent** (§6.4b). And a raw pointer is not an identity once the object it named can be freed
   (§9.11).
+- **A player's configuration is an input to the game's random stream.** `game::PosCurrentlyOnScreen`
+  is built from the window size and `DungeonGfxScale`, so an unbracketed `RAND()` behind a visibility
+  test puts the player's zoom into the stream the monsters roll from — four effects were doing it
+  (§6.10). Anything that draws per on-screen square, or returns early when something is off screen,
+  needs a `femath::SaveSeed` bracket; `compare-configs.sh` is the check, and nothing in CI runs it.
 - **Check the deployed bytes, not the deploy command's exit code.** `wrangler` without
   `--branch main` labels the upload `Preview`, prints a URL that serves the new build perfectly, and
   leaves the production site on the previous deployment (§9.10).
@@ -475,6 +506,7 @@ The ones worth knowing about before touching anything:
 | §6.5a | the diagnostics in the trace, and the eight-run rule |
 | §6.6 | why `= default` on a struct that gets memcmp'd or raw-written is a bug |
 | §6.9 | the strict aliasing violation, and why a Heisenbug that evaporates when you take an address is this class's signature |
+| §6.10 | the player's zoom in the game's RNG — and why the code read found the sites that did not matter while the differential test found the ones that did |
 | §9.4 | the twelve places the program left a choice to the compiler, and the technique that found them |
 | §9.7 | why the audio boundary sits below the regex |
 | §9.12 | why the bridge contract test exists, and what the browser suite is replacing |

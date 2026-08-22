@@ -465,6 +465,14 @@ void fluid::imagedata::Animate(blitdata& BlitData, int CurrentFlags) const
   if(!AlphaSum)
     return;
 
+  /* The drip is animation only -- Save() does not write it -- but how many of these run follows how
+     many stained squares are on screen, so unbracketed the zoom level would move the game's stream
+     (docs/port-log.md §6.10). The seed rolls so drips rewound to one state do not fall in
+     lockstep. */
+  static ulong DripSeed = 0;
+  femath::SaveSeed();
+  femath::SetSeed(++DripSeed);
+
   if(!DripTimer)
   {
     DripPos = Picture->RandomizePixel();
@@ -498,6 +506,7 @@ void fluid::imagedata::Animate(blitdata& BlitData, int CurrentFlags) const
       DripTimer = Min<long>(RAND() % (500000 / AlphaSum), 25000);
   }
 
+  femath::LoadSeed();
   --DripTimer;
 }
 

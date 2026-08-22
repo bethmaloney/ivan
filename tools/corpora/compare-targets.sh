@@ -10,7 +10,12 @@
 # The two builds are compared against *each other*, not against the committed
 # goldens. verify-corpora.sh does the golden check and answers a different
 # question ("did this build change?"); this one answers "do these two builds
-# agree?", and both are needed.
+# agree?", and compare-configs.sh asks the third, "does one build agree with
+# itself when the player configured it differently?" (docs/port-log.md §6.10a).
+# All three are needed.
+#
+# Like verify-corpora.sh this replays $HERE/*.rec only, so the recordings under
+# effects/ are not compared across targets -- §6.10b says what that costs.
 #
 # Usage: compare-targets.sh
 # Env:   IVAN_BIN_A  first build   (default build/Main/ivan)

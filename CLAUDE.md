@@ -82,10 +82,15 @@ There is no unit test suite for the game. The oracle is three committed recordin
 traces, text logs and screenshots.
 
 ```bash
-tools/corpora/verify-corpora.sh          # 8 runs each: self-consistency + golden. ~12s
+tools/corpora/verify-corpora.sh          # 8 runs each: self-consistency + golden. ~17s
 tools/corpora/verify-corpora.sh -n 1     # smoke test
-tools/corpora/compare-targets.sh         # native vs WASM, all corpora
+tools/corpora/compare-targets.sh         # native vs WASM, all corpora. ~26s
+tools/corpora/compare-configs.sh         # one build at six DungeonGfxScale values. ~16s
 ```
+
+Three scripts, three questions: *did this build change?*, *do these two builds agree?*, *does one
+build agree with itself when the player configured it differently?* Only the first runs in CI.
+`docs/port-log.md` §6.10a is what a `compare-configs.sh` pass does and does not establish.
 
 **Run `verify-corpora.sh` before and after any change to `Main/`, `FeLib/`, the compiler flags or the
 build.** A change that moves the goldens has changed the game; that may be correct, but it is never
