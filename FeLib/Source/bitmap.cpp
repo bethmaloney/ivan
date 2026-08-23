@@ -2171,6 +2171,9 @@ void bitmap::InitPriorityMap(priority InitialValue)
 
 void bitmap::FillPriority(priority Priority)
 {
+  if(drawlist::InterposeFillPriority(this, Priority))
+    return;
+
   memset(PriorityMap[0], Priority, XSizeTimesYSize);
 }
 

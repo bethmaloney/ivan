@@ -3150,3 +3150,79 @@ every case the corpora reach.
 
 Nothing here is a browser change yet. The list is still replayed by the same C++ bitmap methods into
 the same double buffer; what moved is that a square's memory is now something a page could be handed.
+
+### 10.4 The character composite, and the last read of the double buffer
+
+`humanoid::DrawBodyParts` (`human.cpp:2844`) is the one place the map render reads the screen back. It
+blits the destination's 16x16 region into `igraph::TileBuffer`, clears that tile's priority plane,
+composites the body parts and their equipment over it with the two-field priority test, and copies the
+result back. §10.1 handled it with a read barrier — a blit whose source is the capture target flushes
+the list first — and counted 3,943 of them on autoplay-2000, one per composite. That barrier is the
+coupling phase C cannot carry: a browser renderer will not read its own framebuffer back once per
+character per frame. **After this step the read-barrier count is zero on every corpus**, including the
+two that only run with `HitIndicator` turned up.
+
+**The read stays. The composite is not background-independent, and it is not close.** The question
+§10.1 left open was whether the composed character tile could be cached the way `igraph::AddUser`
+caches a single tile, which would need the composite to be a function of its inputs alone. It is not.
+Instrumented on autoplay-2000, **48,610 priority blits land in `TileBuffer`**; 36,214 of them (74.5%)
+have no alpha map and fall through to `MaskedPriorityBlit`, which never loads the destination, but the
+remaining **12,396 (25.5%) do load it** — 11,806 through `AlphaPriorityBlit`'s own loop
+(`bitmap.cpp:2148`) and 590 through its `AlphaLuminanceBlit` fallback. A tile acquires an alpha map
+from a sub-255 `MaxAlpha`, a translucent material or an outline, so that 25.5% is every outlined
+weapon, every invisible or ghost-copy character and everything made of glass. On top of that the fluid
+drips reach the tile through `AlphaPutPixel`, which reads the pixel it blends onto and is driven by
+per-frame mutable state. Caching would have moved pixels; deferring does not.
+
+**So the composite becomes a group of commands with its own destination — and needs no nesting to do
+it.** `drawlist::composite` is an RAII window that, for as long as it is open, adds the scratch tile to
+the set of destinations the list records. Every command already carries its own `Data.Bitmap`, so the
+group's commands sit in the one flat list in the order they were made: the replay rebuilds the tile and
+consumes it at exactly the point it always did, and the shared buffer is written and read entirely
+inside the replay. The stamp that ends the composite is an ordinary `FastBlit` command whose source is
+the tile, recorded like any other. `bitmap::FillPriority` became the fifteenth recording point, because
+the priority clear is part of the group; its op is appended to the enum rather than inserted, since
+`memorized::Save` writes op numbers to the save file (§10.3).
+
+**The barrier that went away went away by reordering two tests, not by special-casing the site.**
+`Reaches()` now tests the destination first: a write the list carries needs no barrier whatever it
+reads, because the read happens during the replay with everything before it already replayed. Only a
+write that has to run *now* can be out of order. §10.1's note that the source test had to come first
+was true of §10.1's code, where the composite ran immediately; it is the opposite here, and the
+comment moved with it. The window opens only when the stamp would itself be recorded
+(`Into == Target`) and never inside a taken list, which is what leaves
+`game::CharacterEntryDrawer`'s felist-page composite (`game.cpp:6371`) running exactly as before.
+
+**Nothing moved.** All nine golden files are byte-identical on all three corpora — `game.jsonl`,
+which is the gate, but also `frames.jsonl` and `text.log`, and `screen.png` and every level file
+besides. Joining the frame traces on `frame` rather than diffing lines: **2,886 records, 2,886 frames
+in common, 0 hashes moved, `vrng` unmoved.** `compare-targets.sh` reports frames, text and screen
+matching on all three corpora and the level files byte-identical across x86-64 and wasm32. That is
+what an order-preserving deferral should look like: the same commands, against the same destinations,
+in the same order, later.
+
+| corpus | commands | peak list | composites | read barriers | alias barriers |
+|---|---|---|---|---|---|
+| noncombat | 1,205 → 1,259 | 707 → 858 | 6 | 6 → **0** | 0 → 0 |
+| autoplay-200 | 19,724 → 28,801 | 788 → 1,252 | 431 | 431 → **0** | 0 → 5 |
+| autoplay-2000 | 166,347 → 229,297 | 1,505 → 1,783 | 3,943 | 3,943 → **0** | 679 → 983 |
+
+The 62,950 new commands on autoplay-2000 are the composites themselves — 16.0 per composite, of which
+3,943 are the read-backs and 48,610 the priority blits. **The alias barrier count went up, and that is
+the remaining coupling.** A fluid drawn on a body part now leaves a command naming `igraph::FlagBuffer`
+where it used to run at once, and the list it waits in is no longer emptied by a read barrier every
+character; both effects push the same way. All 983 hits are still the one site §10.1 identified,
+`fluid.cpp:200-201` and `:427-428`, where `BlitAndCopyAlpha` writes two planes and therefore cannot be
+recorded at all. Closing that one needs a two-plane op, not another window.
+
+**The hit-effect branch, which no corpus reaches, is byte-identical too.** Driven by hand as §10.1
+drove it — `IVAN_CONF="HitIndicator = 3;"` with `clock()` pinned through an `LD_PRELOAD` shim, since
+`hiteffect.cpp:249-252` draws the effect's direction from `clock()%2` — `game.jsonl`, `frames.jsonl`,
+`text.log` and `screen.png` all match across the change on autoplay-200 and on `effects/beams.rec`, and
+the read-barrier count there goes 411 → 0 and 93 → 0.
+
+**It costs nothing measurable.** Five interleaved A/B replays of autoplay-2000, same machine, same
+run: before 12.07/12.01/12.20/11.79/12.05s, after 12.09/11.59/11.91/12.20/11.73s. The means differ by
+1.0% in the new build's favour and the spread inside either arm is three times that. If there is a
+real effect is the 59,007 alias scans that no longer happen: every write into the scratch tile used to
+walk the pending list looking for itself, and now it is simply recorded.

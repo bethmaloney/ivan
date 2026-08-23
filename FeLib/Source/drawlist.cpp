@@ -14,12 +14,14 @@
 
 bitmap* drawlist::Target = 0;
 std::vector<drawlist::command> drawlist::Commands;
+bitmap* drawlist::Scratch = 0;
 truth drawlist::Taking = false;
 ulong drawlist::Barriers = 0;
 ulong drawlist::Aliases = 0;
 ulong drawlist::Recorded = 0;
 ulong drawlist::Renders = 0;
 ulong drawlist::Peak = 0;
+ulong drawlist::Composites = 0;
 ulong drawlist::Taken = 0;
 ulong drawlist::Sublists = 0;
 const bitmap* (*drawlist::Stabilise)(const bitmap*) = 0;
@@ -93,6 +95,9 @@ void drawlist::Replay(const command& C)
                                  C.Data.Luminance,
                                  static_cast<alpha>(C.Data.CustomData));
     break;
+   case OP_FILL_PRIORITY:
+    C.Data.Bitmap->FillPriority(static_cast<priority>(C.Data.CustomData));
+    break;
   }
 }
 
@@ -116,11 +121,14 @@ void drawlist::Record(op Op, const bitmap* Source, cblitdata& Data)
     Peak = Commands.size();
 }
 
-/* The alias barrier. Linear because the list is short -- 22 commands per map
-   render on autoplay-2000, 753 at its peak -- and because a hit empties it, so
-   the scan that found one is the last long one. Every hit the corpora produce
-   is fluid::Draw blitting into igraph::FlagBuffer, 679 of them, and without
-   this the frame trace moves at line 2,143 (§10.1). */
+/* The alias barrier. Linear because the list is short -- 65 commands per map
+   render on autoplay-2000, 1,783 at its peak -- and because a hit empties it,
+   so the scan that found one is the last long one. Every hit the corpora
+   produce is fluid::Draw blitting into igraph::FlagBuffer, 983 of them, and
+   without this the frame trace moves at line 2,143 (§10.1). Deferring the
+   character composite raised that count from 679: a fluid drawn on a body part
+   now leaves a command naming FlagBuffer where it used to run at once, and the
+   list it waits in is no longer emptied by a read barrier. */
 
 void drawlist::Barrier(const bitmap* Written)
 {
@@ -147,10 +155,11 @@ void drawlist::Barrier(const bitmap* Written)
 }
 
 /* Whether a write is one the list carries, and the two barriers on the way.
-   Order is load bearing. humanoid::DrawBodyParts reads the target into
-   TileBuffer, so the flush below replays the previous character's write-back
-   while TileBuffer still holds that character's pixels; testing the
-   destination first would replay it after this blit had overwritten them.
+   The destination is tested first, and that ordering is what removed the read
+   barrier: humanoid::DrawBodyParts reads the target into the open composite's
+   tile, and a write the list carries needs no barrier whatever it reads,
+   because the read happens during the replay with everything before it already
+   replayed. Only a write that has to run now can be out of order.
 
    A taken list replays into no target and holds no order to protect, so
    neither barrier fires inside one. */
@@ -160,19 +169,17 @@ truth drawlist::Reaches(const bitmap* Source, bitmap* Dest)
   if(Taking)
     return Dest == Target;
 
-  if(Source == Target)
+  if(Dest == Target || Dest == Scratch)
+    return true;
+
+  if(Source == Target || (Scratch && Source == Scratch))
   {
     ++Barriers;
     Flush();
   }
 
-  if(Dest != Target)
-  {
-    Barrier(Dest);
-    return false;
-  }
-
-  return true;
+  Barrier(Dest);
+  return false;
 }
 
 truth drawlist::Intercept(op Op, const bitmap* Source, cblitdata& Data)
@@ -250,6 +257,18 @@ truth drawlist::InterceptClearToColor(bitmap* Dest, col16 Color)
   return true;
 }
 
+truth drawlist::InterceptFillPriority(bitmap* Dest, priority Priority)
+{
+  if(!Reaches(0, Dest))
+    return false;
+
+  blitdata B = DEFAULT_BLITDATA;
+  B.Bitmap = Dest;
+  B.CustomData = Priority;
+  Record(OP_FILL_PRIORITY, 0, B);
+  return true;
+}
+
 truth drawlist::InterceptAlphaPutPixel(bitmap* Dest, int X, int Y, col16 Color,
                                        col24 Luminance, alpha Alpha)
 {
@@ -264,6 +283,22 @@ truth drawlist::InterceptAlphaPutPixel(bitmap* Dest, int X, int Y, col16 Color,
   B.CustomData = Alpha;
   Record(OP_ALPHA_PUT_PIXEL, 0, B);
   return true;
+}
+
+/* Never while Taking: a taken list resolves every source to an identity that
+   outlives the frame, and a shared scratch tile has none. Never when the stamp
+   would not itself be recorded either -- game::CharacterEntryDrawer composites
+   into a felist page, and its parts have to be in the tile before it copies
+   them out. */
+
+drawlist::composite::composite(bitmap* Buffer, const bitmap* Into)
+: Outer(Scratch)
+{
+  if(Active() && !Taking && Into == Target)
+  {
+    Scratch = Buffer;
+    ++Composites;
+  }
 }
 
 drawlist::sublist::sublist(bitmap* Bitmap, const bitmap* (*Stabiliser)(const bitmap*))
