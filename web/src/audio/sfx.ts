@@ -32,26 +32,27 @@ const MaxVoices = 16;
 
 const MaxVolume = 127;
 
-/* And full scale is too loud, which is a property of the files rather than of
-   anything here: 98 of the 155 decodable wavs under Sound/ peak within 1dB of
-   0dBFS, and the ones that fire on every blow are dense as well as hot --
-   blunt3.wav is -9.2dBFS RMS beneath a 0dBFS peak. Sixteen of those can sum
-   here with nothing limiting them.
+/* Unity, and the page no longer disagrees with native about the level.
 
-   The port did not make them loud and this is not a fix for the port. Native
-   scales a chunk by (master * channel * chunk) / 128^2, which for
-   Mix_Volume(channel, lSfxVol) is lSfxVol (SDL_mixer's mixer.c:385), and then
-   by volume/128 per sample (SDL's SDL_mixer.c:84). So native plays a wav at
-   127/128 where this plays it at 127/127: 0.07dB apart, and both at the level
-   the file was mastered at.
+   It used to: the wavs were mastered at full scale -- 100 of the 159 peaked
+   within 1dB of 0dBFS -- so this node took 12dB off everything the effects path
+   played, which was the one place the page deliberately diverged from the
+   reference build (§9.7a). §9.7b moved that 12dB into the files instead, where
+   it also buys the thing a bus gain never could: the five files behind
+   `You.* hit` now play at the same loudness as each other, which they were 18dB
+   from doing. tools/sound/normalize.py holds the targets.
 
-   This is therefore the one place the page deliberately disagrees with the
-   reference build, and it is a trim rather than a curve -- the slider stays
-   linear, as SDL_mixer's is, and one node takes 12dB off everything the
-   effects path plays. It hangs below the shared master rather than on it, so
-   the music that same master carries keeps its own level. */
+   So both builds are back to playing a file at the level it was mastered at,
+   0.07dB apart -- native scales a chunk by (master * channel * chunk) / 128^2,
+   which for Mix_Volume(channel, lSfxVol) is lSfxVol (SDL_mixer's mixer.c:385),
+   then by volume/128 per sample (SDL's SDL_mixer.c:84), so 127/128 against the
+   127/127 here.
 
-const Headroom = 0.25;
+   The node stays. It is what every voice routes through, it hangs below the
+   shared master rather than on it so the music that master also carries is
+   untouched, and it is the one gain worth reaching for by ear. */
+
+const DefaultGain = 1;
 
 const MaxLog = 256;
 
@@ -75,29 +76,30 @@ type Slot = AudioBuffer | Promise<AudioBuffer | null> | null;
 
 let Ctx: AudioContext | null = null;
 let Master: GainNode | null = null;
-let Effects: GainNode | null = null;   /* the trim, and what every voice connects to */
+let Effects: GainNode | null = null;   /* the effects bus, what every voice connects to */
 
 const Buffers = new Map<string, Slot>();
 let Voices = 0;
 const Log: string[] = [];
 const Counts = { played: 0, dropped: 0, failed: 0 };
 
-/* ?sfxgain=0.5 to try another level by ear, ?sfxgain=1 for what native sounds
-   like. Anything that is not a number in 0..1 is ignored rather than argued
-   with, and a bare ?sfxgain= is a typo rather than a request for silence: a
-   query string must not be a way to put a gain of 40 into the graph, or a
-   trailing = a way to lose the sound and have nothing say why. */
+/* ?sfxgain=0.5 to try a quieter bed by ear without a rebuild; the default is
+   now the level the files carry. Anything that is not a number in 0..1 is
+   ignored rather than argued with, and a bare ?sfxgain= is a typo rather than a
+   request for silence: a query string must not be a way to put a gain of 40
+   into the graph, or a trailing = a way to lose the sound and have nothing say
+   why. */
 
 function Trim(): number {
   const Asked = Query.Setting('sfxgain');
 
   if(Asked === null || Asked === '')
-    return Headroom;
+    return DefaultGain;
 
   const Level = Number(Asked);
 
   if(!Number.isFinite(Level) || Level < 0 || Level > 1)
-    return Headroom;
+    return DefaultGain;
 
   return Level;
 }

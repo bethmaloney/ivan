@@ -18,8 +18,10 @@ interface IvanSfx {
   context(): AudioContext | null;
   master(): GainNode | null;
 
-  /* Console API: the effects trim, which is the one gain a listener may want to
-     move by ear. Below the master, so it does not touch the music. */
+  /* Console API: the effects bus, which is the one gain a listener may want to
+     move by ear. Below the master, so it does not touch the music. Unity since
+     §9.7b put the level in the files; stats().trim reports where it actually
+     sits, which is the point of reading it off the node. */
 
   bus(): GainNode | null;
 

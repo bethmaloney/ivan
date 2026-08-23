@@ -175,3 +175,7 @@ it. If you find one that is wrong, correct it in place and say what it was.
   call `iosystem::AlertConfirmMsg` on a failure path is a hazard for the harness.
 - **The crash endpoint is `IVAN_CRASH_ENDPOINT` in the environment**, read by `web/build.mjs`. It was
   `-DWASM_CRASH_ENDPOINT`; nothing in CMake computes a build id or an endpoint any more.
+- **A new sound file must go through `tools/sound/normalize.py`.** Every wav under `Sound/` sits at a
+  loudness its `SoundEffects.cfg` section declares, and nothing scales them afterwards — the page's
+  bus is at unity (§9.7b). A file dropped in at its own level is as wrong as one at the wrong
+  sample rate. `--check` says whether the set is on target; `--dry-run` prints the plan.
