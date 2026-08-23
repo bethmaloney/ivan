@@ -1194,19 +1194,6 @@ void lsquare::ChangeOLTerrainAndUpdateLights(olterrain* NewTerrain)
   }
 }
 
-/* Consecutive calls -- every square of a beam -- would otherwise rewind to the same state and draw
-   the identical effect; the seed brackets in bitmap.cpp reseed for the same reason. */
-
-static ulong VisualEffectSeed(v2 Pos)
-{
-  static int SeedModifier = 1;
-
-  if(++SeedModifier > 0x10)
-    SeedModifier = 1;
-
-  return (Pos.X << 8) + Pos.Y + (SeedModifier << 16);
-}
-
 void lsquare::DrawParticles(long Color, truth DrawHere)
 {
   if(!game::PosCurrentlyOnScreen(GetPos())
@@ -1219,17 +1206,15 @@ void lsquare::DrawParticles(long Color, truth DrawHere)
   if(DrawHere)
     game::DrawEverythingNoBlit();
 
-  /* The gate above makes this 20 draws when the square is visible, 23 with RANDOM_COLOR, and none
-     when it is not, so unbracketed the window size and the zoom level would move the game's random
-     stream (docs/port-log.md §6.10). */
-  femath::SaveSeed();
-  femath::SetSeed(VisualEffectSeed(GetPos()));
+  /* The gate at the top makes this 20 draws when the square is visible, 23 with RANDOM_COLOR, and
+     none when it is not, so on the game's generator the window size and the zoom level would move
+     the stream (docs/port-log.md §6.10). */
 
   if(Color & RANDOM_COLOR)
   {
-    cint Red = RAND() % 190;
-    cint Green = RAND() % 190;
-    cint Blue = RAND() % 190;
+    cint Red = VRAND() % 190;
+    cint Green = VRAND() % 190;
+    cint Blue = VRAND() % 190;
     Color = MakeRGB16(60 + Red, 60 + Green, 60 + Blue);
   }
 
@@ -1237,12 +1222,11 @@ void lsquare::DrawParticles(long Color, truth DrawHere)
 
   for(int c = 0; c < 10; ++c)
   {
-    cint X = RAND() % 14;
-    cint Y = RAND() % 14;
+    cint X = VRAND() % 14;
+    cint Y = VRAND() % 14;
     DOUBLE_BUFFER->PutPixel(Pos + v2(1 + X, 1 + Y), Color);
   }
 
-  femath::LoadSeed();
   Flags |= STRONG_NEW_DRAW_REQUEST; // Clean the pixels from the screen afterwards
 
   if(DrawHere)
@@ -1444,69 +1428,56 @@ void lsquare::AddItem(item* Item)
 
 v2 lsquare::DrawLightning(v2 StartPos, long Color, int Direction, truth DrawHere)
 {
-  /* Bracketed like DrawParticles, restructured so all five exits reach the LoadSeed: four of them
-     draw once and the default not at all, so this count follows the camera too. */
+  /* On the presentation generator for the same reason as DrawParticles: four of these five exits
+     draw once and the default not at all, so the count follows the camera. */
   if(!game::PosCurrentlyOnScreen(GetPos()) || !CanBeSeenByPlayer(true))
-  {
-    femath::SaveSeed();
-    femath::SetSeed(VisualEffectSeed(GetPos()));
-    v2 OffScreenPos;
-
     switch(Direction)
     {
-     case NORTH: OffScreenPos = v2(RAND() & 15, 15); break;
-     case WEST: OffScreenPos = v2(15, RAND() & 15); break;
-     case EAST: OffScreenPos = v2(0, RAND() & 15); break;
-     case SOUTH: OffScreenPos = v2(RAND() & 15, 0); break;
-     default: OffScreenPos = StartPos; break;
+     case NORTH: return v2(VRAND_16, 15);
+     case WEST: return v2(15, VRAND_16);
+     case EAST: return v2(0, VRAND_16);
+     case SOUTH: return v2(VRAND_16, 0);
+     default: return StartPos;
     }
-
-    femath::LoadSeed();
-    return OffScreenPos;
-  }
 
   auto StartTime = globalwindowhandler::GetClock();
   bitmap Empty(TILE_V2, TRANSPARENT_COLOR);
   Empty.ActivateFastFlag();
-  femath::SaveSeed();
-  femath::SetSeed(VisualEffectSeed(GetPos()));
 
   if(Color & RANDOM_COLOR)
   {
-    cint Red = RAND() % 190;
-    cint Green = RAND() % 190;
-    cint Blue = RAND() % 190;
+    cint Red = VRAND() % 190;
+    cint Green = VRAND() % 190;
+    cint Blue = VRAND() % 190;
     Color = MakeRGB16(60 + Red, 60 + Green, 60 + Blue);
   }
 
   if(Direction != YOURSELF)
   {
-    while(!Empty.CreateLightning(StartPos, game::GetMoveVector(Direction), 16, Color));
+    while(!Empty.CreateLightning(StartPos, game::GetMoveVector(Direction), 16, Color, visualrand::FreeStream()));
     v2 EndPos(0, 0);
 
     switch(Direction)
     {
      case NORTHWEST: EndPos = v2(0, 0); break;
-     case NORTH: EndPos = v2(RAND() & 15, 0); StartPos = v2(EndPos.X, 15); break;
+     case NORTH: EndPos = v2(VRAND_16, 0); StartPos = v2(EndPos.X, 15); break;
      case NORTHEAST: EndPos = v2(15, 0); break;
-     case WEST: EndPos = v2(0, RAND() & 15); StartPos = v2(15, EndPos.Y); break;
-     case EAST: EndPos = v2(15, RAND() & 15); StartPos = v2(0, EndPos.Y); break;
+     case WEST: EndPos = v2(0, VRAND_16); StartPos = v2(15, EndPos.Y); break;
+     case EAST: EndPos = v2(15, VRAND_16); StartPos = v2(0, EndPos.Y); break;
      case SOUTHWEST: EndPos = v2(0, 15); break;
-     case SOUTH: EndPos = v2(RAND() & 15, 15); StartPos = v2(EndPos.X, 0); break;
+     case SOUTH: EndPos = v2(VRAND_16, 15); StartPos = v2(EndPos.X, 0); break;
      case SOUTHEAST: EndPos = v2(15, 15); break;
     }
 
-    while(!Empty.CreateLightning(EndPos, -game::GetMoveVector(Direction), NO_LIMIT, Color));
+    while(!Empty.CreateLightning(EndPos, -game::GetMoveVector(Direction), NO_LIMIT, Color, visualrand::FreeStream()));
   }
   else
   {
     static v2 Dir[4] = { v2(0, -1), v2(-1, 0), v2(1, 0), v2(0, 1) };
 
     for(int d = 0; d < 4; ++d)
-      while(!Empty.CreateLightning(StartPos + Dir[d], ZERO_V2, 10, Color));
+      while(!Empty.CreateLightning(StartPos + Dir[d], ZERO_V2, 10, Color, visualrand::FreeStream()));
   }
-
-  femath::LoadSeed();
 
   if(DrawHere)
     game::DrawEverythingNoBlit();

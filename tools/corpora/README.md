@@ -22,8 +22,9 @@ differently?* Only the first is in CI.
 About twenty seconds for all three at the default eight runs — 18.6s wall, 86s
 user, on 22 idle cores. Over half of that is `autoplay-2000`: one run of it
 costs 9.9s against 2.4s and 2.0s for the other two. It was twelve seconds for
-all three while that corpus made 6.3M random draws; §6.10's brackets moved it
-to 10.7M.
+all three while that corpus made 6.3M random draws; §6.10's brackets moved it to
+10.7M and §6.10c's second generator took it back to 10.3M, the difference being
+the draws the brackets used to make and throw away.
 
 ## The corpora
 
@@ -61,7 +62,7 @@ are recorded across docs/port-log.md §6.6a–d as the check values for those fi
 | | noncombat | autoplay-200 | autoplay-2000 |
 |---|---|---|---|
 | trace frames | 365 | 595 | 2,758 |
-| cumulative RNG draws | 1,075,023 | 1,772,440 | 10,714,748 |
+| cumulative RNG draws | 1,074,979 | 1,769,279 | 10,261,035 |
 | game-stream draws (`grng`) | 1,074,979 | 1,769,125 | 10,253,524 |
 | final HP | 37/37 | **36/36** | **202/202** |
 | final turn | 3 | 197 | 1,972 |
@@ -80,6 +81,14 @@ path and neither shorter corpus ever reloads a level, which is the check that
 says the fixes were as narrow as they claimed. Its old values (2,698 frames,
 5,038,226 draws, HP 41/43, turn 1,750) describe a run in which a room read its
 no-monster-generation flag out of freed heap.
+
+All three `cumulative RNG draws` figures moved a fourth time, in the commit that
+gave presentation its own generator (§6.10c) — and *only* that row moved. The
+brackets' draws stopped being made rather than being made and discarded, so
+`grng` did not move a single row and neither did any text log. What did move is
+the frame hashes on the 290 of 596 `autoplay-200` records and 744 of 2,759
+`autoplay-2000` records where a drip or an explosion drew; `noncombat` reaches
+none and its hashes are untouched.
 
 Both auto-play columns moved a third time, in the commit that put
 `femath::SaveSeed` brackets around the random draws of four visual effects
@@ -134,7 +143,7 @@ zoom; its assertion is cross-arm equality rather than equality against a
 committed artifact, and keeping it out of `verify-corpora.sh`'s `*.rec` glob
 keeps it out of the way of the three corpora that do have goldens. It is outside
 `compare-targets.sh`'s glob for the same reason, which is what that decision
-costs: the two `lsquare` brackets are the only ones in §6.10 never compared
+costs: the two `lsquare` sites are the only ones in §6.10 never compared
 native-vs-WASM.
 
 Measured, it reaches `lsquare::DrawParticles` 6 times and `level::DrawExplosion`

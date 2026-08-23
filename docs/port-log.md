@@ -921,6 +921,102 @@ most intricate of the four brackets is covered by no recording in the tree.** Th
 re-record, wishing the lightning wand *last* so the fireball cannot displace the character before
 its zap; `tools/play/play.py` is what wrote it. Re-recording it, not giving it a golden.
 
+#### 6.10c The brackets were a second generator spelled the expensive way
+
+§6.10's four fixes each read: copy 624 words of Mersenne Twister state out, overwrite the state with
+a synthetic seed, draw, copy 624 words back. That is *use a different stream*, implemented by
+time-multiplexing one generator instead of instantiating a second. Saying it that way makes three
+pieces of machinery visible as workarounds rather than as design.
+
+**The synthetic seeds existed only because reseeding was compulsory.** There were three schemes, all
+invented for this and none of them wanted: `++DripSeed` (`fluid.cpp`), `++ExplosionSeed`
+(`level.cpp`) and `(Pos.X << 8) + Pos.Y + (SeedModifier << 16)` (`lsquare.cpp`). `SetSeed` demands an
+argument and a constant would have made every drip fall in lockstep, so each site had to invent a
+rolling key. A stream that simply keeps running needs none of them, and all three are deleted.
+
+**`DrawLightning`'s five-exit restructure existed only to pair the brackets.** It was the one
+structural change in §6.10 and the one flagged there as most intricate; a `SaveSeed` needs a
+`LoadSeed` on every path, so four `return`s became four assignments and a join. Nothing pairs now and
+the `switch` is back to five returns.
+
+**Nesting stops being a hazard that is monitored and becomes one that cannot occur.** `harness.h`
+records that the single `mtb` backup slot cannot express a nested bracket, and `NestedBrackets`
+exists to catch one; the call graph is nesting-shaped, since `DrawParticles` calls
+`game::DrawEverythingNoBlit()` and `Animate` runs inside a full-screen draw. Two generators cannot
+nest. The mechanism survives with **one** caller, and it is not a visual one:
+`character::ActivateRandomState` (`char.cpp:7991`) draws a state for a seeded mushroom
+(`materia.cpp:115-147`) and rewinds so the game's stream does not advance. That is game logic, it
+stays, and `nest`/`depth` stay with it.
+
+The split also renames the question at each site. `femath::Rand` is the game's generator; a shared
+seed reproduces it and saves persist it. `visualrand::Rand` is the presentation's and nothing it
+returns may reach game state. **The test for which one to use is not "is this drawing pixels"** — a
+blood stain is not what anyone pictures as a visual effect, and that is precisely the site the §6.10
+code read walked past. It is *could the number of times this runs depend on anything outside the
+game*, which is what a visibility gate makes true.
+
+**Two presentation disciplines, and they need two generators — which the first attempt got wrong.**
+*Free-running* callers want some randomness and do not care that two runs differ: the drip, the
+explosion mirror, the particles, the wand beams. *Keyed* callers reseed from an object identity
+first, so an item draws the same flames on every frame: `bitmap::CreateFlames`, `CreateFlies`,
+`CreateLightning`, `object::RandomizeSparklePos`. Those four are upstream's original `SaveSeed` users
+and were **never isolation brackets** — the seed is a key, and the borrowed mechanism is what §6.10
+then reused for a different problem.
+
+The first cut gave both disciplines one generator, reasoning that a keyed caller reseeding the shared
+stream is harmless because it reseeds immediately before drawing, so its own output is a pure
+function of its key whatever ran before it. That reasoning is correct and the conclusion is still
+wrong, because it is about *correctness* and the thing it breaks is *testing*: the keyed reseeds land
+on the free-running stream too, so the free-running sites are driven by whatever key happened to be
+set last rather than by the startup seed. Measured with gdb ignore-counts on `autoplay-200`,
+`visualrand::SetSeed` was hit **681 times** against 3,152 draws — about one reseed every five draws.
+The symptom was a `--visual-seed` sweep that changed **nothing**: 0 of 596 frame hashes moved. A
+knob whose whole purpose is to fuzz the isolation property was passing vacuously, which is the same
+failure mode `compare-configs.sh`'s liveness check exists to catch one layer up, found the same way —
+by checking that the arm differed from the reference at all before believing that it agreed.
+
+So `VRAND` and `KRAND` are separate streams. `bitmap::CreateLightning`'s four-argument form is the
+one draw routine both disciplines call — the keyed two-argument form traces an item's crackle with
+it, `lsquare::DrawLightning` traces a wand beam — and it takes the stream as an `mtgen&` rather than
+consulting a "which one is current" flag, so the choice is visible at each call site. Counting moved
+into `mtgen::Draw` for the same reason: a stream handed out by reference has to be counted wherever
+it is drawn from. With the split, `--visual-seed 424242` moves 250 of `autoplay-200`'s 596 frame
+hashes and leaves `grng`, `rng` and `text.log` byte-identical, which is the property stated as a
+measurement rather than as an intention.
+
+Each of the four keyed sites now costs one `visualrand::SetKey` where it used to cost a 624-word
+save, a 624-step reseed and a 624-word restore.
+
+**What the refactor is allowed to move, and what it moved.** The acceptance test is sharper than the
+one §6.10 could offer, and it is available only because §6.10 established the baseline: the
+bracketed draws were already excluded from `grng`, so converting a bracket to a second generator must
+leave `grng` alone. Measured, native, all three corpora: **the `grng` column is byte-identical row
+for row** — not merely equal at the end — and `text.log` is byte-identical too, so no golden text
+moved and the diff is 3,613 trace lines rather than §6.10's 160,000. `rng` drops, which is the
+discarded draws ceasing to exist rather than ceasing to count: 1,772,440 → 1,769,279 on
+`autoplay-200`, 10,714,748 → 10,261,035 on `autoplay-2000`, 1,075,023 → 1,074,979 on `noncombat`.
+The frame hashes move on the 290 of 596 records of `autoplay-200` and 744 of 2,759 of
+`autoplay-2000` where a drip or an explosion drew, and on none of `noncombat`'s 366, which reaches
+no visual effect — the same narrowness check §6.10 used.
+
+`compare-configs.sh` reports the same four numbers as before (`grng` 1,566,177 / 6,612,194 /
+1,074,979 / 1,098,228 at every scale from 1 to 6) and one number fewer: §6.10 recorded
+`autoplay-2000`'s `rng` moving 6,756,002 → 6,756,001 across the scale-4 boundary, its one
+`DrawExplosion` call's discarded draw appearing and disappearing. That is gone. **`rng` is now
+zoom-invariant as well as `grng`**, because the draw is not made on that generator at all rather
+than made and thrown away.
+
+`--visual-seed` is the new knob and it is fixed by default (`0x1AA2`), because the frame hashes and
+the screenshots have to reproduce and `verify-corpora.sh` compares them across eight runs. What it
+is *for* is the arm that cannot exist while presentation and game share a stream: replay a corpus
+repeatedly varying only that seed, and any presentation draw that reaches game state moves `grng`.
+That is
+strictly stronger than `compare-configs.sh` at the leak question, which by construction sees only
+camera-gated sites and is blind to `bodypart::DrawScars` (§6.10a); it is strictly weaker at the other
+question, a game-stream draw on a camera-gated path, which varying the visual seed cannot express.
+Both, then. The arm itself needs the trace split (§6.10d) to have something to compare, so it lands
+with it.
+
 ---
 
 ## 7. Open items, and one closed one

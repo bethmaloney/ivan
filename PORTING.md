@@ -261,6 +261,11 @@ longer corpora were generated.
 --trace    [file]     Write a per-frame JSONL hash trace to file.
 --seed     [number]   Pin the RNG seed. Continuing a saved game ignores this
                       (the seed is stored in the save).
+--visual-seed [n|random]
+                      Seed the presentation generator (§6.10c), which decides
+                      nothing the game keeps. Fixed by default, because frame
+                      hashes and screenshots have to reproduce; "random" is the
+                      arm that asserts nothing leaks from it into grng.
 --shot     [file.png] Write the screen when the run ends, plus a file.txt
                       sidecar holding every string on that screen.
 --shot-dir [dir]      Write every frame that differs from the one before it to
@@ -308,15 +313,19 @@ namespace harness
 
   inline truth IsHeadless();       // read by graphics.cpp, whandler.cpp, sfx.cpp
 
-  inline void CountRand();         // ++RandCount
+  inline void CountRand();         // ++RandCount, the game generator
   inline ulong GetRandCount();
   inline ulong GetGameRandCount(); // the same count, brackets excluded
+
+  inline void CountVisualRand();   // ++VisualRandCount, the presentation one
+  inline ulong GetVisualRandCount();
 
   inline void EnterSeedBracket();  // femath::SaveSeed/LoadSeed only; Enter
   inline void LeaveSeedBracket();  // counts a bracket entered at depth > 0
 
   truth HasSeedOverride();
   ulong GetSeedOverride();
+  ulong GetVisualSeed();           // --visual-seed; always has a value
 }
 ```
 
@@ -328,7 +337,7 @@ formatting or I/O.
 |---|---|
 | `FeLib/Source/whandler.cpp` | record/replay at every `GetKey`/`ReadKey` return path; `IsHeadless()` guards `SDL_ShowWindow` |
 | `FeLib/Source/graphics.cpp` | `TraceFrame()` in all three `BlitDBToScreen` definitions; `IsHeadless()` guards `SDL_Init`'s video bit, the window, the renderer, the texture, `SetScale`, `SwitchMode` and the blit |
-| `FeLib/Source/femath.cpp` | `CountRand()` in `femath::Rand()`; `Enter`/`LeaveSeedBracket()` in `SaveSeed`/`LoadSeed` |
+| `FeLib/Source/femath.cpp` | `CountRand()` in `femath::Rand()`, `CountVisualRand()` in `visualrand::Rand()`; `Enter`/`LeaveSeedBracket()` in `SaveSeed`/`LoadSeed` |
 | `FeLib/Source/rawbit.cpp` | `RecordText()` in `Printf` and `PrintfUnshaded` |
 | `FeLib/Source/sfx.cpp` | `IsHeadless()` declines to open an audio device |
 | `Main/Source/main.cpp` | `ParseArgs`, seed override, `Shutdown`, `--help` text |
@@ -375,10 +384,12 @@ so frame numbers skip.
 specific draw — usually thousands of frames before anything visible changes. Without it you are
 bisecting pixels; with it you get something close to a stack trace.
 
-`grng`, `nest` and `depth` are the draw-attribution fields of §6.5a. `rng` counts *every* MT draw
-including ones inside `femath::SaveSeed`/`LoadSeed` brackets that are later discarded; **`grng` is
-the same count with those excluded, and it is the one to compare first** — it says whether the *game*
-diverged or only its animation. `nest` must stay 0.
+`grng`, `nest` and `depth` are the draw-attribution fields of §6.5a. Both count the **game**
+generator only: presentation draws are `visualrand`'s and reach neither (§6.10c). `rng` counts every
+draw on it including ones inside a `femath::SaveSeed`/`LoadSeed` bracket that are later discarded;
+**`grng` is the same count with those excluded, and it is the one to compare first** — it says
+whether the *game* diverged or only its animation. `nest` must stay 0, and since §6.10c there is one
+bracket left in the tree that could move it (`character::ActivateRandomState`).
 
 ### Screen capture
 
@@ -486,10 +497,17 @@ Things that have cost real time here, beyond the flags above.
   intent** (§6.4b). And a raw pointer is not an identity once the object it named can be freed
   (§9.11).
 - **A player's configuration is an input to the game's random stream.** `game::PosCurrentlyOnScreen`
-  is built from the window size and `DungeonGfxScale`, so an unbracketed `RAND()` behind a visibility
-  test puts the player's zoom into the stream the monsters roll from — four effects were doing it
-  (§6.10). Anything that draws per on-screen square, or returns early when something is off screen,
-  needs a `femath::SaveSeed` bracket; `compare-configs.sh` is the check, and nothing in CI runs it.
+  is built from the window size and `DungeonGfxScale`, so a `RAND()` behind a visibility test puts
+  the player's zoom into the stream the monsters roll from — four effects were doing it (§6.10).
+  Anything that draws per on-screen square, or returns early when something is off screen, belongs on
+  `VRAND` (§6.10c); `compare-configs.sh` is the check, and nothing in CI runs it. **The test is not
+  "is this drawing pixels"** — a blood stain is not what anyone pictures as a visual effect and is
+  the site the §6.10 code read walked past. It is *could the number of times this runs depend on
+  anything outside the game*.
+- **A save/restore bracket around a draw is a second generator spelled the expensive way** (§6.10c).
+  If the reason for a bracket is "this must not advance the shared stream", the honest shape is a
+  separate stream; a bracket is right only when the *same* stream must be rewound, which in this tree
+  is one caller.
 - **Check the deployed bytes, not the deploy command's exit code.** `wrangler` without
   `--branch main` labels the upload `Preview`, prints a URL that serves the new build perfectly, and
   leaves the production site on the previous deployment (§9.10).
@@ -507,6 +525,7 @@ The ones worth knowing about before touching anything:
 | §6.6 | why `= default` on a struct that gets memcmp'd or raw-written is a bug |
 | §6.9 | the strict aliasing violation, and why a Heisenbug that evaporates when you take an address is this class's signature |
 | §6.10 | the player's zoom in the game's RNG — and why the code read found the sites that did not matter while the differential test found the ones that did |
+| §6.10c | the two generators, and why the brackets that preceded them were the same idea at three times the cost |
 | §9.4 | the twelve places the program left a choice to the compiler, and the technique that found them |
 | §9.7 | why the audio boundary sits below the regex |
 | §9.12 | why the bridge contract test exists, and what the browser suite is replacing |

@@ -113,6 +113,7 @@ int main(int argc, char** argv)
     std::cout << "--replay [file] Play back a recording instead of reading real input. " << std::endl;
     std::cout << "--trace [file] Write a per frame JSONL hash trace to file. " << std::endl;
     std::cout << "--seed [number] Pin the random number seed. Continuing a saved game ignores this, as the seed is stored in the save. " << std::endl;
+    std::cout << "--visual-seed [number|random] Seed the presentation generator, which decides no game state. Fixed by default so frames reproduce; 'random' is the arm that checks nothing leaks from it. " << std::endl;
     std::cout << "--shot [file.png] Write the screen to a PNG when the run ends, plus a .txt sidecar holding every string on it. " << std::endl;
     std::cout << "--shot-dir [dir] Write every frame that differs from the one before it to dir/frame-NNNNNN.png. Uncompressed, about 1.4MB each and several hundred frames per session. " << std::endl;
     std::cout << "--text [file] Log every string the game draws, in draw order, one line per string. " << std::endl;
@@ -148,6 +149,12 @@ int main(int argc, char** argv)
      too or no two runs agree. */
 
   NameGen::SetSeed(Seed);
+
+  /* Deliberately not Seed. The presentation generator is a separate stream and
+     seeding it from the game's would put the game's seed back in front of every
+     visual draw, which is half of what docs/port-log.md §6.10 was about. */
+
+  visualrand::SetSeed(harness::GetVisualSeed());
 
   game::InitGlobalValueMap();
   scriptsystem::Initialize();

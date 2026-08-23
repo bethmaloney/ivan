@@ -465,13 +465,9 @@ void fluid::imagedata::Animate(blitdata& BlitData, int CurrentFlags) const
   if(!AlphaSum)
     return;
 
-  /* The drip is animation only -- Save() does not write it -- but how many of these run follows how
-     many stained squares are on screen, so unbracketed the zoom level would move the game's stream
-     (docs/port-log.md §6.10). The seed rolls so drips rewound to one state do not fall in
-     lockstep. */
-  static ulong DripSeed = 0;
-  femath::SaveSeed();
-  femath::SetSeed(++DripSeed);
+  /* Presentation, and the one site a code read walked past twice: a stain does not look like a
+     visual effect, but one of these runs per on-screen stained square, so on the game's generator
+     the player's zoom would pick the next monster (docs/port-log.md §6.10). */
 
   if(!DripTimer)
   {
@@ -503,10 +499,9 @@ void fluid::imagedata::Animate(blitdata& BlitData, int CurrentFlags) const
       BlitData.Bitmap->AlphaPutPixel(TrueDripPos + BlitData.Dest, DripColor, BlitData.Luminance, DripAlpha);
     }
     else
-      DripTimer = Min<long>(RAND() % (500000 / AlphaSum), 25000);
+      DripTimer = Min<long>(VRAND() % (500000 / AlphaSum), 25000);
   }
 
-  femath::LoadSeed();
   --DripTimer;
 }
 

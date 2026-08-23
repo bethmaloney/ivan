@@ -17,6 +17,7 @@
 #include "SDL.h"
 
 class bitmap;
+class mtgen;
 class rawbitmap;
 class outputfile;
 class inputfile;
@@ -116,7 +117,7 @@ class bitmap
   void CreateSparkle(v2, int);
   void CreateFlies(ulong, int, int);
   void CreateLightning(ulong, col16);
-  truth CreateLightning(v2, v2, int, col16);
+  truth CreateLightning(v2, v2, int, col16, mtgen&);
   packcol16** GetImage() const { return Image; }
   packalpha** GetAlphaMap() const { return AlphaMap; }
   static truth PixelVectorHandler(long, long);

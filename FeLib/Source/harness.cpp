@@ -40,6 +40,7 @@ truth harness::CapturingText = false;
 truth harness::Headless = false;
 ulong harness::RandCount = 0;
 ulong harness::GameRandCount = 0;
+ulong harness::VisualRandCount = 0;
 int harness::SeedDepth = 0;
 ulong harness::NestedBrackets = 0;
 
@@ -72,6 +73,12 @@ static ulong TraceIndex = 0;
 static ulong SeedOverride = 0;
 static truth SeedOverrideSet = false;
 static truth SeedFromArg = false;
+
+/* The presentation generator's seed (visualrand, femath.h). Fixed by default,
+   because the frame hashes and the screenshots have to reproduce; --visual-seed
+   random is the fuzz arm, which asserts that varying it moves no game state. */
+
+static ulong VisualSeed = 0x1AA2;
 
 static truth MouseWarningGiven = false;
 
@@ -389,6 +396,24 @@ void harness::ParseArgs(int argc, char** argv)
       SeedOverride = Seed;
       SeedOverrideSet = true;
       SeedFromArg = true;
+    }
+    else if(Arg == "--visual-seed")
+    {
+      cchar* Value = NextArg(argc, argv, c);
+
+      if(festring(Value) == "random")
+        VisualSeed = ulong(time(0)) ^ (ulong(clock()) << 16);
+      else
+      {
+        char* End;
+        culong Seed = strtoul(Value, &End, 10);
+
+        if(!*Value || *End)
+          Fail(festring("--visual-seed wants a decimal number or \"random\","
+                        " got \"") << Value << '"');
+
+        VisualSeed = Seed;
+      }
     }
   }
 
@@ -1172,3 +1197,4 @@ void harness::TraceFrame()
 
 truth harness::HasSeedOverride() { return SeedOverrideSet; }
 ulong harness::GetSeedOverride() { return SeedOverride; }
+ulong harness::GetVisualSeed() { return VisualSeed; }

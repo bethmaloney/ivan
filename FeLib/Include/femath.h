@@ -45,6 +45,20 @@
  * &&, || and ?: sequence their operands by definition.
  */
 
+/*
+ * Two generators, and which one a draw lands on is a correctness question, not
+ * a style one. RAND is the game's: the seed reproduces it, saves persist it and
+ * anything it decides is shared by two players who typed the same seed. VRAND
+ * is the presentation's, and nothing it returns may reach game state, a save
+ * file or the game trace (docs/port-log.md §6.10c).
+ *
+ * The rule for choosing is not "is this drawing pixels" - fluid::imagedata's
+ * blood drip walked past that reading twice. It is: could the number of times
+ * this runs depend on anything outside the game? A draw behind a visibility
+ * test depends on the camera, which depends on the player's window size and
+ * zoom, and that is §6.10 - the defect this split exists to make unwritable.
+ */
+
 #define RAND femath::Rand
 #define RAND_N femath::RandN
 #define RAND_2 (femath::Rand() & 1)
@@ -57,9 +71,39 @@
 #define RAND_256 (femath::Rand() & 255)
 #define RAND_GOOD femath::RandGood
 
+#define VRAND visualrand::Rand
+#define VRAND_16 (visualrand::Rand() & 15)
+#define KRAND visualrand::KeyedRand
+#define KRAND_16 (visualrand::KeyedRand() & 15)
+#define KRAND_32 (visualrand::KeyedRand() & 31)
+
 class outputfile;
 class inputfile;
 template <class type> struct fearray;
+
+/* One Mersenne Twister. Two instances exist and the difference between them is
+   the whole of docs/port-log.md §6.10: femath's decides the game and is what a
+   shared seed reproduces, visualrand's decides nothing that outlives the frame
+   it is drawn on. */
+
+class mtgen
+{
+ public:
+  explicit mtgen(ulong* Counter = 0) : Counter(Counter) {}
+  void SetSeed(ulong);
+  long Draw();
+
+ private:
+  /* Counted here rather than in the callers so that a stream handed out by
+     reference - bitmap::CreateLightning takes one - is still counted. Null on
+     the game's, whose counter also has to decide grng; femath::Rand does it. */
+
+  ulong* Counter;
+  ulong mt[624];
+  long mti = 625; /* > 624, so Draw() seeds itself rather than read garbage */
+
+  friend class femath; /* SaveSeed needs the raw state; see the note there */
+};
 
 class femath
 {
@@ -94,10 +138,55 @@ class femath
   }
 
  protected:
-  static ulong mt[];
-  static long mti;
+  static mtgen Game;
   static ulong mtb[];
   static long mtib;
+};
+
+/*
+ * The presentation streams. Two of them, because they answer to different
+ * things:
+ *
+ *   VRAND  free-running. The caller wants "some" randomness and does not care
+ *          that two runs differ - fluid drips, explosion mirroring, particles,
+ *          the wand beams. Seeded once from --visual-seed and never again.
+ *   KRAND  keyed. The caller reseeds from an object identity first, so an item
+ *          draws the same flames on every frame - bitmap::CreateFlames,
+ *          CreateFlies, CreateLightning, object::RandomizeSparklePos. These are
+ *          upstream's original SaveSeed users and were never isolation
+ *          brackets; the seed is a key.
+ *
+ * Sharing one generator between the two was tried and is wrong, for a reason
+ * that is about testing rather than correctness: a keyed site reseeds
+ * immediately before drawing, so its own output is a pure function of its key
+ * whatever ran before it, but it lands on the free-running stream as well.
+ * Measured on autoplay-200, 681 keyed reseeds against 3,152 draws - which left
+ * --visual-seed reaching nothing and the fuzz arm passing vacuously
+ * (docs/port-log.md §6.10c).
+ *
+ * There is no SaveSeed here and there is not meant to be. Restoring state is
+ * what the game's generator needs so a discarded draw stays discarded; these
+ * have nothing to discard, and the absence of the mechanism is what makes the
+ * brackets' nesting hazard (harness.h) unreachable from presentation.
+ */
+
+class visualrand
+{
+ public:
+  static long Rand();
+  static void SetSeed(ulong);
+  static long KeyedRand();
+  static void SetKey(ulong);
+
+  /* For the one draw routine both disciplines call, bitmap::CreateLightning's
+     four argument form: its caller says which stream it is tracing on. */
+
+  static mtgen& FreeStream();
+  static mtgen& KeyedStream();
+
+ private:
+  static mtgen Free;
+  static mtgen Keyed;
 };
 
 struct interval

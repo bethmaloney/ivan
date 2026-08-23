@@ -49,6 +49,12 @@ namespace harness
   extern int SeedDepth;
   extern ulong NestedBrackets;
 
+  /* The presentation generator's draws (visualrand, femath.h). Counted apart
+     because they are not evidence of anything the game did: two runs that
+     differ here and agree on GameRandCount are two runs of the same game. */
+
+  extern ulong VisualRandCount;
+
   void ParseArgs(int, char**);
   void Shutdown();
 
@@ -104,11 +110,14 @@ namespace harness
   /* Rand() is called millions of times per level generation, so this counts
      unconditionally rather than branching. It counts every MT draw, including
      the ones made inside femath::SaveSeed/LoadSeed brackets that are later
-     discarded - see the comment in harness.cpp. */
+     discarded - see the comment in harness.cpp. It does not see the
+     presentation generator at all; CountVisualRand does. */
 
   inline void CountRand() { ++RandCount; if(!SeedDepth) ++GameRandCount; }
+  inline void CountVisualRand() { ++VisualRandCount; }
   inline ulong GetRandCount() { return RandCount; }
   inline ulong GetGameRandCount() { return GameRandCount; }
+  inline ulong GetVisualRandCount() { return VisualRandCount; }
 
   /* Called from femath::SaveSeed/LoadSeed only. */
 
@@ -117,6 +126,11 @@ namespace harness
 
   truth HasSeedOverride();
   ulong GetSeedOverride();
+
+  /* --visual-seed. Unlike the game seed this always has a value, because a run
+     that pins nothing else still has to reproduce its own frames. */
+
+  ulong GetVisualSeed();
 }
 
 #endif
