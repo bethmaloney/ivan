@@ -29,7 +29,9 @@ game trace survive graphics crossing into `web/`, and what lets `fuzz-visual.sh`
 vary the picture while asserting the game held still.
 
 About twenty seconds for all three at the default eight runs — 18.6s wall, 86s
-user, on 22 idle cores. `fuzz-visual.sh` is 24s for four corpora at six seeds. Over half of that is `autoplay-2000`: one run of it
+user, on 22 idle cores. *Those figures predate docs/port-log.md §7.12's
+re-recording, which shortened `autoplay-2000` from 49,151 game steps to 36,710;
+re-measured on a 4-core container the three take 24s.* `fuzz-visual.sh` is 24s for four corpora at six seeds. Over half of that is `autoplay-2000`: one run of it
 costs 9.9s against 2.4s and 2.0s for the other two. It was twelve seconds for
 all three while that corpus made 6.3M random draws; §6.10's brackets moved it to
 10.7M and §6.10c's second generator took it back to 10.3M, the difference being
@@ -44,11 +46,14 @@ two intro screens. Each is a prefix of the next.
 | | keys | lands on | exercises |
 |---|---|---|---|
 | `noncombat.rec` | 7 | UT lvl 1, turn 3, HP 37/37 | world gen, character creation, level gen, descent |
-| `autoplay-200.rec` | 210 | UT lvl 1, turn 197, HP 36/36 | the above plus combat, item use, equipment, hunger, death |
-| `autoplay-2000.rec` | 2010 | UT lvl 2, turn 1972, HP 202/202 | the above plus a **second dungeon level** — level 2 generation, both directions of the stairs, and twenty-one turn-boundary autosaves |
+| `autoplay-200.rec` | 210 | UT lvl 1, turn 192, HP 35/35 | the above plus combat, item use, equipment, hunger, death |
+| `autoplay-2000.rec` | 2010 | UT lvl 2, turn 1703, HP 28/36 | the above plus a **second dungeon level** — level 2 generation, both directions of the stairs, and the turn-boundary autosaves |
 
-`down left >` is **specific to seed 999**: it walks onto the cave mouth one tile
-west of the start and enters. Another seed generates another island.
+`left up >` is **specific to seed 999**: the start tile is New Attnam itself, and
+the cave mouth is one north of the tile west of it. Another seed generates another
+island — and so does the same seed after any change that moves the game's stream
+before world generation, which is why all three were re-recorded for
+docs/port-log.md §7.12. It was `down left >` until then.
 
 `autoplay-200.rec` extends `noncombat.rec` with `` ` `` `y` `~` (wizard mode,
 confirm, auto-play mode 1) and then 200 `.` presses, one AI action each. Stay in
@@ -70,12 +75,12 @@ are recorded across docs/port-log.md §6.6a–d as the check values for those fi
 
 | | noncombat | autoplay-200 | autoplay-2000 |
 |---|---|---|---|
-| game steps (`game.jsonl`) | 311 | 5,950 | 49,151 |
-| trace frames (`frames.jsonl`) | 365 | 595 | 2,741 |
-| cumulative RNG draws | 1,074,979 | 1,769,279 | 10,261,035 |
-| game-stream draws (`grng`) | 1,074,979 | 1,769,125 | 10,253,524 |
-| final HP | 37/37 | **36/36** | **202/202** |
-| final turn | 3 | 197 | 1,972 |
+| game steps (`game.jsonl`) | 426 | 5,497 | 36,710 |
+| trace frames (`frames.jsonl`) | 483 | 762 | 2,886 |
+| cumulative RNG draws | 43,422 | 774,406 | 4,757,433 |
+| game-stream draws (`grng`) | 43,422 | 774,406 | 4,757,244 |
+| final HP | 37/37 | **35/35** | **28/36** |
+| final turn | 3 | 192 | 1,703 |
 
 These moved once, deliberately, in the commit that made the game compiler
 independent (docs/port-log.md §9.4). The key sequences did not change and neither did

@@ -71,8 +71,8 @@ coverage they are about to lose, and why `web/e2e/` exists.
 | | |
 |---|---|
 | Each corpus, 8 isolated runs — trace, text log, PNG | **1 distinct outcome**, matching the committed golden |
-| The longest corpus, 16 concurrent runs on a saturated machine | **1 distinct outcome**, byte-identical to the unloaded run — 1,972 turns, 2 deaths, 10.7M RNG draws |
-| Each corpus at ten display configs (six zooms, four windows), one build | **the same game-stream position (`grng`)** in every arm, nothing pinned (§6.10a) |
+| The longest corpus, 16 concurrent runs on a saturated machine | **1 distinct outcome**, byte-identical to the unloaded run — 1,703 turns, 28 distinct death messages, 4.8M RNG draws (re-measured on the §7.12 re-recording, 16 runs on 4 cores) |
+| Each corpus at thirteen display configs (six zooms, seven windows to 2560x1440), one build | **the same game-stream position (`grng`)** in every arm, nothing pinned (§6.10a) |
 | Each corpus at six `--visual-seed` values, one build | **a byte-identical game trace**, and a frame trace that differs — the liveness half (§6.10d) |
 | Native vs WASM, all three corpora | trace, text log, screenshot, sidecar, `.wm` and every level file **byte-identical** |
 | Native `--headless` vs native windowed | **byte-identical** on every artifact |
@@ -105,8 +105,8 @@ generate. Native-vs-WASM is unblocked *for the reached paths* and unproven elsew
   which is what makes the comparisons mean anything and is also why the player's `DungeonGfxScale`
   sat in the game's random stream unnoticed for the whole port (§6.10). `compare-configs.sh` varies
   both axes on four recordings and compares one integer each; §6.10a is the list of what it still
-  cannot see, starting with the fact that its window axis stops at width 1024, where the menu
-  backdrop starts deciding the character you roll (§7.12).
+  cannot see. Its window axis used to stop at width 1024, where the backdrop started deciding the
+  character you roll; §7.12 fixed that and the sweep now runs to 2560x1440.
 
 ## Builds
 
@@ -542,10 +542,11 @@ Things that have cost real time here, beyond the flags above.
 - **And a function that draws nothing at all can still read the camera into game state.**
   `level::RevealDistantLightsToPlayer` iterated the on-screen rectangle to decide which map squares
   the player learns, so no `VRAND` and no bracket applied — the fix was to bound it by the game's own
-  quantity, the player's `PERCEPTION` (§6.10e). The worst instance is not in the game loop at all:
-  the menu's fractal backdrop is sized from `WindowWidth` and spends ~1M unbracketed game draws, so
-  the window width decides the character you roll (§7.12). **Grep for `GetScreenXSize`, `GetCamera`
-  and `RES` outside draw code, not just for `RAND` inside it.**
+  quantity, the player's `PERCEPTION` (§6.10e). The worst instance was not in the game loop at all:
+  the fractal backdrop was sized from `WindowWidth` and spent ~1M unbracketed game draws, so the
+  window width decided the character you rolled, and it landed before the player existed (§7.12).
+  **Grep for `GetScreenXSize`, `GetCamera` and `RES` outside draw code, not just for `RAND` inside
+  it.**
 - **A save/restore bracket around a draw is a second generator spelled the expensive way** (§6.10c).
   If the reason for a bracket is "this must not advance the shared stream", the honest shape is a
   separate stream; a bracket is right only when the *same* stream must be rewound, which in this tree

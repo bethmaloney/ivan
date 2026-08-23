@@ -4,8 +4,8 @@ K 1 0 0 13	# enter
 K 2 0 0 13	# enter
 K 3 0 0 13	# enter
 K 4 0 0 13	# enter
-K 5 0 0 336	# down
-K 6 0 0 331	# left
+K 5 0 0 331	# left
+K 6 0 0 328	# up
 K 7 0 0 62	# '>'
 K 8 0 0 96	# '`'
 K 9 0 0 121	# 'y'

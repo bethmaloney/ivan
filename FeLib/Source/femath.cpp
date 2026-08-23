@@ -397,7 +397,8 @@ long femath::SumArray(const fearray<long>& Vector)
 
 void femath::GenerateFractalMap(int** Map, int Side,
                                 int StartStep,
-                                int Randomness)
+                                int Randomness,
+                                long (*Draw)())
 {
   cint Limit = Side - 1;
   Map[0][0] = 0;
@@ -418,7 +419,7 @@ void femath::GenerateFractalMap(int** Map, int Side,
                       + Map[x - HalfStep][y + HalfStep]
                       + Map[x + HalfStep][y - HalfStep]
                       + Map[x + HalfStep][y + HalfStep])
-                     >> 2) - Randomness + RAND() % RandMod;
+                     >> 2) - Randomness + Draw() % RandMod;
 
     for(x = HalfStep; x < Side; x += Step)
       for(y = 0; y < Side; y += Step)
@@ -443,7 +444,7 @@ void femath::GenerateFractalMap(int** Map, int Side,
         else
           HeightSum /= Neighbours;
 
-        Map[x][y] = HeightSum - Randomness + RAND() % RandMod;
+        Map[x][y] = HeightSum - Randomness + Draw() % RandMod;
       }
 
     for(x = 0; x < Side; x += Step)
@@ -469,7 +470,7 @@ void femath::GenerateFractalMap(int** Map, int Side,
         else
           HeightSum /= Neighbours;
 
-        Map[x][y] = HeightSum - Randomness + RAND() % RandMod;
+        Map[x][y] = HeightSum - Randomness + Draw() % RandMod;
       }
   }
 }

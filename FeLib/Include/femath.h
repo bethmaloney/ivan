@@ -115,7 +115,14 @@ class femath
   static void LoadSeed();
   static long SumArray(const fearray<long>&);
   static int LoopRoll(int, int);
-  static void GenerateFractalMap(int**, int, int, int);
+  /* The generator is a parameter because this is a general utility with a name
+     that invites reuse for a game map, and the choice is the correctness
+     question the note above describes: its one caller today is the backdrop and
+     passes visualrand::Rand. A caller whose result the game keeps must pass
+     femath::Rand. Side has to be 2^n + 1 or the subdivision leaves whole rows
+     and columns unwritten (docs/port-log.md §7.12). */
+
+  static void GenerateFractalMap(int**, int, int, int, long (*)());
 
   /* Use this rather than std::random_shuffle for anything the game depends on.
      Its two argument form draws from std::rand, which is a second generator:

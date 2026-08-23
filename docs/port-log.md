@@ -846,14 +846,15 @@ does **not** establish, in the order a future reader is likely to need it:
   effect. It is bounded by `2*PERCEPTION` now and the pin is gone; §6.10e is the fix, the before and
   after numbers, and the proof that it takes nothing away from the player. **The claim is "zoom and
   window are preferences about pixels" again, without a caveat naming an option.**
-- **Its window axis stops at width 1024, and not for a reason about the camera.**
+- **Its window axis stopped at width 1024, and not for a reason about the camera.**
   `WindowWidth`/`WindowHeight` are ordinary player options (`iconf.cpp:102-115`), defaulting to
   800x600 with minima of 640x480 and no upper bound, and the sweep now varies them — which is the
   only way to reach `game::GetMaxScreenXSize()` (`game.cpp:268`), the window with no scale in it,
   read by `message.cpp:236`, `char.cpp:6311-6315`, `command.cpp:1975` and `iconf.cpp:623`. Above
-  width 1024 the *backdrop* changes the game (§7.12), so an arm there would fail for a reason this
-  script is not asking about. A player at 1280 or 1920 is therefore still unswept, and closing that
-  means fixing §7.12 first, not widening `-w`.
+  width 1024 the *backdrop* changed the game (§7.12), so an arm there failed for a reason this script
+  is not asking about, and the validation rejected one. §7.12 is fixed and the ceiling is gone;
+  1280x720, 1920x1080 and 2560x1440 are in the default set, the last because a base that is not a
+  power of two was a second defect at exactly that width.
 - **It cannot see a site the corpora never reach.** That is not hypothetical here: the two `lsquare`
   sites are reached by no committed corpus, which is why `effects/beams.rec` had to be written at
   all, and `DrawExplosion` was detected by one recording out of four.
@@ -1073,8 +1074,10 @@ ever been created is something no draw count can tell you and something that div
 runs part company. Turn, tick, dungeon/level, position and HP are the rest, all plain member reads.
 
 **A second sampler, for a coverage hole the split opened.** `game::Run` does not start until the
-menus, character creation and the first level generation are done — 1,067,066 of `noncombat`'s
-1,074,979 draws, 87% of the run, in a straight line with no natural sample point. The old trace
+menus, character creation and the first level generation are done — at the time of writing 1,067,066
+of `noncombat`'s 1,074,979 draws, 99.3% of the run, in a straight line with no natural sample point.
+(That said 87%, which those two numbers do not give; corrected here. §7.12 has since taken the
+backdrop's million draws off this generator, so the phase is now 88 draws of 43,422.) The old trace
 localised divergence there only because blits were happening throughout it (the busy animation). So
 `TraceFrame` samples the game trace too. It cannot make the game trace depend on the screen, because
 a record is emitted only when the game's own fields moved and an extra sample of an unchanged game
@@ -1158,7 +1161,7 @@ rand count on the first key after world generation is 1,067,066 against 4,215,45
 AStr 11 / Will 10 / Cha 10 / Mana 10 / Gold 50 to AStr 10 / Will 9 / Cha 11 / Mana 11 / Gold 54, and
 the committed recording desynchronises: it ends at turn 1 instead of turn 197. **The player's window
 width decides the character they roll**, height never enters it, and the threshold is exactly the
-1024 in that line. That is §7.12, and it is why the new window axis stops at 1024.
+1024 in that line. That is §7.12, since fixed; it is why the window axis stopped at 1024 until it was.
 
 **What moved.** At the shipped 800x600 almost nothing: `game.jsonl` is unchanged on all three golden
 corpora, and the only golden that moved is **one frame hash** in `autoplay-2000.frames.jsonl`, frame
@@ -1401,12 +1404,14 @@ it measured rather than suspected:
    `level::DrawExplosion` 1, `lsquare::DrawLightning` 0, unchanged.
 2. **Give each sweep arm §6.5a's eight runs.** Every arm is still a single run; the eight-run rule
    exists because a pair agreeing is not evidence, and this script never applies it.
-3. **The window axis cannot pass width 1024 until §7.12 is fixed**, so a player at 1280 or 1920 is
-   swept by nothing.
+3. ~~**The window axis cannot pass width 1024 until §7.12 is fixed**~~ — done. The sweep runs
+   1280x720, 1920x1080 and 2560x1440, and `grng` agrees in all thirteen arms.
 4. **Put `compare-configs.sh` in CI.** `deploy.yml` replays the corpora and nothing else, so a
    reintroduced camera-gated draw shows up only as moved goldens — which a reader is entitled to
-   explain and `--update` away. It is ~50s on 22 idle cores at 10 arms, against 16.4s at the 6 it
-   had before, so the cost is no longer negligible against `corpora`'s own runtime.
+   explain and `--update` away. It was ~50s on 22 idle cores at 10 arms, against 16.4s at the 6 it
+   had before, so the cost is no longer negligible against `corpora`'s own runtime. §7.12's three wide
+   arms make it 13: 92s on the 4 cores of a Claude Code on the web container, where `verify-corpora.sh`
+   is 24s and `fuzz-visual.sh` 22s, so the ratio against `corpora` is roughly what it was.
 
 ---
 
@@ -1419,30 +1424,110 @@ that is not a blit: `level::Generate`'s per-room loop is the obvious candidate, 
 is enough is that a deliberate divergence planted in generation still localises to a few thousand
 draws rather than to "before step 0".
 
-### 7.12 The menu backdrop puts the window width into the character you roll — issue #19
+### 7.12 The backdrop put the window width into the character you roll — issue #19, fixed
 
-`igraph::CreateBackGround` (`igraph.cpp:589`) rounds `ivanconfig::GetStartingWindowWidth()` up to the
-next multiple of 1024 (`:597`) and runs `femath::GenerateFractalMap` over `Side x Side` cells, `Side`
-being that multiple plus one. The three `RAND()` sites in that diamond-square (`femath.cpp:421`,
-`:446`, `:472`) are on the **game** generator and bracketed by nothing, at about one draw per cell —
-so the backdrop alone costs ~1025² draws at any width up to 1024, which is `noncombat`'s
-1,067,066-draw pre-`game::Run` phase almost exactly (§6.10d), and ~2049² above it.
+`igraph::CreateBackGround` (`igraph.cpp:589`) rounded `ivanconfig::GetStartingWindowWidth()` up to the
+next multiple of 1024 and ran `femath::GenerateFractalMap` over `Side x Side` cells, `Side` being that
+multiple plus one. The three `RAND()` sites in that diamond-square were on the **game** generator and
+bracketed by nothing, at about one draw per cell — so the backdrop alone cost 1,050,621 draws at any
+width up to 1024, and ~2049² above it.
 
 Measured on `autoplay-200`, seed 999, width 1024 against 1040: the game rand count on the first key
-after world generation is 1,067,066 against 4,215,455 — a jump of 3,148,389 against the 3,147,776
-cells `2049² - 1025²` predicts. The rolled character goes from AStr 11 / Will 10 / Cha 10 / Mana 10 /
-Gold 50 to AStr 10 / Will 9 / Cha 11 / Mana 11 / Gold 54, and the committed recording desynchronises:
-it ends at turn 1 in the wilderness instead of turn 197 on dungeon level 4. Height never enters it;
-the threshold is exactly the literal `1024` in `igraph.cpp:597`, and every width from 640 to 1024
-rolls the same character.
+after world generation was 1,067,066 against 4,215,455 — a jump of 3,148,389 against the 3,147,776
+cells `2049² - 1025²` predicts. The rolled character went from AStr 11 / Will 10 / Cha 10 / Mana 10 /
+Gold 50 to AStr 10 / Will 9 / Cha 11 / Mana 11 / Gold 54. Height never entered it; the threshold was
+exactly the literal `1024`, and every width from 640 to 1024 rolled the same character.
 
-This is the same family as §6.10 and §6.10e — presentation deciding game state — but it is the worst
-instance found so far, because it lands before the player exists and because the quantity it moves is
-1,050,625 draws rather than a handful. Unlike §6.10 it *is* a `SaveSeed` candidate: the backdrop is
-pure presentation and nothing it computes reaches the game, so bracketing `GenerateFractalMap` takes
-the whole of it off the game generator. That would move every golden by construction, which is why it
-is filed here rather than folded into §6.10e. It also blocks `compare-configs.sh`'s window axis above
-1024 (§6.10a) and any containment experiment that needs a whole level on screen (§6.10e).
+Same family as §6.10 and §6.10e — presentation deciding game state — and the worst instance found,
+because it landed before the player existed and because the quantity it moved was a million draws
+rather than a handful. Unlike §6.10 the backdrop is pure presentation and nothing it computes reaches
+the game, so the whole of it came off the game generator rather than needing a bracket.
+
+**It is not the menu backdrop.** `BackGround` is only ever allocated inside `CreateBackGround`
+(`igraph.cpp:596`), and all five callers are in-game: `game.cpp:820` on a new game, `:3616`/`:3622` on
+load, `:4980` on every level entry and `:5085` on returning to the world map. At the main menu the
+bitmap does not exist, which is why `clearToBackgroundAfterChangeInterface` (`iconf.cpp:619`) guards
+its blit on `game::IsRunning()` — `BlitBackGround` has no null check. What it is wallpaper for is the
+furniture around the dungeon view: the panel and border region, message-box edges
+(`message.cpp:167-170`), character-sheet borders (`char.cpp:6311-6313`), the inventory and look-mode
+clears (`command.cpp:1975`, `game.cpp:4027-4038`) and the wilderness map. `area.cpp:79` `FastBlit`s
+the whole thing as the base layer of every area redraw. The `CurrentColorType == ColorType` guard
+(`igraph.cpp:591`) means descending inside a dungeon whose levels share a backdrop colour is free, but
+every dungeon-to-wilderness crossing and every entry into a dungeon with a different backdrop colour
+spent another million game draws. That is why the recording did not merely roll a different character:
+the stream moved again at each of those transitions.
+
+**Two more defects in the same twelve lines, both found by rendering the thing rather than reading
+it.** Neither is about the RNG.
+
+`base += 1024` is not the precondition diamond-square has. The subdivision needs `Side = 2^n + 1`;
+a base that is a multiple of 1024 but not a power of two leaves whole rows and columns unvisited.
+Sentinel-filling the grid and counting survivors:
+
+| base | Side | cells | never written |
+|---|---|---|---|
+| 1024 | 1025 | 1,050,625 | 0 |
+| 2048 | 2049 | 4,198,401 | 0 |
+| **3072** | 3073 | 9,443,329 | **5,244,928 (55.5%)** |
+| 4096 | 4097 | 16,785,409 | 0 |
+| **5120** | 5121 | 26,224,641 | **5,538,389 (21.1%)** |
+| **6144** | 6145 | 37,761,025 | **20,975,616 (55.5%)** |
+
+`igraph.cpp:601` uses the **two-argument** `Alloc2D`, which only lays out row pointers over
+`new char[Size]`, so those cells reached the screen as uninitialised heap — a visible screen-door
+dither over the backdrop. It read as dark dither rather than confetti only because a fresh 9-37MB
+block is mostly zero pages from the OS; `CreateBackGround` frees and reallocates that block on every
+colour change, so a later regeneration could pick up recycled heap. Affected widths were everything
+above 2048 except the ranges landing exactly on 4096 and 8192 — so **2560 was broken**, while 3440 and
+3840 happened to be fine. The `//TODO explain this: fractals require multiple of 1024 to
+work/workBetter?` on that line was a guess at the requirement, and the wrong one.
+
+The read `Map[base - x][base - (RES.Y - y)]` indexes from `base` on both axes while the loop grew
+`base` on width alone, so a window taller than `base` produced a negative column: 38,400 out-of-bounds
+reads at 800x1072, a config `compare-configs.sh` already swept. `Alloc2D`'s single block made it
+silent — the read landed in the previous row instead of off the allocation.
+
+**The fix.** The generator became an explicit parameter of `GenerateFractalMap`, because it lives in
+`FeLib/femath` under a name that invites reuse for a game map and hard-coding `visualrand` inside it
+would be this defect pointed the other way; the backdrop passes `visualrand::Rand`. `base` doubles
+instead of stepping, and grows on `Max(RES.X, RES.Y)`, which closes the coverage hole and the negative
+index together. Growing on both axes costs a merely-tall window 4x what it used to: `800x1072` now
+builds a 2049² map, 16MB and ~30ms instead of 4MB and ~6ms. A rectangular diamond-square — `2^n + 1`
+per axis rather than one square side — would halve that, and is not worth generalising the algorithm
+for while the renderer is due to be rewritten anyway. `Randomness` became a constant 800 rather than the window width: it is the
+displacement amplitude, so it was the picture's contrast, and because the decay is per-step while the
+step count follows the grid, the window was reaching the high-frequency content too.
+
+**The algorithm stayed.** The instinct to replace a grid with a resolution-independent function was
+measured and lost. Per-pixel fBm over hashed value noise, six octaves, against the diamond-square,
+native `-O2`, medians of five:
+
+| | 800x600 | 1920x1080 | draws | scratch |
+|---|---|---|---|---|
+| diamond-square | 9 ms (6 ms generating) | 39 ms (30 ms generating) | 1,050,621 / 4,198,397 | 4 MB / 16 MB |
+| fBm, 6 octaves | 33 ms | 145 ms | 255 | none |
+| fBm, 4 octaves | — | 99 ms | 255 | none |
+
+**3.7x slower**, and still 2.5x at four octaves, where it starts looking flat. What fBm buys is
+resolution independence and seamlessness, and once the draws are off the game generator the map can
+simply follow the window, so neither is worth paying for. Diamond-square is one linear pass of integer
+arithmetic producing exactly the multi-scale structure wanted. Over half its cells are never read —
+480,000 of 1,050,625 at 800x600 — and that waste is now 6 ms of presentation rather than a million
+draws of game state, so it is not worth restructuring either. Anything nicer belongs in the renderer
+rewrite, not in the C++ this one is about to replace.
+
+**What moved: everything, and the recordings with it.** Taking a million draws off the game generator
+*before* world generation shifts every draw after it, so seed 999 generates a different island and a
+different character — the first sampled step of `noncombat` fell from `grng` 1,050,709 to **88**. This
+is the first change in the port where updating the goldens was not enough: the recordings are
+keystrokes, and `down left >` was documented as specific to seed 999's island. On the new island the
+start tile *is* New Attnam and the cave mouth is one tile north of the tile west of it, so all three
+corpora were re-recorded as `left up >`. They land where they used to — `noncombat` on UT lvl 1 at
+turn 3, `autoplay-2000` still on **UT lvl 2** — but the autoplay runs are shorter in game terms
+(turn 192 against 197, and turn 1703 against 1972 with a weaker character, HP 36 max against 202),
+because the AI met a different world. `verify-corpora.sh`, `compare-targets.sh`, `fuzz-visual.sh` and
+`compare-configs.sh` all pass, the last with its width ceiling gone and 1280x720, 1920x1080 and
+2560x1440 added: `grng` agrees in all thirteen arms and the rolled character is identical at every one.
 
 ---
 
