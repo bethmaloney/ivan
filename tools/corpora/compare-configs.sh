@@ -109,11 +109,11 @@ EnhancedLights = 0;" IVAN_BIN=$IVAN_BIN "$HERE/run-corpus.sh" "$rec" "$WORK/$nam
   # times, so two arms can sample one identical stream at different points. Measured on
   # autoplay-2000, scale 1 against scale 2, both ending at grng 6,612,194: at frame 661 scale 1
   # samples grng 1,710,053 and scale 2 samples 1,712,375, which is scale 1's *next* sample. Diffing
-  # the column would call that a failure. trace.jsonl, screen.png and the map-area text differ
+  # the column would call that a failure. frames.jsonl, screen.png and the map-area text differ
   # legitimately too -- the dungeon is drawn at a different size, which is the point of the option.
   bad=0
   for s in $SCALES; do
-    trace=$WORK/$name/$s/trace.jsonl
+    trace=$WORK/$name/$s/game.jsonl
     grng=$(sed -n 's/.*"grng":\([0-9]*\).*/\1/p' "$trace" | tail -1)
     rng=$(sed -n 's/.*"rng":\([0-9]*\).*/\1/p' "$trace" | tail -1)
     nest=$(sed -n 's/.*"nest":\([0-9]*\).*/\1/p' "$trace" | sort -u | tr -d '\n')
@@ -141,8 +141,10 @@ EnhancedLights = 0;" IVAN_BIN=$IVAN_BIN "$HERE/run-corpus.sh" "$rec" "$WORK/$nam
     # The arms have to be genuinely different runs, or every comparison above is vacuous. A planted
     # config that the game never read -- ivan.cfg instead of ivan.conf is the way to get that, since
     # only WIN32 takes the .cfg branch (iconf.cpp:1315) -- produces two byte-identical traces and a
-    # pass that means nothing.
-    if cmp -s "$WORK/$name/$REFERENCE/trace.jsonl" "$trace"; then
+    # pass that means nothing. It is the *frame* trace that must differ: the zoom is meant to change
+    # what is drawn, and the game trace is the thing being asserted equal, so checking that one for
+    # liveness would demand the failure it is testing for.
+    if cmp -s "$WORK/$name/$REFERENCE/frames.jsonl" "$WORK/$name/$s/frames.jsonl"; then
       [ "$bad" -eq 0 ] && printf '\n'
       bad=1; FAILED=1
       printf '  FAIL scale %s produced a trace identical to scale %s: the config was not read\n' \
@@ -150,9 +152,10 @@ EnhancedLights = 0;" IVAN_BIN=$IVAN_BIN "$HERE/run-corpus.sh" "$rec" "$WORK/$nam
     fi
   done
 
-  # rng counts the discarded draws as well, so rng moving while grng does not is the signature of a
-  # working bracket. Reported, never fatal: whether it moves depends on which squares of a beam
-  # happen to fall off the smaller screen, and on the corpora that cast nothing it never moves.
+  # rng used to count the discarded draws of a SaveSeed bracket, so rng moving while grng did not
+  # was the signature of a working bracket. Since §6.10c there are no such draws on this generator
+  # and it has not moved on any corpus; kept because the one surviving bracket could still move it.
+  # Reported, never fatal.
   if [ "$bad" -eq 0 ]; then
     printf ' grng %s at every scale' "$expected"
     [ "$rng" != "$reference_rng" ] && printf ', rng %s to %s' "$reference_rng" "$rng"

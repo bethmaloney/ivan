@@ -54,7 +54,7 @@ for rec in "$HERE"/*.rec; do
   wait
 
   bad=0
-  for artifact in trace.jsonl text.log screen.png screen.txt; do
+  for artifact in game.jsonl frames.jsonl text.log screen.png screen.txt; do
     if ! cmp -s "$WORK/$name/a/$artifact" "$WORK/$name/b/$artifact"; then
       [ "$bad" -eq 0 ] && printf '\n'
       bad=1; FAILED=1
@@ -62,7 +62,7 @@ for rec in "$HERE"/*.rec; do
 
       # The first differing trace record is the useful part: its rng field says
       # whether the *game* diverged or only the animation did (docs/port-log.md §6.5a).
-      if [ "$artifact" = trace.jsonl ]; then
+      if [ "$artifact" = game.jsonl ]; then
         diff "$WORK/$name/a/$artifact" "$WORK/$name/b/$artifact" \
           | head -3 | sed 's/^/    /'
       fi

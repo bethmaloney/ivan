@@ -23,6 +23,10 @@
 #                   config file. Empty by default, which writes no file at all, so
 #                   every option keeps its compiled-in default and an unset run is
 #                   byte-for-byte what it was before this knob existed.
+#        IVAN_ARGS  extra arguments appended to the pinned command line. Empty by
+#                   default. This is how fuzz-visual.sh varies --visual-seed; it is
+#                   not a general escape hatch, and anything set here that moves the
+#                   game trace invalidates the goldens for that run.
 
 set -eu
 
@@ -86,12 +90,16 @@ fi
 cd "$OUTDIR"
 SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy ${IVAN_RUNNER} "$IVAN_BIN" \
   --replay "$CORPUS" \
-  --trace trace.jsonl \
+  --trace game.jsonl \
+  --frame-trace frames.jsonl \
   --text text.log \
   --shot screen.png \
   --headless \
+  ${IVAN_ARGS:-} \
   > run.log 2>&1
 
-# The trace's own header carries the seed and resolution, so a truncated run is
-# visible without reading the game's stdout.
-[ -s trace.jsonl ] || { echo "empty trace from $CORPUS" >&2; exit 1; }
+# Each trace's own header line carries what pinned it -- the seed for the game
+# trace, the visual seed and the resolution for the frame trace -- so a truncated
+# run is visible without reading the game's stdout.
+[ -s game.jsonl ] || { echo "empty game trace from $CORPUS" >&2; exit 1; }
+[ -s frames.jsonl ] || { echo "empty frame trace from $CORPUS" >&2; exit 1; }

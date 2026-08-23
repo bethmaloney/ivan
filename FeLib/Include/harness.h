@@ -84,7 +84,56 @@ namespace harness
   void RecordKey(int);
   truth NextReplayKey(int&);
 
+  /*
+   * Two traces, because they die at different times.
+   *
+   * TraceGameStep is the game's, sampled from game::Run's loop -- one call is
+   * one step of the game, and no part of that depends on anything being drawn.
+   * It survives graphics leaving C++ for web/, which is the whole reason the
+   * two were separated: until then rng and grng shared a file with a hash of
+   * the C++ double buffer, and would have died with it (docs/port-log.md
+   * §6.10d).
+   *
+   * TraceFrame is the presentation's, sampled from BlitDBToScreen, and hashes
+   * that double buffer. When the renderer moves it is replaced rather than
+   * ported: whatever draws the game then owns the question "do these pixels
+   * match", and the game trace is unaffected by the answer.
+   *
+   * Both emit a record only when their own content changed, so a game that is
+   * waiting for a key and a screen that is not moving both cost one line.
+   */
+
+  void TraceGameStep();
   void TraceFrame();
+
+  /*
+   * What a game-trace record carries. This header cannot include anything from
+   * Main (see the note at the top), so game.cpp registers a reader and the
+   * harness calls it; with none registered the game trace still runs and
+   * carries the draw counts alone.
+   *
+   * These fields are chosen to move when the game moves and to cost nothing to
+   * read. The two ID counters are the cheap half of a state digest: they say
+   * how many characters and items have ever been created, which no rng count
+   * can tell you and which diverges early when two runs part company.
+   */
+
+  struct gamestate
+  {
+    long Turn;
+    ulong Tick;
+    int Dungeon;
+    int Level;
+    int PlayerX;
+    int PlayerY;
+    int PlayerHP;
+    ulong NextCharacterID;
+    ulong NextItemID;
+  };
+
+  typedef truth (*gamestatereader)(gamestate&);
+
+  void SetGameStateReader(gamestatereader);
 
   /*
    * Screen capture. The point of these is that a headless replay is otherwise

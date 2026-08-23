@@ -13,14 +13,23 @@ tools/corpora/verify-corpora.sh --update   # rewrite the goldens from this build
 
 tools/corpora/compare-targets.sh           # native vs WASM, all three corpora
 tools/corpora/compare-configs.sh           # one build at six DungeonGfxScale values
+tools/corpora/fuzz-visual.sh               # one build at six --visual-seed values
 ```
 
-Three scripts, three questions: *did this build change?*, *do these two builds
+Four scripts, four questions: *did this build change?*, *do these two builds
 agree?*, *does one build agree with itself when the player configured it
-differently?* Only the first is in CI.
+differently?*, *does anything the game draws decide anything the game keeps?*
+Only the first is in CI.
+
+Each run writes two traces. `game.jsonl` is sampled from `game::Run`'s loop, one
+record per step of the game, and carries no screen-derived quantity -- not even a
+frame number. `frames.jsonl` hashes the double buffer, one record per frame whose
+pixels moved. They were one file until §6.10d; splitting them is what lets the
+game trace survive graphics crossing into `web/`, and what lets `fuzz-visual.sh`
+vary the picture while asserting the game held still.
 
 About twenty seconds for all three at the default eight runs — 18.6s wall, 86s
-user, on 22 idle cores. Over half of that is `autoplay-2000`: one run of it
+user, on 22 idle cores. `fuzz-visual.sh` is 24s for four corpora at six seeds. Over half of that is `autoplay-2000`: one run of it
 costs 9.9s against 2.4s and 2.0s for the other two. It was twelve seconds for
 all three while that corpus made 6.3M random draws; §6.10's brackets moved it to
 10.7M and §6.10c's second generator took it back to 10.3M, the difference being
@@ -61,7 +70,8 @@ are recorded across docs/port-log.md §6.6a–d as the check values for those fi
 
 | | noncombat | autoplay-200 | autoplay-2000 |
 |---|---|---|---|
-| trace frames | 365 | 595 | 2,758 |
+| game steps (`game.jsonl`) | 311 | 5,950 | 49,151 |
+| trace frames (`frames.jsonl`) | 365 | 595 | 2,741 |
 | cumulative RNG draws | 1,074,979 | 1,769,279 | 10,261,035 |
 | game-stream draws (`grng`) | 1,074,979 | 1,769,125 | 10,253,524 |
 | final HP | 37/37 | **36/36** | **202/202** |
@@ -81,6 +91,11 @@ path and neither shorter corpus ever reloads a level, which is the check that
 says the fixes were as narrow as they claimed. Its old values (2,698 frames,
 5,038,226 draws, HP 41/43, turn 1,750) describe a run in which a room read its
 no-monster-generation flag out of freed heap.
+
+`game steps` and `trace frames` are new rows: §6.10d split the one trace into
+two, and `trace frames` is no longer the count it was, because a record is now
+emitted when the pixels move rather than when the pixels or the draw count move.
+`autoplay-2000` reads 2,741 where the single trace read 2,758.
 
 All three `cumulative RNG draws` figures moved a fourth time, in the commit that
 gave presentation its own generator (§6.10c) — and *only* that row moved. The

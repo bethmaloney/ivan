@@ -1017,6 +1017,77 @@ question, a game-stream draw on a camera-gated path, which varying the visual se
 Both, then. The arm itself needs the trace split (§6.10d) to have something to compare, so it lands
 with it.
 
+#### 6.10d One trace became two, and the game's half stopped depending on the screen
+
+`trace.jsonl` carried `rng`, `grng`, `nest` and `depth` — the game's — beside `hash`, a digest of the
+C++ double buffer, in one line-oriented file compared with `cmp`. That is fine while one program owns
+both, and it fails the moment graphics crosses into `web/`: the hash column would go stale, and
+because a record was emitted when *either* the hash or `rng` moved, which frames got records would
+shift too, so `frame`, `index` and `grng` would move with it. **The game's numbers would not go
+stale, they would become unreadable** — not because they changed, but because they shared a file with
+something that did.
+
+So `--trace` now writes `game.jsonl` and `--frame-trace` writes `frames.jsonl`, and the split is by
+what each survives rather than by what each contains:
+
+| | game.jsonl | frames.jsonl |
+|---|---|---|
+| sampled from | `game::Run`'s loop | `BlitDBToScreen` |
+| emitted when | the game moved | the pixels moved |
+| carries | turn, tick, dungeon/level, player position and HP, the two creation counters, `rng`/`grng`/`nest`/`depth` | the double-buffer hash, `vrng` |
+| after graphics moves to `web/` | unchanged | replaced by whatever draws the game then |
+
+`game::Run`'s `for(;;)` is the sampling point because one iteration is one step of the game and no
+part of that depends on anything being drawn. FeLib cannot see `game::`, so `game.cpp` registers a
+reader (`harness::SetGameStateReader`) and the harness calls it; with none registered the trace still
+runs and carries the draw counts alone.
+
+**The record carries no frame number, and that is the point rather than an omission.** It was the one
+screen-derived quantity that could have stayed, in the file whose whole purpose is not to have any.
+Cross-referencing a key to a record still works, because a recording's `K` lines carry `rng` beside
+the frame and `rng` is a number both files take from the game.
+
+**What the fields are for.** `rng` alone is a weak fingerprint — two different games can draw the
+same number of times — and until now the hash was quietly doing most of the "did the game change"
+work. The two ID counters are the cheap half of a state digest: how many characters and items have
+ever been created is something no draw count can tell you and something that diverges early when two
+runs part company. Turn, tick, dungeon/level, position and HP are the rest, all plain member reads.
+
+**A second sampler, for a coverage hole the split opened.** `game::Run` does not start until the
+menus, character creation and the first level generation are done — 1,067,066 of `noncombat`'s
+1,074,979 draws, 87% of the run, in a straight line with no natural sample point. The old trace
+localised divergence there only because blits were happening throughout it (the busy animation). So
+`TraceFrame` samples the game trace too. It cannot make the game trace depend on the screen, because
+a record is emitted only when the game's own fields moved and an extra sample of an unchanged game
+writes nothing — which `fuzz-visual.sh` then checks rather than asserts. When the renderer leaves,
+that call goes with it and the generation phase needs a sampler of its own (§7.11).
+
+**Two defects found writing this, both by the eight-run rule rather than by a pair agreeing.** The
+first was a segfault: `character::GetPos()` dereferences the square under the player and there is not
+always one, so reading it from the trace crashed `autoplay-2000` in the wilderness at turn 2.
+`GetSquareUnderSafely` is the null-checked form the game already had. The second is the more
+interesting one, because it is §6.6 again in new code written by someone who had just read §6.6:
+`gamestate` has four bytes of padding between `PlayerHP` and `NextCharacterID`, the struct is a local
+that nothing zeroes, and the emit-if-changed test was a `memcmp` over the whole of it. One run in
+eight emitted a duplicate record. A pair would have agreed; `verify-corpora.sh`'s eight found it on
+the first try. **The comparison is field by field now, and the rule that caught it is the same rule
+§6.5a exists to state.**
+
+**What it costs.** Sampling per game step instead of per frame made the trace sharper and the goldens
+larger: `autoplay-2000` goes from 2,759 records to 49,152, 273KB to 6.9MB, 64KB to 746KB gzipped —
+about 3.4x the largest artifact already committed, `autoplay-2000.text.log` at 222KB gzipped. That is
+the price of localising a divergence to a game step rather than to a blit, paid every time a
+game-affecting commit moves the goldens. Dropping `tick` from the *trigger* (it stays in the record,
+where it is the fine clock a reader wants) saved 207 records of 49,359, so the volume is real game
+movement rather than idle polling. If it ever needs paying back, the trigger is one function:
+`SameState` in `harness.cpp`.
+
+**`fuzz-visual.sh` is what the split was for.** Six replays of every corpus varying only
+`--visual-seed`, comparing `game.jsonl` and `text.log` and requiring `frames.jsonl` to differ. The
+liveness half is not decoration: the first cut of §6.10c passed this check while changing nothing at
+all, and the check as written would have said so. Measured, all four corpora: one game trace over six
+seeds, six distinct frame traces.
+
 ---
 
 ## 7. Open items, and one closed one
@@ -1173,6 +1244,17 @@ suspected.
 4. **Put `compare-configs.sh` in CI.** `deploy.yml` replays the corpora and nothing else, so a
    reintroduced camera-gated draw shows up only as moved goldens — which a reader is entitled to
    explain and `--update` away.
+
+---
+
+### 7.11 A sampler for the generation phase
+
+`TraceFrame` samples the game trace as well as its own, because `game::Run`'s loop does not start
+until the menus, character creation and the first level generation are done — 87% of `noncombat`'s
+draws (§6.10d). That call disappears with the renderer. Before it does, generation needs a sampler
+that is not a blit: `level::Generate`'s per-room loop is the obvious candidate, and the check that it
+is enough is that a deliberate divergence planted in generation still localises to a few thousand
+draws rather than to "before step 0".
 
 ---
 
