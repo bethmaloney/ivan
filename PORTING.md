@@ -484,10 +484,11 @@ reach the screen** — which is exactly the class §6.4 is about. §6.8 made `lo
 explicit little-endian bytes on every target, which closed the container-length problem with it, so a
 WASM save and a native save are byte-identical but for `GetTimeSpent`. `--word-size` survives for
 reading saves written before that change — its help text still describes the world before it, which
-§7.9d records. `graphicid` and `configid` were the two remaining raw `sizeof` writes and are now
-audited: `configid` is field-by-field, `graphicid`'s layout is pinned by `offsetof` asserts on both
-targets rather than converted, and nothing saved can reach 32 bits in a reachable game. §7.9 has the
-measurements and what a future `SAVE_FILE_VERSION` bump should carry.
+§7.9d records. `graphicid` and `configid` were the two remaining raw `sizeof` writes and are
+both field-by-field now — `configid` at §7.9, `graphicid` at version 139 (§10.3), where a memorized
+square started naming its tiles by one. `graphicid`'s `offsetof` asserts stay: they pin the layout the
+browser tile registry will read, and they catch a member added without a line in the serializer. §7.9
+has the measurements.
 
 - **Use savediff rather than a hand-rolled `cmp` loop.** The auto-play corpus produces two files
   whose extension is `.40` — `<stem>.40` and `<stem>.AutoSave.40` — so pairing by extension silently

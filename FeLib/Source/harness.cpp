@@ -573,6 +573,10 @@ void harness::Shutdown()
               << " read barriers, " << drawlist::Aliases << " alias barriers"
               << std::endl;
 
+  if(Tracing && drawlist::Sublists)
+    std::cout << "harness: map memory " << drawlist::Taken << " commands over "
+              << drawlist::Sublists << " composites" << std::endl;
+
   if(RecordFile.is_open())
   {
     RecordFile << "# end keys=" << KeySeq << " frames=" << FrameIndex

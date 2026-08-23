@@ -2846,7 +2846,7 @@ Playwright against the assembled `dist/`, first try.
 
 ## 10. Graphics out of SDL
 
-Issue #16 plans this in five phases, A to E. What is here is A1.
+Issue #16 plans this in five phases, A to E. What is here is A.
 
 ### 10.1 A draw list between the map render and the double buffer
 
@@ -2999,3 +2999,154 @@ in `bitmap.cpp`, the first at `:359`), and the cache bitmap was only ever a dest
 receiver of an unconditional inline
 `FastBlit`. The cache was never serialised: `lsquare::Save` writes `Memorized` alone (`lsquare.cpp:602`),
 so no save format moves and `SAVE_FILE_VERSION` stays at 138.
+
+### 10.3 Map memory as a draw list, and the save format that follows
+
+`lsquare::Memorized` was a 16x16 bitmap that `DrawStaticContents` drew into, plus a second one,
+`FowMemorized`, holding the same composite with the fog-of-war graphic masked over it. Both are gone.
+A square's memory is now `memorized`, a list of the draw commands `DrawStaticContents` emitted, taken
+through a `drawlist::sublist` — the same interposition §10.1 built, opened on a scratch destination
+and *taken* rather than replayed. Drawing a memorized square replays the list at the luminance the
+square has now; the fog is one more masked blit over it at the same luminance, which is what
+`FowMemorized` was for.
+
+**Four ops carry all of it, and that is what makes the step possible.** Measured over autoplay-2000:
+**72,930 commands in 15,317 composites, 4.76 per composite** — `AlphaLuminanceBlit` 57,860,
+`LuminanceBlit` 13,108, `AlphaPriorityBlit` 1,090, `LuminanceMaskedBlit` 872. Every one takes a
+luminance, so replaying at the square's own luminance is a rewrite of the composite rather than a
+loss of it. No `NormalBlit`, no `Fill`, no `FastBlit`, no `AlphaPutPixel`: the composite is recorded
+with `ALLOW_ALPHA` and *not* `ALLOW_ANIMATE`, which is exactly what keeps the animated writers out of
+it. `Take()` still rewrites `FastBlit` to its positioned form and `ClearToColor` to a `Fill`, because
+neither can be replayed at an offset and both are exact rewrites while the capture surface is one
+tile — unreached, and there so that a source that starts using one is drawn rather than misplaced.
+
+**A saved command cannot hold a bitmap pointer, and `graphicid` covers 92% of them.** Every source is
+resolved at *record* time — not at take time, which matters — to one of four identities:
+
+| kind | what | share |
+| --- | --- | --- |
+| `SRC_TILE` | a tile `igraph::AddUser` minted, named by its `graphicid` | 67,259 (92.2%) |
+| `SRC_GRAPHIC` | one of igraph's four whole-sheet graphics, named by index | 362 (0.5%) |
+| `SRC_PIXELS` | a bitmap `graphicid` cannot name, copied and owned | 5,309 (7.3%) |
+| `SRC_NONE` | no source: the fill that stands for a square too dark to feel | the dark branch |
+
+**The 7.3% is the honest answer to "does `graphicid` cover everything".** It does not. Two sources in
+the tree are per-entity bitmaps generated pixel by pixel and already serialised as raw pixels by their
+owners: `fluid::imagedata::Picture` (`fluid.cpp:186`, blood and every other stain) and `web::Picture`
+(`traps.cpp:190`). Neither has a compact identity to name, so the memory takes a copy and saves it the
+way their owners do. That is 524 bytes where a tile is 48, and it is the one place the new format can
+lose to the old one.
+
+Resolving at record time rather than at take time is what makes the copy correct. `igraph::FlagBuffer`
+is rewritten one line before the blit that reads it (`fluid.cpp:200-201`), and `item::Draw`'s rotation
+bitmap is a function-local static shared by every thrown item — a copy taken after the composite
+finished would be the *next* command's pixels. This is the same hazard §10.1's alias barrier closes
+for the frame list, closed here by construction instead: the barriers are off inside a taken list,
+because nothing is replayed into its target and a scratch source is fatal there rather than merely
+early.
+
+**The memory holds a user on every tile it names.** That is not bookkeeping for its own sake: the
+memory of a wall has to outlive the wall. `Take()` takes the new list's users before releasing the old
+list's, because a tile the new composite draws is usually one the old memory also held.
+
+#### The format
+
+`SAVE_FILE_VERSION` **138 → 139** and `BONE_FILE_VERSION` **121 → 122** (bone files carry a whole level
+through the same `lsquare::Save`). §7.9d's first finding applies and is done: `feio.cpp`'s
+`iOldSavegameVersionImportSince` moves **131 → 139**, or `AllowImportOldSavegame` hands a 138-format
+file to a 139-format reader and it misdecodes instead of refusing. `savediff` needed exactly what
+§7.9d said it would — one constant, `KNOWN_SAVE_FILE_VERSION` **136 → 139**, and it was already stale
+by two. No decoder moves: `DecodeArea` stops at the room vector and the per-square `lsquare::Save`
+loop is behind it, so the memorized field is past the cliff and stays there.
+
+The list is written field by field — count, then per entry a kind byte, an op byte, the identity, three
+`v2`s as six `short`s, luminance and custom data as `uint`, mask colour as `ushort`. **And `graphicid`
+went with it.** §7.9d said converting it was worth doing at the next bump; this is the next bump, and
+the argument got stronger rather than weaker, because a `graphicid` is now what a saved draw command
+names its tile by and that list is on its way to being read outside the module. So the last raw
+`sizeof` write in the save is gone: 47 explicit bytes instead of 48 raw ones, with `Padding` no longer
+written — it is an input to the tilemap's `memcmp` ordering, not to the save. The `offsetof` asserts
+stay; they now pin the layout the browser tile registry will read, and they are also what catches a
+member added without a line in the serializer.
+
+What §7.9d asked for and this did not do is shrink the container lengths from 8 bytes to `uint`. That
+one is not free the way the other two were: `savediff` reads four container counts through `R.ULong`
+and they would have to be decoupled from `--word-size` while `Tick`, `Turn` and `Seed` stay 8 bytes,
+which is decoder work rather than a constant. It is still worth doing at the next bump.
+
+**Level files got smaller, measured on autoplay-2000:** `.40` **1,313,269 → 1,069,674** bytes
+(−18.5%), `AutoSave.40` 1,329,402 → 1,086,341, `AutoSave.41` 2,459,336 → 2,210,756 (−10.1%). Split
+between the two changes: the draw list is −228,906 of that and the `graphicid` byte the remaining
+−14,689, which says the level file holds about fourteen thousand graphicids. A memorized square used
+to cost a flat 524 bytes; it now costs 3 plus 72 per tile entry, 25 per graphic entry and 548 per
+pixels entry, and the **2.48 entries per saved square** measured over the run (11,996 squares saved,
+29,790 entries) is what puts it comfortably under. Seven tile entries is where it would break even.
+
+The round trip is exercised rather than assumed: the same run **loads 1,441 memorized lists carrying
+3,313 entries**, and `game.jsonl` is byte-identical through it, which it could not be if the
+reconstructed level differed.
+
+#### What moved, and by how much
+
+`game.jsonl` is **byte-identical on all three corpora**, which is the gate: it carries no
+screen-derived quantity, so any movement there would be a game-state change. So is `text.log`, on all
+three. `frames.jsonl` moved, and was always going to:
+
+| | noncombat | autoplay-200 | autoplay-2000 |
+| --- | --- | --- | --- |
+| frames recorded | 483 → 483 | 762 → 762 | 2,886 → 2,886 |
+| frames whose hash moved | 0 | 242 (31.8%) | 1,030 (35.7%) |
+| first divergence | — | frame 504 | frame 504 |
+| pixels moved over the run | 0 | 49,874 | 116,927 |
+| worst single frame | — | 522 of 480,000 (0.109%) | 522 of 480,000 |
+| mean over moved frames | — | 206 pixels | 114 pixels |
+
+Per channel, over every moved frame of autoplay-2000: red moved on **694** channel samples, worst
+**−3 of 32 levels**; green **97,760**, worst **+7 of 64**; blue **64,607**, worst **+5 of 32**. Almost
+all of it upward, which is the signature of the cause. **The cause is clamping, not rounding.**
+`NEW_LUMINATE_*` is a clamped per-channel add (`bitmap.cpp:45-75`), and clamping the sum once at the
+end of a composite is not clamping every operand of it: a dungeon square is dimmer than
+`NORMAL_LUMINANCE`, so the offset is negative, so the old path let an alpha blend mix values that had
+not been clamped yet and the new one mixes values that have. Survey work for this step enumerated the
+whole `(src, dest, alpha, delta)` space of the two forms and found **0 of 5,595,136 non-saturating
+combinations differ** — every disagreement has an operand out of range. The screenshots agree with
+that: autoplay-2000's final `screen.png` is **identical**, and autoplay-200's differs in 175 pixels
+across 7 tiles.
+
+`vrng` moved on autoplay-2000 by **16 draws over the whole run**, first at frame 1795, and by nothing
+at all on autoplay-200. It is not a drawing change: `igraph::AddUser` draws from the *visual*
+generator when it mints a tile (`CreateFlames`, `CreateSparkle`, `CreateLightning`, `Wobble`), and the
+set of tiles minted moved because the memory now holds users. Counted directly with a temporary
+counter: **23,136 → 23,066 mints** and 117,085 → 120,343 hits, the extra hits being
+`memorized::Load`'s. Sixteen draws is one `CreateFlames` on a 16-wide tile — the memory of something
+on fire, re-minted at load because nothing alive was using it any more. `game.jsonl`'s `rng` and
+`grng` do not move, which is what says this is presentation and not the game.
+
+**The frame list roughly doubled, as it should have.** A memorized square used to arrive as one
+command and now arrives as its composite: autoplay-2000 goes from 79,290 commands over 3,527 map
+renders at a peak of 753 to **166,347 over 3,527 at a peak of 1,505**, with the barrier counts
+unchanged at 3,943 read and 679 alias. Both figures print under `--trace`, and `--trace` now also
+prints the map memory's own: 72,930 commands over 15,317 composites.
+
+Native and WASM still agree: `compare-targets.sh` reports frames, text and screen matching on all
+three corpora, and savediff reports **every level file byte-identical** across x86-64 and wasm32 —
+which is a real check of the new encoding on the two targets the game builds for, though §7.9d's third
+finding still stands for a third one. The only `SUSPECT` left is §9.11's one-byte `GetTimeSpent`.
+Re-run for the new format: **every save file identical at two `MALLOC_PERTURB_` values**, which is the
+`PORTING.md` row that used to be about `Memorized`'s 512 raw pixels and is now about a list written
+field by field and the copies inside it.
+
+#### What this does not do
+
+`FowMemorized` is gone rather than converted, so the fog is composed at draw time instead of being
+baked into a second bitmap. Two consequences worth writing down. A dark square's memory is a `Fill`
+with a raw colour where it used to be the fog graphic luminated by the contrast setting; at the
+default `Contrast` of 100 the luminance offset is zero and the two are the same pixel, and away from
+it they are not. And a memorized square's alpha blends now land on the double buffer rather than on
+the previous composite, because `Memorized` was never cleared on the lit branch and was therefore an
+accumulator — a freshly replayed list is not. Neither shows in the measurements above beyond what the
+clamping accounts for, because the first command of a composite is an unmasked whole-tile write in
+every case the corpora reach.
+
+Nothing here is a browser change yet. The list is still replayed by the same C++ bitmap methods into
+the same double buffer; what moved is that a square's memory is now something a page could be handed.

@@ -34,6 +34,7 @@ class bodypart;
 class liquid;
 class rain;
 class trap;
+class memorized;
 struct sortdata;
 struct hiteffectSetup;
 
@@ -287,8 +288,7 @@ class lsquare : public square
   glterrain* GLTerrain;
   olterrain* OLTerrain;
   stack* Stack;
-  bitmap* Memorized;
-  bitmap* FowMemorized;
+  memorized* Memorized;
   char* Engraved;
   glterrain** GroundBorderPartnerTerrain;
   ulong GroundBorderPartnerInfo;

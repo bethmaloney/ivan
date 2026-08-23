@@ -38,8 +38,8 @@
 
    Only writes whose destination is the capture target are recorded. Writes
    into the scratch bitmaps the map render composites through -- igraph's
-   TileBuffer and FlagBuffer, lsquare::Memorized -- run immediately, and the
-   composite then arrives as one opaque command.
+   TileBuffer and FlagBuffer -- run immediately, and the composite then arrives
+   as one opaque command.
 
    Two barriers keep that safe, and both are counted because Phase C exists to
    drive the first of them to zero:
@@ -103,17 +103,29 @@ namespace drawlist
      need it; the rest of the interface is here. */
 
   extern std::vector<command> Commands;
+  extern truth Taking;          /* the list is being taken, not replayed */
   extern ulong Barriers;        /* flushes forced by a read of the target */
   extern ulong Aliases;         /* flushes forced by a write to a pending source */
   extern ulong Recorded;        /* commands over the whole run */
   extern ulong Renders;         /* capture windows closed */
   extern ulong Peak;            /* longest list any one window held */
+  extern ulong Taken;           /* commands kept rather than replayed */
+  extern ulong Sublists;        /* windows they were taken through */
+
+  /* Set for the duration of a taken list. Every source passes through it as it
+     is recorded, and the command keeps what it returns. A source the taker
+     cannot name by an identity that outlives the frame has to be copied here
+     and not at Take(): igraph::FlagBuffer is rewritten one line before the blit
+     that reads it, so a copy taken any later is the next command's pixels. */
+
+  extern const bitmap* (*Stabilise)(const bitmap*);
 
   inline truth Active() { return Target != 0; }
 
   void Open(bitmap*);
   void Close();
   void Flush();
+  void Replay(const command&);
 
   truth Intercept(op, const bitmap*, cblitdata&);
   truth InterceptFill(bitmap*, int, int, int, int, col16);
@@ -161,6 +173,27 @@ namespace drawlist
    public:
     capture(bitmap* Bitmap) { Open(Bitmap); }
     ~capture() { Close(); }
+  };
+
+  /* A window whose list is taken rather than replayed. lsquare::UpdateMemorized
+     records what DrawStaticContents draws and keeps the commands as the
+     square's map memory (§10.3) instead of the pixels they would have made.
+
+     Both barriers are off inside one, and that is not a shortcut: nothing will
+     be replayed into the target, so there is no order left to keep, and a
+     source that is scratch is fatal here rather than merely early, because the
+     replay is a turn or a reload away. Take() is what has to notice, by
+     resolving every source to an identity that outlives the frame. */
+
+  class sublist
+  {
+   public:
+    sublist(bitmap*, const bitmap* (*)(const bitmap*));
+    ~sublist();
+    void Take(std::vector<command>&);
+   private:
+    std::vector<command> Held;
+    bitmap* Outer;
   };
 }
 

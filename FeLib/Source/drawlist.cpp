@@ -14,16 +14,20 @@
 
 bitmap* drawlist::Target = 0;
 std::vector<drawlist::command> drawlist::Commands;
+truth drawlist::Taking = false;
 ulong drawlist::Barriers = 0;
 ulong drawlist::Aliases = 0;
 ulong drawlist::Recorded = 0;
 ulong drawlist::Renders = 0;
 ulong drawlist::Peak = 0;
+ulong drawlist::Taken = 0;
+ulong drawlist::Sublists = 0;
+const bitmap* (*drawlist::Stabilise)(const bitmap*) = 0;
 
 namespace drawlist
 {
-  void Replay(const command&);
   void Record(op, const bitmap*, cblitdata&);
+  truth Reaches(const bitmap*, bitmap*);
 }
 
 void drawlist::Open(bitmap* Bitmap)
@@ -95,10 +99,17 @@ void drawlist::Replay(const command& C)
 void drawlist::Record(op Op, const bitmap* Source, cblitdata& Data)
 {
   command C;
-  C.Source = Source;
+  C.Source = Taking ? Stabilise(Source) : Source;
   C.Data = Data;
   C.Op = Op;
   Commands.push_back(C);
+
+  if(Taking)
+  {
+    ++Taken;
+    return;
+  }
+
   ++Recorded;
 
   if(Commands.size() > Peak)
@@ -113,6 +124,9 @@ void drawlist::Record(op Op, const bitmap* Source, cblitdata& Data)
 
 void drawlist::Barrier(const bitmap* Written)
 {
+  if(Taking)
+    return;
+
   if(Written == Target)
   {
     /* A write into the target the list cannot carry. Replaying first is what
@@ -132,31 +146,20 @@ void drawlist::Barrier(const bitmap* Written)
     }
 }
 
-truth drawlist::Intercept(op Op, const bitmap* Source, cblitdata& Data)
+/* Whether a write is one the list carries, and the two barriers on the way.
+   Order is load bearing. humanoid::DrawBodyParts reads the target into
+   TileBuffer, so the flush below replays the previous character's write-back
+   while TileBuffer still holds that character's pixels; testing the
+   destination first would replay it after this blit had overwritten them.
+
+   A taken list replays into no target and holds no order to protect, so
+   neither barrier fires inside one. */
+
+truth drawlist::Reaches(const bitmap* Source, bitmap* Dest)
 {
-  /* Order is load bearing. humanoid::DrawBodyParts reads the target into
-     TileBuffer, so the flush below replays the previous character's write-back
-     while TileBuffer still holds that character's pixels; testing the
-     destination first would replay it after this blit had overwritten them. */
+  if(Taking)
+    return Dest == Target;
 
-  if(Source == Target)
-  {
-    ++Barriers;
-    Flush();
-  }
-
-  if(Data.Bitmap != Target)
-  {
-    Barrier(Data.Bitmap);
-    return false;
-  }
-
-  Record(Op, Source, Data);
-  return true;
-}
-
-truth drawlist::InterceptFastBlit(const bitmap* Source, bitmap* Dest)
-{
   if(Source == Target)
   {
     ++Barriers;
@@ -168,6 +171,23 @@ truth drawlist::InterceptFastBlit(const bitmap* Source, bitmap* Dest)
     Barrier(Dest);
     return false;
   }
+
+  return true;
+}
+
+truth drawlist::Intercept(op Op, const bitmap* Source, cblitdata& Data)
+{
+  if(!Reaches(Source, Data.Bitmap))
+    return false;
+
+  Record(Op, Source, Data);
+  return true;
+}
+
+truth drawlist::InterceptFastBlit(const bitmap* Source, bitmap* Dest)
+{
+  if(!Reaches(Source, Dest))
+    return false;
 
   blitdata B = DEFAULT_BLITDATA;
   B.Bitmap = Dest;
@@ -177,17 +197,8 @@ truth drawlist::InterceptFastBlit(const bitmap* Source, bitmap* Dest)
 
 truth drawlist::InterceptFastBlitPos(const bitmap* Source, bitmap* Dest, v2 Pos)
 {
-  if(Source == Target)
-  {
-    ++Barriers;
-    Flush();
-  }
-
-  if(Dest != Target)
-  {
-    Barrier(Dest);
+  if(!Reaches(Source, Dest))
     return false;
-  }
 
   blitdata B = DEFAULT_BLITDATA;
   B.Bitmap = Dest;
@@ -199,11 +210,8 @@ truth drawlist::InterceptFastBlitPos(const bitmap* Source, bitmap* Dest, v2 Pos)
 truth drawlist::InterceptFill(bitmap* Dest, int X, int Y, int Width, int Height,
                               col16 Color)
 {
-  if(Dest != Target)
-  {
-    Barrier(Dest);
+  if(!Reaches(0, Dest))
     return false;
-  }
 
   blitdata B = DEFAULT_BLITDATA;
   B.Bitmap = Dest;
@@ -217,11 +225,8 @@ truth drawlist::InterceptFill(bitmap* Dest, int X, int Y, int Width, int Height,
 truth drawlist::InterceptRectangle(bitmap* Dest, int Left, int Top, int Right,
                                    int Bottom, col16 Color, truth Wide)
 {
-  if(Dest != Target)
-  {
-    Barrier(Dest);
+  if(!Reaches(0, Dest))
     return false;
-  }
 
   blitdata B = DEFAULT_BLITDATA;
   B.Bitmap = Dest;
@@ -235,11 +240,8 @@ truth drawlist::InterceptRectangle(bitmap* Dest, int Left, int Top, int Right,
 
 truth drawlist::InterceptClearToColor(bitmap* Dest, col16 Color)
 {
-  if(Dest != Target)
-  {
-    Barrier(Dest);
+  if(!Reaches(0, Dest))
     return false;
-  }
 
   blitdata B = DEFAULT_BLITDATA;
   B.Bitmap = Dest;
@@ -251,11 +253,8 @@ truth drawlist::InterceptClearToColor(bitmap* Dest, col16 Color)
 truth drawlist::InterceptAlphaPutPixel(bitmap* Dest, int X, int Y, col16 Color,
                                        col24 Luminance, alpha Alpha)
 {
-  if(Dest != Target)
-  {
-    Barrier(Dest);
+  if(!Reaches(0, Dest))
     return false;
-  }
 
   blitdata B = DEFAULT_BLITDATA;
   B.Bitmap = Dest;
@@ -265,4 +264,28 @@ truth drawlist::InterceptAlphaPutPixel(bitmap* Dest, int X, int Y, col16 Color,
   B.CustomData = Alpha;
   Record(OP_ALPHA_PUT_PIXEL, 0, B);
   return true;
+}
+
+drawlist::sublist::sublist(bitmap* Bitmap, const bitmap* (*Stabiliser)(const bitmap*))
+: Outer(Target)
+{
+  Commands.swap(Held);
+  Target = Bitmap;
+  Stabilise = Stabiliser;
+  Taking = true;
+  ++Sublists;
+}
+
+void drawlist::sublist::Take(std::vector<command>& Into)
+{
+  Into.swap(Commands);
+  Commands.clear();
+}
+
+drawlist::sublist::~sublist()
+{
+  Commands.swap(Held);
+  Target = Outer;
+  Stabilise = 0;
+  Taking = false;
 }
