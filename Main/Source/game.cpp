@@ -5419,15 +5419,19 @@ entity* game::SearchTrap(ulong ID)
   return Iterator != TrapIDMap.end() ? Iterator->second : 0;
 }
 
+/* Field by field, as dangerid below already is. Two ints with no padding, so
+   these bytes are what the raw sizeof Write produced and the save format does
+   not move - measured, not assumed (docs/port-log.md §7.9). */
+
 outputfile& operator<<(outputfile& SaveFile, const configid& Value)
 {
-  SaveFile.Write(reinterpret_cast<cchar*>(&Value), sizeof(Value));
+  SaveFile << Value.Type << Value.Config;
   return SaveFile;
 }
 
 inputfile& operator>>(inputfile& SaveFile, configid& Value)
 {
-  SaveFile.Read(reinterpret_cast<char*>(&Value), sizeof(Value));
+  SaveFile >> Value.Type >> Value.Config;
   return SaveFile;
 }
 

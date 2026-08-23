@@ -71,11 +71,10 @@ inputfile& operator>>(inputfile&, homedata*&);
 struct configid
 {
   /* Zeroed rather than defaulted, for the same reason as graphicid: operator<
-     memcmps the whole object because it is a std::map key, and it is written
-     with a raw sizeof Write. Two ints leave no padding, so unlike graphicid
-     every byte here is covered by a member and nothing currently default
-     initialises one - but that was true of graphicid until it wasn't, and a
-     member initialiser costs nothing. */
+     memcmps the whole object because it is a std::map key. Two ints leave no
+     padding, so unlike graphicid every byte here is covered by a member and
+     nothing currently default initialises one - but that was true of graphicid
+     until it wasn't, and a member initialiser costs nothing. */
 
   configid() : Type(0), Config(0) { }
   configid(int Type, int Config) : Type(Type), Config(Config) { }
@@ -83,6 +82,11 @@ struct configid
   int Type;
   int Config;
 };
+
+/* operator< memcmps the whole object, so the no-padding claim above has to hold
+   rather than be believed. The serializer no longer depends on it. */
+
+static_assert(sizeof(configid) == 2 * sizeof(int), "configid has padding");
 
 outputfile& operator<<(outputfile&, const configid&);
 inputfile& operator>>(inputfile&, configid&);
