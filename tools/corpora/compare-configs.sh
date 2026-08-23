@@ -32,19 +32,15 @@
 # read by message.cpp:236, char.cpp:6311-6315, command.cpp:1975 and iconf.cpp:623. Those are equal
 # at every scale by construction, so the zoom axis is structurally blind to them.
 #
-# **The window axis stops at width 1024 on purpose, and the reason is a defect this script cannot
-# fix.** igraph::CreateBackGround (igraph.cpp:589) sizes the menu's fractal backdrop by rounding
-# ivanconfig::GetStartingWindowWidth() up to the next multiple of 1024 (igraph.cpp:597) and runs a
-# diamond-square over Side x Side cells, where Side is that multiple plus one. Its three RAND() sites
-# (femath.cpp:421, :446, :472) are on the *game* generator and bracketed by nothing, at about one
-# draw per cell. So the backdrop costs ~1025^2 draws at any width up to 1024 and ~2049^2 above it,
-# and the player's window width decides the character they roll. Measured on autoplay-200, seed 999,
-# width 1024 against 1040: the game rand count on the first key after world generation is 1,067,066
-# against 4,215,455, a jump of 3,148,389 against the 3,147,776 cells 2049^2 - 1025^2 predicts. The
-# rolled character goes from AStr 11 / Will 10 / Cha 10 / Mana 10 / Gold 50 to AStr 10 / Will 9 /
-# Cha 11 / Mana 11 / Gold 54, and the recording desynchronises -- it ends at turn 1 instead of turn
-# 197. Height never enters it. Until that is fixed, an arm wider than 1024 fails for a reason that
-# has nothing to do with what this script is asking, so the validation below rejects one.
+# **The window axis used to stop at width 1024, and the arms above it are the whole point of the
+# fix that lifted it.** igraph::CreateBackGround (igraph.cpp:589) sized the fractal backdrop from the
+# window width and ran a diamond-square over it on the *game* generator, unbracketed, at about one
+# draw per cell -- so the backdrop cost ~1025^2 draws up to width 1024 and ~2049^2 above it, and the
+# player's window width decided the character they rolled (docs/port-log.md §7.12). The backdrop now
+# draws from visualrand, so its cost is presentation and the width reaches nothing the game keeps:
+# on noncombat the first sampled step fell from grng 1,050,709 to 88. The wide arms below are what
+# keeps it that way, and 2560x1440 is in the default set because a base that is not a power of two
+# was a second defect at exactly that width.
 #
 # The default covers the whole 1-6 scale range because the tree is now clean across it. It was not,
 # and the site that closed it is worth writing down as history: fluid::imagedata::Animate
@@ -72,7 +68,7 @@
 set -eu
 
 SCALES="1 2 3 4 5 6"
-WINDOWS="640x480 1024x600 800x1072 1024x1072"
+WINDOWS="640x480 1024x600 800x1072 1024x1072 1280x720 1920x1080 2560x1440"
 REF_W=800
 REF_H=600
 ONLY=
@@ -110,8 +106,6 @@ for wh in $WINDOWS; do
   esac
   [ "$w" -ge 640 ] || { echo "$0: WindowWidth $w is below the game's 640 minimum" >&2; exit 2; }
   [ "$h" -ge 480 ] || { echo "$0: WindowHeight $h is below the game's 480 minimum" >&2; exit 2; }
-  [ "$w" -le 1024 ] || { echo "$0: WindowWidth $w is above 1024, where igraph::CreateBackGround"\
-                              "changes the game itself -- see the header" >&2; exit 2; }
 done
 
 HERE=$(cd "$(dirname "$0")" && pwd)

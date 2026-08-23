@@ -594,12 +594,21 @@ void igraph::CreateBackGround(int ColorType)
   CurrentColorType = ColorType;
   delete BackGround;
   BackGround = new bitmap(RES);
-  int base=1024; //TODO explain this: fractals require multiple of 1024 to work/workBetter?
-  while(ivanconfig::GetStartingWindowWidth()>base)base+=1024;
-  int Side = base+1;
+  /* Diamond-square needs Side = 2^n + 1, so base doubles rather than stepping by
+     1024: a base of 3072 leaves 55.5% of the grid never written, and Alloc2D's
+     two argument form does not clear it, so those cells reached the screen as
+     uninitialised heap. It grows on both axes because the read below indexes
+     from base on each, and a window taller than base indexed off the front of
+     the block. The backdrop is presentation, so this draws from visualrand and
+     its contrast is a constant rather than the window width -- both were in the
+     game's stream and in the picture (docs/port-log.md §7.12). */
+
+  int base = 1024;
+  while(Max(RES.X, RES.Y) > base) base <<= 1;
+  int Side = base + 1;
   int** Map;
-  Alloc2D(Map, Side, Side); //TODO confirm and explain this: it seems fractals work better on a squared img right?
-  femath::GenerateFractalMap(Map, Side, Side - 1, ivanconfig::GetStartingWindowWidth());
+  Alloc2D(Map, Side, Side);
+  femath::GenerateFractalMap(Map, Side, Side - 1, 800, visualrand::Rand);
 
   for(int x = 0; x < RES.X; ++x)
     for(int y = 0; y < RES.Y; ++y)

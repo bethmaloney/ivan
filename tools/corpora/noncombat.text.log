@@ -45,128 +45,129 @@ T 18 buf 124 360 word. The point is that tomorrow you can finally forget your ho
 T 18 buf 268 375 face the untold adventures ahead.
 T 25 buf 328 225 Generating game...
 T 25 buf 252 255 This may take some time, please wait.
-T 152 db  704 150 AStr 11 
-T 152 db  704 160 LStr 11 
-T 152 db  704 170 Dex  11 
-T 152 db  704 180 Agi  10 
-T 152 db  704 190 End  10 
-T 152 db  704 200 Per  10 
-T 152 db  704 210 Int  10 
-T 152 db  704 220 Wis  10 
-T 152 db  704 230 Will 10 
-T 152 db  704 240 Cha  10 
-T 152 db  704 250 Mana 10 
-T 152 db  704 260 Ht   175 cm
-T 152 db  704 270 Wt   95 kg
-T 152 db  704 290 HP: 37/37
-T 152 db  704 310 Gold: 50
-T 152 db  704 330 Wilderness
-T 152 db  704 340 Day  1
-T 152 db  704 350 Time 12:00
-T 152 db  704 360 Turn 0
-T 152 buf 13 83       enter an area and '?' to view other commands.
-T 152 buf 13 73 12:00 You commence your journey to Attnam. Use direction keys to move, '>' to
-T 153 db  704 150 AStr 11 
-T 153 db  704 160 LStr 11 
-T 153 db  704 170 Dex  11 
-T 153 db  704 180 Agi  10 
-T 153 db  704 190 End  10 
-T 153 db  704 200 Per  10 
-T 153 db  704 210 Int  10 
-T 153 db  704 220 Wis  10 
-T 153 db  704 230 Will 10 
-T 153 db  704 240 Cha  10 
-T 153 db  704 250 Mana 10 
-T 153 db  704 260 Ht   175 cm
-T 153 db  704 270 Wt   95 kg
-T 153 db  704 290 HP: 37/37
-T 153 db  704 310 Gold: 50
-T 153 db  704 330 Wilderness
-T 153 db  704 340 Day  1
-T 153 db  704 350 Time 12:00
-T 153 db  704 360 Turn 0
-T 153 buf 13 83       enter an area and '?' to view other commands.
-T 153 buf 13 73 12:00 You commence your journey to Attnam. Use direction keys to move, '>' to
-T 153 db  704 150 AStr 11 
-T 153 db  704 160 LStr 11 
-T 153 db  704 170 Dex  11 
-T 153 db  704 180 Agi  10 
-T 153 db  704 190 End  10 
-T 153 db  704 200 Per  10 
-T 153 db  704 210 Int  10 
-T 153 db  704 220 Wis  10 
-T 153 db  704 230 Will 10 
-T 153 db  704 240 Cha  10 
-T 153 db  704 250 Mana 10 
-T 153 db  704 260 Ht   175 cm
-T 153 db  704 270 Wt   95 kg
-T 153 db  704 290 HP: 37/37
-T 153 db  704 310 Gold: 50
-T 153 db  704 330 Wilderness
-T 153 db  704 340 Day  1
-T 153 db  704 350 Time 12:03
-T 153 db  704 360 Turn 1
-T 154 db  704 150 AStr 11 
-T 154 db  704 160 LStr 11 
-T 154 db  704 170 Dex  11 
-T 154 db  704 180 Agi  10 
-T 154 db  704 190 End  10 
-T 154 db  704 200 Per  10 
-T 154 db  704 210 Int  10 
-T 154 db  704 220 Wis  10 
-T 154 db  704 230 Will 10 
-T 154 db  704 240 Cha  10 
-T 154 db  704 250 Mana 10 
-T 154 db  704 260 Ht   175 cm
-T 154 db  704 270 Wt   95 kg
-T 154 db  704 290 HP: 37/37
-T 154 db  704 310 Gold: 50
-T 154 db  704 330 Wilderness
-T 154 db  704 340 Day  1
-T 154 db  704 350 Time 12:03
-T 154 db  704 360 Turn 1
-T 154 db  704 150 AStr 11 
-T 154 db  704 160 LStr 11 
-T 154 db  704 170 Dex  11 
-T 154 db  704 180 Agi  10 
-T 154 db  704 190 End  10 
-T 154 db  704 200 Per  10 
-T 154 db  704 210 Int  10 
-T 154 db  704 220 Wis  10 
-T 154 db  704 230 Will 10 
-T 154 db  704 240 Cha  10 
-T 154 db  704 250 Mana 10 
-T 154 db  704 260 Ht   175 cm
-T 154 db  704 270 Wt   95 kg
-T 154 db  704 290 HP: 37/37
-T 154 db  704 310 Gold: 50
-T 154 db  704 330 Wilderness
-T 154 db  704 340 Day  1
-T 154 db  704 350 Time 12:06
-T 154 db  704 360 Turn 2
-T 155 buf 252 225 Entering Underwater Tunnel level 1...
-T 155 buf 252 255 This may take some time, please wait.
-T 367 db  16 461 Belyer Asu the neutral human
-T 367 db  704 150 AStr 11 
-T 367 db  704 160 LStr 11 
-T 367 db  704 170 Dex  11 
-T 367 db  704 180 Agi  10 
-T 367 db  704 190 End  10 
-T 367 db  704 200 Per  10 
-T 367 db  704 210 Int  10 
-T 367 db  704 220 Wis  10 
-T 367 db  704 230 Will 10 
-T 367 db  704 240 Cha  10 
-T 367 db  704 250 Mana 10 
-T 367 db  704 260 Ht   175 cm
-T 367 db  704 270 Wt   95 kg
-T 367 db  704 290 HP: 37/37
-T 367 db  704 310 Gold: 50
-T 367 db  704 330 UT lvl 1
-T 367 db  704 340 Day  1
-T 367 db  704 350 Time 12:06
-T 367 db  704 360 Turn 3
-T 367 buf 13 83 12:06 There is a granite stairway upwards here.
-T 367 buf 13 73       enter an area and '?' to view other commands.
-T 367 buf 13 63 12:00 You commence your journey to Attnam. Use direction keys to move, '>' to
-# end frames=367
+T 169 db  704 150 AStr 9  
+T 169 db  704 160 LStr 10 
+T 169 db  704 170 Dex  11 
+T 169 db  704 180 Agi  10 
+T 169 db  704 190 End  10 
+T 169 db  704 200 Per  10 
+T 169 db  704 210 Int  10 
+T 169 db  704 220 Wis  10 
+T 169 db  704 230 Will 11 
+T 169 db  704 240 Cha  10 
+T 169 db  704 250 Mana 9  
+T 169 db  704 260 Ht   175 cm
+T 169 db  704 270 Wt   95 kg
+T 169 db  704 290 HP: 37/37
+T 169 db  704 310 Gold: 45
+T 169 db  704 330 Wilderness
+T 169 db  704 340 Day  1
+T 169 db  704 350 Time 12:00
+T 169 db  704 360 Turn 0
+T 169 buf 13 83       enter an area and '?' to view other commands.
+T 169 buf 13 73 12:00 You commence your journey to Attnam. Use direction keys to move, '>' to
+T 170 db  704 150 AStr 9  
+T 170 db  704 160 LStr 10 
+T 170 db  704 170 Dex  11 
+T 170 db  704 180 Agi  10 
+T 170 db  704 190 End  10 
+T 170 db  704 200 Per  10 
+T 170 db  704 210 Int  10 
+T 170 db  704 220 Wis  10 
+T 170 db  704 230 Will 11 
+T 170 db  704 240 Cha  10 
+T 170 db  704 250 Mana 9  
+T 170 db  704 260 Ht   175 cm
+T 170 db  704 270 Wt   95 kg
+T 170 db  704 290 HP: 37/37
+T 170 db  704 310 Gold: 45
+T 170 db  704 330 Wilderness
+T 170 db  704 340 Day  1
+T 170 db  704 350 Time 12:00
+T 170 db  704 360 Turn 0
+T 170 buf 13 83       enter an area and '?' to view other commands.
+T 170 buf 13 73 12:00 You commence your journey to Attnam. Use direction keys to move, '>' to
+T 170 db  704 150 AStr 9  
+T 170 db  704 160 LStr 10 
+T 170 db  704 170 Dex  11 
+T 170 db  704 180 Agi  10 
+T 170 db  704 190 End  10 
+T 170 db  704 200 Per  10 
+T 170 db  704 210 Int  10 
+T 170 db  704 220 Wis  10 
+T 170 db  704 230 Will 11 
+T 170 db  704 240 Cha  10 
+T 170 db  704 250 Mana 9  
+T 170 db  704 260 Ht   175 cm
+T 170 db  704 270 Wt   95 kg
+T 170 db  704 290 HP: 37/37
+T 170 db  704 310 Gold: 45
+T 170 db  704 330 Wilderness
+T 170 db  704 340 Day  1
+T 170 db  704 350 Time 12:03
+T 170 db  704 360 Turn 1
+T 171 db  704 150 AStr 9  
+T 171 db  704 160 LStr 10 
+T 171 db  704 170 Dex  11 
+T 171 db  704 180 Agi  10 
+T 171 db  704 190 End  10 
+T 171 db  704 200 Per  10 
+T 171 db  704 210 Int  10 
+T 171 db  704 220 Wis  10 
+T 171 db  704 230 Will 11 
+T 171 db  704 240 Cha  10 
+T 171 db  704 250 Mana 9  
+T 171 db  704 260 Ht   175 cm
+T 171 db  704 270 Wt   95 kg
+T 171 db  704 290 HP: 37/37
+T 171 db  704 310 Gold: 45
+T 171 db  704 330 Wilderness
+T 171 db  704 340 Day  1
+T 171 db  704 350 Time 12:03
+T 171 db  704 360 Turn 1
+T 171 db  704 150 AStr 9  
+T 171 db  704 160 LStr 10 
+T 171 db  704 170 Dex  11 
+T 171 db  704 180 Agi  10 
+T 171 db  704 190 End  10 
+T 171 db  704 200 Per  10 
+T 171 db  704 210 Int  10 
+T 171 db  704 220 Wis  10 
+T 171 db  704 230 Will 11 
+T 171 db  704 240 Cha  10 
+T 171 db  704 250 Mana 9  
+T 171 db  704 260 Ht   175 cm
+T 171 db  704 270 Wt   95 kg
+T 171 db  704 290 HP: 37/37
+T 171 db  704 310 Gold: 45
+T 171 db  704 330 Wilderness
+T 171 db  704 340 Day  1
+T 171 db  704 350 Time 12:06
+T 171 db  704 360 Turn 2
+T 172 buf 252 225 Entering Underwater Tunnel level 1...
+T 172 buf 252 255 This may take some time, please wait.
+T 485 db  16 461 Belyer Asu the neutral human
+T 485 db  704 150 AStr 9  
+T 485 db  704 160 LStr 10 
+T 485 db  704 170 Dex  11 
+T 485 db  704 180 Agi  10 
+T 485 db  704 190 End  10 
+T 485 db  704 200 Per  10 
+T 485 db  704 210 Int  10 
+T 485 db  704 220 Wis  10 
+T 485 db  704 230 Will 11 
+T 485 db  704 240 Cha  10 
+T 485 db  704 250 Mana 9  
+T 485 db  704 260 Ht   175 cm
+T 485 db  704 270 Wt   95 kg
+T 485 db  704 290 HP: 37/37
+T 485 db  704 310 Gold: 45
+T 485 db  704 330 UT lvl 1
+T 485 db  704 340 Day  1
+T 485 db  704 350 Time 12:06
+T 485 db  704 360 Turn 3
+T 485 buf 13 83 12:06 Kenny the puppy opens the door.
+T 485 buf 13 73 12:06 There is a granite stairway upwards here.
+T 485 buf 13 63       enter an area and '?' to view other commands.
+T 485 buf 13 53 12:00 You commence your journey to Attnam. Use direction keys to move, '>' to
+# end frames=485
