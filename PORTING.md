@@ -483,10 +483,11 @@ Exit: 0 all match, 1 something differs, 2 error.
 reach the screen** — which is exactly the class §6.4 is about. §6.8 made `long`/`ulong` write as 8
 explicit little-endian bytes on every target, which closed the container-length problem with it, so a
 WASM save and a native save are byte-identical but for `GetTimeSpent`. `--word-size` survives for
-reading saves written before that change. Two things are still open: `graphicid` and `configid` are
-written with a raw `sizeof` and so carry host layout, agreeing only because both targets happen to
-lay them out the same way; and a `long` holding more than 32 bits would narrow on load under wasm32.
-Neither has been audited — §7.9.
+reading saves written before that change — its help text still describes the world before it, which
+§7.9d records. `graphicid` and `configid` were the two remaining raw `sizeof` writes and are now
+audited: `configid` is field-by-field, `graphicid`'s layout is pinned by `offsetof` asserts on both
+targets rather than converted, and nothing saved can reach 32 bits in a reachable game. §7.9 has the
+measurements and what a future `SAVE_FILE_VERSION` bump should carry.
 
 - **Use savediff rather than a hand-rolled `cmp` loop.** The auto-play corpus produces two files
   whose extension is `.40` — `<stem>.40` and `<stem>.AutoSave.40` — so pairing by extension silently

@@ -13,6 +13,7 @@
 #ifndef __IGRAPH_H__
 #define __IGRAPH_H__
 
+#include <cstddef>
 #include <cstring>
 #include <map>
 #include <vector>
@@ -35,11 +36,12 @@ struct graphicid
      uninitialized - object::UpdatePictures builds its key on the stack, so the
      padding carried whatever the last call left there.
 
-     This struct is no longer packed, so there is one byte of tail padding and
-     the memset is what makes it defined. Packing removed it, but packing also
-     removes the alignment guarantee on every member, and Colorize() is handed
-     Color, Alpha, RustData and BurnData as pointers - see felibdef.h. Zeroing
-     costs one memset per key construction and keeps the members aligned. */
+     This struct is no longer packed, so it needs one byte of tail padding, and
+     Padding below is that byte declared rather than left to the compiler.
+     Packing removed it, but packing also removes the alignment guarantee on
+     every member, and Colorize() is handed Color, Alpha, RustData and BurnData
+     as pointers - see felibdef.h. Zeroing costs one memset per key construction
+     and keeps the members aligned. */
 
   graphicid() { memset(this, 0, sizeof(*this)); }
   bool operator<(const graphicid&) const;
@@ -62,7 +64,47 @@ struct graphicid
   uchar BurnData[4];
   ushort Seed;
   uchar WobbleData;
+  uchar Padding;
 };
+
+/* The layout is the format. The serializer writes the whole struct with a raw
+   Write, so any member added, reordered or re-padded silently changes the save
+   file, and the browser tile registry will read these same offsets out of the
+   module's memory. Declaration order is guaranteed - all members are public, so
+   [class.mem] puts later ones at higher addresses - but the padding is not, and
+   a build flag moving it is exactly what docs/port-log.md §7.7 was. These pin
+   both, on every target, at compile time. Padding is the last member rather
+   than a hole so that sizeof is the sum of the members: with a hole, adding a
+   uchar leaves sizeof at 48 and nothing here fires. */
+
+#define GRAPHICID_AT(Field, Offset)\
+  static_assert(offsetof(graphicid, Field) == Offset, "graphicid layout moved: " #Field)
+
+GRAPHICID_AT(BitmapPosX, 0);
+GRAPHICID_AT(BitmapPosY, 2);
+GRAPHICID_AT(Color, 4);
+GRAPHICID_AT(Frame, 12);
+GRAPHICID_AT(FileIndex, 13);
+GRAPHICID_AT(SpecialFlags, 14);
+GRAPHICID_AT(Alpha, 16);
+GRAPHICID_AT(BaseAlpha, 20);
+GRAPHICID_AT(SparkleFrame, 21);
+GRAPHICID_AT(SparklePosX, 22);
+GRAPHICID_AT(SparklePosY, 23);
+GRAPHICID_AT(OutlineColor, 24);
+GRAPHICID_AT(OutlineAlpha, 26);
+GRAPHICID_AT(FlyAmount, 27);
+GRAPHICID_AT(Position, 28);
+GRAPHICID_AT(RustData, 36);
+GRAPHICID_AT(BurnData, 40);
+GRAPHICID_AT(Seed, 44);
+GRAPHICID_AT(WobbleData, 46);
+GRAPHICID_AT(Padding, 47);
+
+#undef GRAPHICID_AT
+
+static_assert(sizeof(graphicid) == 48, "graphicid size moved");
+static_assert(alignof(graphicid) == 4, "graphicid alignment moved");
 
 inline bool graphicid::operator<(const graphicid& GI) const
 {

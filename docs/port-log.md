@@ -1221,27 +1221,97 @@ inferred. Blanket `-Werror` is fragile against a compiler bump: at GCC 13.3 the 
 `ushort` length plus raw bytes; entity type IDs and flags are cast to `ushort`. None of it cares
 what host wrote it. `RAW_SAVE_LOAD` is `Write(&Value, sizeof(Value))`, and of what goes through it
 only `long`/`ulong` differed (8 vs 4) — closed by §6.8. `int`, `uint`, `double`, `v2`, `rect`,
-`packv2`, `expid` and `configid` are all the same width on both targets and little-endian on both.
+`packv2` and `expid` are all the same width on both targets and little-endian on both.
 
-What is left:
+#### 7.9a What the two raw struct writes actually risked
 
-1. **Containers** — the width question is settled; open is whether 8 bytes per container length is
-   worth it. `uint` would halve it and is equally portable.
-2. **Raw struct writes.** `graphicid` (`igraph.cpp:364`) and `configid` (`game.cpp:5393`) are
-   written with `sizeof`. §7.7 made their layouts flag-independent, which is necessary and not
-   sufficient — they still carry host layout, and they agree today only because both targets happen
-   to lay them out the same way. Converting them to field-by-field, as `dangerid`, `killreason` and
-   `massacreid` already are, removes the question permanently.
-3. **Truncation.** On wasm32 `long` is 4 bytes, so a saved value above 32 bits narrows on load.
-   Nothing in the tree is known to store one; it has not been audited.
-4. **savediff** decoders move to the new offsets, and `--word-size` becomes a legacy-save flag
-   rather than a required guess.
+The open item was `graphicid` (`igraph.cpp:364`) and `configid` (`game.cpp:5393`), written with a raw
+`sizeof`. Measured before deciding what to do about it:
 
-`SAVE_FILE_VERSION` exists (`game.cpp:76`, written at `:3454`, checked at `:3519`) and the stamp is
-an `int`, 4 bytes on both platforms, so a WASM build can read a native save's version and reject it
-cleanly rather than mis-decoding it. Bundle this into the next version bump. The harness can
-validate it: replay a corpus, save, load, re-save and compare on one platform to prove the format
-round-trips, then native-vs-native savediff to prove semantics did not move.
+|                  | native x86-64 | wasm32 |
+| ---------------- | ------------- | ------ |
+| `sizeof(graphicid)` | 48, align 4 | 48, align 4 |
+| `sizeof(configid)`  | 8, align 4  | 8, align 4  |
+
+`graphicid`'s members fill bytes 0–46 with **no internal holes**; the only padding is one tail byte
+at offset 47, and the constructor's `memset` means it has always been zero in every record ever
+written. So field-by-field serialization would have emitted today's bytes minus one trailing zero.
+`configid` is two `int`s with no padding at all, so `<< Type << Config` through `RAW_SAVE_LOAD(int)`
+is byte-identical to the raw write.
+
+**And half of "carries host layout" turned out to be guaranteed rather than coincidental.**
+`graphicid` is all-public with no access specifiers, so `[class.mem]` requires later members at
+higher addresses: declaration order *is* the wire order on any conforming compiler. Padding is the
+implementation-defined half — and it is the half that has actually bitten this codebase, because
+§7.7 was a build flag silently changing this struct's padding. Every member is `uchar`/`ushort`/
+`int` at natural alignment, so on any little-endian target with 1/2/4 for those types the raw write
+already produces identical bytes; a target where it would not is also a target where the format's
+several thousand raw `int`, `v2` and `rect` writes break, so converting `graphicid` alone would not
+have produced a loadable save there.
+
+That leaves two exposures, neither of them cross-target: a packing or alignment flag moving the
+padding again, and **a field added or reordered, changing the save format silently with no version
+bump** — and moving the offsets the browser tile registry will read out of the module's memory.
+
+#### 7.9b What was done: pin the layout, leave the format alone
+
+`igraph.h` now asserts every `offsetof` plus `sizeof` and `alignof`, so both exposures are compile
+errors on both targets, and the tail pad byte is a declared member (`Padding`) rather than a hole.
+That last part is load-bearing: with a hole, adding a `uchar` field leaves `sizeof` at 48 and no
+assert fires. `configid` went field-by-field, since it is byte-identical, and gained an assert that
+its size is exactly its two members — which its comment previously only claimed in prose.
+
+The format did not move, and that was checked rather than reasoned: `savediff --ignore-timespent`
+across all three corpora reports all 14 save files **SAME**, `.sav` files carrying `DangerMap`
+included, and `verify-corpora.sh` matches every golden. Native and WASM still agree
+(`compare-targets.sh`), and the clean build is still exit 0 with 128 warnings.
+
+No `SAVE_FILE_VERSION` bump, no `savediff` work, no round-trip harness.
+
+#### 7.9c What the format is made of, and why the deferred items are small
+
+Counters on the serializers, per save file, native:
+
+| file | bytes | graphicid | share | container lengths | share |
+| ---- | ----- | --------- | ----- | ----------------- | ----- |
+| `noncombat` `.40` | 922,795 | 13,302 × 48 | **69.2%** | 3,435 × 8 | 3.0% |
+| `autoplay-2000` `AutoSave.41` | 3,065,520 | 27,335 × 48 | **42.8%** | 6,697 × 8 | 1.7% |
+
+So halving the container lengths to `uint` is worth 0.9–1.5% of a level file, and dropping
+`graphicid`'s pad byte another 0.9–1.4%. Both are rounding errors beside the number nobody had
+measured: **`noncombat` writes 13,302 graphicids of which 474 are distinct** (3.6%);
+`autoplay-2000` writes 497,047 across the run, 4,534 distinct. A per-file table plus a `ushort`
+index takes that level file from 922,795 to roughly 330,000 — 64% off — and the table is the same
+table the tile registry needs. **The encoding of `graphicid` is the small lever; the count is the
+big one.**
+
+The truncation item closes as an audit. After 1,972 turns `Tick` is 46,741 (~24/turn) and
+`NextItemID` is 63,864, so reaching 2³¹ needs on the order of 90 million turns; `time_t` already
+goes out through §6.8's explicit `long long` overload. Nothing saved can reach 32 bits in a
+reachable game.
+
+#### 7.9d What is left, for whoever moves SAVE_FILE_VERSION next
+
+Converting `graphicid`, shrinking the container lengths to `uint` and moving `savediff` are worth
+doing together the next time something else forces a version bump — which is what this section
+suggested in the first place. Three findings for whoever does it:
+
+1. **The import floor has to move with the format.** `game.cpp:3556` only rejects versions
+   *greater* than the current one, and `feio.cpp:1290` has `iOldSavegameVersionImportSince = 131`.
+   With `AllowImportOldSavegame` on (default off, "v131 up, experimental") an older-format save is
+   offered and decoded by the current reader — misdecoded, not rejected. The claim that the version
+   stamp makes an old save fail cleanly is only true with that option off.
+2. **`savediff` needs less than it looks.** Nothing it decodes reaches a `graphicid`: `DecodeSav`
+   stops at the gamescript and `DecodeArea` at the room vector, both far in front. Its exposure is
+   four container-count reads via `R.ULong` (`GameScript.Team.Count`, `Relation.Count`,
+   `Dungeon.Count`, `EntryMap.Count`), which need decoupling from `WordSize` once counts are 4 bytes
+   while `Tick`/`Turn`/`Seed` stay 8. Separately its `--word-size` help text is already stale: §6.8
+   made `long`/`ulong` 8 explicit little-endian bytes on both targets, so the default 8 is correct
+   for every current save and `--word-size 32` is not.
+3. **`compare-targets.sh` cannot validate a portability claim about these structs**, because both
+   its targets already agree — it passes with the raw write still in place, as it did here. What
+   would test it is a committed golden hexdump of one canonical `graphicid` and `configid` compared
+   on native and WASM, in the shape of the existing `--defgen`/`--defval` pair.
 
 ### 7.10 What §6.10 left open
 
