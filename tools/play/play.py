@@ -131,7 +131,7 @@ class Session:
         self.png = os.path.join(self.path, "screen.png")
         self.txt = os.path.join(self.path, "screen.txt")
         self.text_log = os.path.join(self.path, "text.log")
-        self.trace = os.path.join(self.path, "trace.jsonl")
+        self.trace = os.path.join(self.path, "game.jsonl")
         self.run_log = os.path.join(self.path, "run.log")
         self.frames = os.path.join(self.path, "frames")
         self.seed = 999

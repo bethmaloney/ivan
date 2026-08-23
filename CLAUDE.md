@@ -82,10 +82,23 @@ There is no unit test suite for the game. The oracle is three committed recordin
 traces, text logs and screenshots.
 
 ```bash
-tools/corpora/verify-corpora.sh          # 8 runs each: self-consistency + golden. ~12s
+tools/corpora/verify-corpora.sh          # 8 runs each: self-consistency + golden. ~17s
 tools/corpora/verify-corpora.sh -n 1     # smoke test
-tools/corpora/compare-targets.sh         # native vs WASM, all corpora
+tools/corpora/compare-targets.sh         # native vs WASM, all corpora. ~26s
+tools/corpora/compare-configs.sh         # one build at six DungeonGfxScale values. ~17s
+tools/corpora/fuzz-visual.sh             # one build at six --visual-seed values. ~24s
 ```
+
+Four scripts, four questions: *did this build change?*, *do these two builds agree?*, *does one
+build agree with itself when the player configured it differently?*, *does anything the game draws
+decide anything the game keeps?* Only the first runs in CI. `docs/port-log.md` §6.10a is what a
+`compare-configs.sh` pass does and does not establish, and §6.10d is why the last two are not the
+same check.
+
+Each run writes two traces: `game.jsonl`, sampled from the game's own loop and carrying no
+screen-derived quantity, and `frames.jsonl`, which hashes the double buffer. **When graphics crosses
+into `web/`, the first survives and the second is replaced** — which is the whole reason they were
+separated (§6.10d).
 
 **Run `verify-corpora.sh` before and after any change to `Main/`, `FeLib/`, the compiler flags or the
 build.** A change that moves the goldens has changed the game; that may be correct, but it is never

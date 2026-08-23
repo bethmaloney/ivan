@@ -13,6 +13,10 @@
 # two-run comparisons, both of which evaporated at 6-8 samples. Pairs agree by
 # chance often enough to fool you. Use 1 only for a quick smoke test.
 #
+# Recordings under effects/ are deliberately outside this script's *.rec glob:
+# they have no golden and must not acquire one (docs/port-log.md §6.10b).
+# compare-configs.sh is what replays them.
+#
 # Usage: verify-corpora.sh [-n RUNS] [--update]
 #        --update  rewrite the golden files from this build instead of checking
 #                  them. Self-consistency is still enforced first -- a build that
@@ -53,7 +57,7 @@ for rec in "$HERE"/*.rec; do
   # docs/port-log.md §6.5a again: with a flaky divergence, "run 1 == run 2" is a
   # coin flip and reporting it as agreement is how this went wrong twice.
   consistent=0
-  for artifact in trace.jsonl text.log screen.png; do
+  for artifact in game.jsonl frames.jsonl text.log screen.png; do
     distinct=$(md5sum "$WORK/$name"/*/"$artifact" | awk '{print $1}' | sort -u | wc -l)
     if [ "$distinct" -ne 1 ]; then
       printf '\n  FAIL %s: %d distinct outcomes across %d runs\n' \
@@ -65,7 +69,8 @@ for rec in "$HERE"/*.rec; do
 
   # Golden comparison.
   golden_bad=0
-  for pair in "trace.jsonl:$name.trace.jsonl" "text.log:$name.text.log"; do
+  for pair in "game.jsonl:$name.game.jsonl" "frames.jsonl:$name.frames.jsonl" \
+              "text.log:$name.text.log"; do
     produced=$WORK/$name/1/${pair%%:*}
     golden=$HERE/${pair##*:}
     if [ "$UPDATE" -eq 1 ]; then

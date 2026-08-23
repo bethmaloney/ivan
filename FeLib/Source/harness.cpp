@@ -40,6 +40,7 @@ truth harness::CapturingText = false;
 truth harness::Headless = false;
 ulong harness::RandCount = 0;
 ulong harness::GameRandCount = 0;
+ulong harness::VisualRandCount = 0;
 int harness::SeedDepth = 0;
 ulong harness::NestedBrackets = 0;
 
@@ -55,7 +56,8 @@ ulong harness::NestedBrackets = 0;
  */
 
 static std::ofstream RecordFile;
-static std::ofstream TraceFile;
+static std::ofstream TraceFile;      /* the game trace */
+static std::ofstream FrameTraceFile; /* the frame trace */
 static std::ifstream ReplayFile;
 
 static cchar* ReplayFileName = 0;
@@ -67,11 +69,23 @@ static truth ReplayTrailerSeen = false;
 
 static ulong FrameIndex = 0;
 static ulong KeySeq = 0;
-static ulong TraceIndex = 0;
+static ulong TraceIndex = 0;      /* records in the frame trace */
+static ulong StepIndex = 0;       /* records in the game trace */
+
+static truth FrameTracing = false;
+static harness::gamestatereader ReadGameState = 0;
+static harness::gamestate LastState;
+static truth LastStateValid = false;
 
 static ulong SeedOverride = 0;
 static truth SeedOverrideSet = false;
 static truth SeedFromArg = false;
+
+/* The presentation generator's seed (visualrand, femath.h). Fixed by default,
+   because the frame hashes and the screenshots have to reproduce; --visual-seed
+   random is the fuzz arm, which asserts that varying it moves no game state. */
+
+static ulong VisualSeed = 0x1AA2;
 
 static truth MouseWarningGiven = false;
 
@@ -81,7 +95,12 @@ static ulong ShotCount = 0;
 static std::ofstream TextLogFile;
 
 cint RecordVersion = 1;
-cint TraceVersion = 1;
+
+/* 2: the one trace became two, docs/port-log.md §6.10d. A reader that knows
+   version 1 is reading a file that no longer exists rather than one it can
+   partially understand, so the version is on both halves and both are 2. */
+
+cint TraceVersion = 2;
 cint LineSize = 512;
 
 /* FNV-1a, 64 bits. Not 32: over a corpus of the size a differential run
@@ -333,6 +352,26 @@ static void OpenTrace(cchar* Name)
 
   harness::Tracing = true;
 
+  /* The meta line does not wait for a frame the way the frame trace's does:
+     nothing in it comes from the screen, which is the point of the split. */
+
+  char Buf[192];
+  snprintf(Buf, sizeof(Buf),
+           "{\"trace\":\"game\",\"ver\":%d,\"seed\":%lu}\n",
+           TraceVersion, SeedOverride);
+  TraceFile << Buf;
+  TraceFile.flush();
+}
+
+static void OpenFrameTrace(cchar* Name)
+{
+  FrameTraceFile.open(Name);
+
+  if(!FrameTraceFile.is_open())
+    Fail(festring("cannot open frame trace file ") << Name << " for writing");
+
+  FrameTracing = true;
+
   if(getenv("IVAN_SHOWFPS"))
     std::cerr << "harness: IVAN_SHOWFPS is set, it draws a wall clock reading"
                  " into the double buffer and will make every frame hash"
@@ -351,6 +390,7 @@ void harness::ParseArgs(int argc, char** argv)
   cchar* RecordName = 0;
   cchar* ReplayName = 0;
   cchar* TraceName = 0;
+  cchar* FrameTraceName = 0;
   cchar* TextName = 0;
 
   for(int c = 1; c < argc; ++c)
@@ -363,6 +403,8 @@ void harness::ParseArgs(int argc, char** argv)
       ReplayName = NextArg(argc, argv, c);
     else if(Arg == "--trace")
       TraceName = NextArg(argc, argv, c);
+    else if(Arg == "--frame-trace")
+      FrameTraceName = NextArg(argc, argv, c);
     else if(Arg == "--shot")
       ShotName = NextArg(argc, argv, c);
     else if(Arg == "--shot-dir")
@@ -390,10 +432,28 @@ void harness::ParseArgs(int argc, char** argv)
       SeedOverrideSet = true;
       SeedFromArg = true;
     }
+    else if(Arg == "--visual-seed")
+    {
+      cchar* Value = NextArg(argc, argv, c);
+
+      if(festring(Value) == "random")
+        VisualSeed = ulong(time(0)) ^ (ulong(clock()) << 16);
+      else
+      {
+        char* End;
+        culong Seed = strtoul(Value, &End, 10);
+
+        if(!*Value || *End)
+          Fail(festring("--visual-seed wants a decimal number or \"random\","
+                        " got \"") << Value << '"');
+
+        VisualSeed = Seed;
+      }
+    }
   }
 
-  if(!RecordName && !ReplayName && !TraceName && !SeedOverrideSet
-     && !ShotName && !ShotDirName && !TextName)
+  if(!RecordName && !ReplayName && !TraceName && !FrameTraceName
+     && !SeedOverrideSet && !ShotName && !ShotDirName && !TextName)
     return;
 
   /* Before anything is opened: the first open would already have truncated the
@@ -405,6 +465,10 @@ void harness::ParseArgs(int argc, char** argv)
   RejectSameFile("--record", RecordName, "--text", TextName);
   RejectSameFile("--replay", ReplayName, "--text", TextName);
   RejectSameFile("--trace", TraceName, "--text", TextName);
+  RejectSameFile("--record", RecordName, "--frame-trace", FrameTraceName);
+  RejectSameFile("--replay", ReplayName, "--frame-trace", FrameTraceName);
+  RejectSameFile("--trace", TraceName, "--frame-trace", FrameTraceName);
+  RejectSameFile("--frame-trace", FrameTraceName, "--text", TextName);
 
   /* The shot sidecar is derived from the shot name, so a shot called foo.txt
      would have its own text layer overwrite it, and one called foo.rec would
@@ -422,6 +486,8 @@ void harness::ParseArgs(int argc, char** argv)
     RejectSameFile("--shot sidecar", Sidecar.c_str(), "--record", RecordName);
     RejectSameFile("--shot sidecar", Sidecar.c_str(), "--replay", ReplayName);
     RejectSameFile("--shot sidecar", Sidecar.c_str(), "--trace", TraceName);
+    RejectSameFile("--shot sidecar", Sidecar.c_str(), "--frame-trace",
+                   FrameTraceName);
     RejectSameFile("--shot sidecar", Sidecar.c_str(), "--text", TextName);
   }
 
@@ -450,6 +516,9 @@ void harness::ParseArgs(int argc, char** argv)
 
   if(TraceName)
     OpenTrace(TraceName);
+
+  if(FrameTraceName)
+    OpenFrameTrace(FrameTraceName);
 
   if(TextName)
     OpenTextLog(TextName);
@@ -496,6 +565,12 @@ void harness::Shutdown()
     RecordFile << "# end keys=" << KeySeq << " frames=" << FrameIndex
                << " rng=" << RandCount << '\n';
     RecordFile.close();
+  }
+
+  if(FrameTraceFile.is_open())
+  {
+    FrameTraceFile.flush();
+    FrameTraceFile.close();
   }
 
   if(TraceFile.is_open())
@@ -1066,6 +1141,21 @@ void harness::TraceFrame()
 {
   ++FrameIndex;
 
+  /* A second sampler for the game trace, and the reason is coverage rather than
+     graphics. game::Run's loop does not start until the menus, character
+     creation and the first level generation are done -- 1,067,066 of noncombat's
+     1,074,979 draws, 87% of the run, in a straight line with no natural sample
+     point. Blits happen throughout it (the busy animation), so sampling here as
+     well localises a divergence in that phase to a few thousand draws instead of
+     to "before step 0".
+
+     It cannot make the game trace depend on the screen: a record is emitted only
+     when the game's own fields moved, so an extra sample of an unchanged game
+     writes nothing. When the renderer leaves C++ this call goes with it and the
+     generation phase needs a sampler of its own (§7.11). */
+
+  TraceGameStep();
+
   if(CapturingText)
     HandOverText();
 
@@ -1117,20 +1207,23 @@ void harness::TraceFrame()
     /* The resolution is unknown until SetMode has run, so the meta line waits
        for the first frame. */
 
-    if(Tracing)
+    if(FrameTracing)
     {
       snprintf(Buf, sizeof(Buf),
-               "{\"frame\":-1,\"hash\":\"0000000000000000\",\"rng\":0,"
-               "\"index\":-1,\"ver\":%d,\"seed\":%lu,\"w\":%d,\"h\":%d}\n",
-               TraceVersion, SeedOverride, Size.X, Size.Y);
-      TraceFile << Buf;
+               "{\"trace\":\"frames\",\"ver\":%d,\"visual_seed\":%lu,"
+               "\"w\":%d,\"h\":%d}\n",
+               TraceVersion, VisualSeed, Size.X, Size.Y);
+      FrameTraceFile << Buf;
     }
   }
-  else if(Hash == LastHash && RandCount == LastRandCount)
+  else if(Hash == LastHash)
     return;
 
+  /* Hash alone now, where this used to be "hash or rng". The draw counts moved
+     to the game trace, and a frame whose pixels repeat the previous frame's is
+     not a frame worth recording or screenshotting whatever the game did. */
+
   LastHash = Hash;
-  LastRandCount = RandCount;
 
   /* Frames that repeat the one before them are skipped, which is what keeps a
      shot directory to the frames that actually look different. Each PNG is
@@ -1148,27 +1241,100 @@ void harness::TraceFrame()
     ++ShotCount;
   }
 
-  if(!Tracing)
+  if(!FrameTracing)
     return;
 
   /* "frame" is the BlitDBToScreen count: the same counter, from the same
      origin, as the frame column of a recording, so the number printed beside a
-     key can be looked up here directly. A frame whose hash and rng both repeat
-     the previous one is not emitted, so that lookup is the last "frame" not
-     greater than the one wanted. "index" numbers the emitted records. */
+     key can be looked up here directly. A frame repeating the previous one is
+     not emitted, so that lookup is the last "frame" not greater than the one
+     wanted. "index" numbers the emitted records, "vrng" is the presentation
+     generator's draw count and is the only draw count in this file. */
 
   snprintf(Buf, sizeof(Buf),
-           "{\"frame\":%lu,\"hash\":\"%016llx\",\"rng\":%lu,\"index\":%lu,"
-           "\"grng\":%lu,\"nest\":%lu,\"depth\":%d}\n",
-           FrameIndex, Hash, RandCount, TraceIndex++,
-           GameRandCount, NestedBrackets, SeedDepth);
-  TraceFile << Buf;
+           "{\"frame\":%lu,\"hash\":\"%016llx\",\"vrng\":%lu,"
+           "\"index\":%lu}\n",
+           FrameIndex, Hash, VisualRandCount, TraceIndex++);
+  FrameTraceFile << Buf;
 
   /* Flushed per line on purpose: a SIGSEGV in a build without BACKTRACE never
      reaches atexit, and the frames just before a crash are the ones wanted. */
 
+  FrameTraceFile.flush();
+}
+
+/* Field by field rather than memcmp. gamestate has four bytes of padding
+   between PlayerHP and NextCharacterID, the struct is a local that nothing
+   zeroes, and comparing that padding made one run in eight emit a duplicate
+   record -- the same shape of defect as §6.6, found the same way, by the
+   eight-run rule rather than by a pair agreeing. */
+
+static truth SameState(const harness::gamestate& A, const harness::gamestate& B)
+{
+  /* Tick is deliberately not here. It advances on every iteration of game::Run's
+     loop, so triggering on it emits a record per tick whether or not the game
+     did anything: 49,359 records and 7.6MB of golden for autoplay-2000, against
+     2,759 and 273KB for the single trace this replaced. It stays *in* the
+     record, where it is the fine clock a reader wants beside a divergence; it
+     just does not get a vote on whether there is one. */
+
+  return A.Turn == B.Turn
+         && A.Dungeon == B.Dungeon
+         && A.Level == B.Level
+         && A.PlayerX == B.PlayerX
+         && A.PlayerY == B.PlayerY
+         && A.PlayerHP == B.PlayerHP
+         && A.NextCharacterID == B.NextCharacterID
+         && A.NextItemID == B.NextItemID;
+}
+
+void harness::SetGameStateReader(gamestatereader Reader)
+{
+  ReadGameState = Reader;
+}
+
+void harness::TraceGameStep()
+{
+  if(!Tracing)
+    return;
+
+  gamestate State;
+  ctruth HaveState = ReadGameState && ReadGameState(State);
+
+  if(!HaveState)
+    memset(&State, 0, sizeof State);
+
+  /* Emitted only when something in the record moved. A game blocked on a key
+     re-enters game::Run's loop without having done anything, and a file with a
+     line per idle poll would be a file about the scheduler. */
+
+  if(LastStateValid && RandCount == LastRandCount && SameState(State, LastState))
+    return;
+
+  LastRandCount = RandCount;
+  LastState = State;
+  LastStateValid = true;
+
+  /* No frame number, deliberately: it is the one graphics-derived quantity that
+     could have stayed, in the one file whose point is not to have any. A
+     recording's K lines carry rng beside the frame, so cross-referencing a key
+     to a record goes through rng, which both files agree on and neither takes
+     from the screen. */
+
+  char Buf[320];
+  snprintf(Buf, sizeof(Buf),
+           "{\"step\":%lu,\"turn\":%ld,\"tick\":%lu,"
+           "\"dl\":[%d,%d],\"pos\":[%d,%d],\"hp\":%d,"
+           "\"chars\":%lu,\"items\":%lu,"
+           "\"rng\":%lu,\"grng\":%lu,\"nest\":%lu,\"depth\":%d}\n",
+           StepIndex++, State.Turn, State.Tick,
+           State.Dungeon, State.Level, State.PlayerX, State.PlayerY,
+           State.PlayerHP, State.NextCharacterID, State.NextItemID,
+           RandCount, GameRandCount, NestedBrackets, SeedDepth);
+  TraceFile << Buf;
   TraceFile.flush();
 }
 
 truth harness::HasSeedOverride() { return SeedOverrideSet; }
 ulong harness::GetSeedOverride() { return SeedOverride; }
+ulong harness::GetVisualSeed() { return VisualSeed; }

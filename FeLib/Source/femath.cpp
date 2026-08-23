@@ -69,15 +69,16 @@ truth basequadricontroller::SectorCompletelyClear;
 #define TEMPERING_SHIFT_T(y) (y << 15)
 #define TEMPERING_SHIFT_L(y) (y >> 18)
 
-ulong femath::mt[N1]; /* the array for the state vector  */
-long femath::mti = N1+1; /* mti==N+1 means mt[N] is not initialized */
+mtgen femath::Game;
+mtgen visualrand::Visual;
+ulong visualrand::Base = 0;
 
-/* backups */
+/* backups, for femath::SaveSeed - the game generator's only */
 
 ulong femath::mtb[N1];
 long femath::mtib;
 
-void femath::SetSeed(ulong Seed)
+void mtgen::SetSeed(ulong Seed)
 {
   /* setting initial seeds to mt[N] using         */
   /* the generator Line 25 of Table 1 in          */
@@ -90,14 +91,8 @@ void femath::SetSeed(ulong Seed)
     mt[mti] = (69069 * mt[mti-1]) & 0xffffffff;
 }
 
-long femath::Rand()
+long mtgen::Draw()
 {
-  /* Every other generator here funnels through this one, so this single
-     counter sees all of them. Draws made between SaveSeed and LoadSeed are
-     counted too even though they are discarded; see harness.h. */
-
-  harness::CountRand();
-
   ulong y;
   static ulong mag01[2]={0x0, MATRIX_A};
 
@@ -130,6 +125,41 @@ long femath::Rand()
   y ^= TEMPERING_SHIFT_L(y);
 
   return y & 0x7FFFFFFF;
+}
+
+/* Every other generator in femath funnels through Rand(), so this one counter
+   sees all of them. Draws made between SaveSeed and LoadSeed are counted too
+   even though they are discarded; see harness.h. */
+
+long femath::Rand()
+{
+  harness::CountRand();
+  return Game.Draw();
+}
+
+void femath::SetSeed(ulong Seed)
+{
+  Game.SetSeed(Seed);
+}
+
+long visualrand::Rand()
+{
+  harness::CountVisualRand();
+  return Visual.Draw();
+}
+
+void visualrand::SetSeed(ulong Seed)
+{
+  Base = Seed;
+  Visual.SetSeed(Seed);
+}
+
+/* The xor is what puts --visual-seed in front of a keyed draw as well as a
+   free-running one; see the note above the class. */
+
+void visualrand::SetKey(ulong Key)
+{
+  Visual.SetSeed(Key ^ Base);
 }
 
 double femath::NormalDistributedRand(double StandardDeviation)
@@ -291,22 +321,27 @@ truth femath::Clip(int& SourceX, int& SourceY,
   return Width > 0 && Height > 0;
 }
 
+/* One caller left, and it is not a visual one: character::ActivateRandomState
+   (char.cpp) draws a state for a seeded mushroom and then rewinds so the game's
+   stream does not advance. Every presentation caller this used to have moved to
+   visualrand, which needs no rewind - see the note above that class. */
+
 void femath::SaveSeed()
 {
   harness::EnterSeedBracket();
-  mtib = mti;
+  mtib = Game.mti;
 
   for(int c = 0; c < N1; ++c)
-    mtb[c] = mt[c];
+    mtb[c] = Game.mt[c];
 }
 
 void femath::LoadSeed()
 {
   harness::LeaveSeedBracket();
-  mti = mtib;
+  Game.mti = mtib;
 
   for(int c = 0; c < N1; ++c)
-    mt[c] = mtb[c];
+    Game.mt[c] = mtb[c];
 }
 
 void ReadData(interval& I, inputfile& SaveFile)

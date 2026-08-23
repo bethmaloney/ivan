@@ -153,9 +153,10 @@ void object::UpdatePictures()
 truth object::RandomizeSparklePos(v2& SparklePos, v2 BPos, int& SparkleTime, ulong SeedBase,
                                   int SpecialFlags, int GraphicsContainerIndex) const
 {
+  /* Keyed on the object, so an item sparkles the same way twice; SeedModifier walks it over
+     sixteen positions. Reseeding the presentation generator is the whole isolation (femath.h). */
   static int SeedModifier = 1;
-  femath::SaveSeed();
-  femath::SetSeed(SeedBase + SeedModifier);
+  visualrand::SetKey(SeedBase + SeedModifier);
 
   if(++SeedModifier > 0x10)
     SeedModifier = 1;
@@ -198,17 +199,11 @@ truth object::RandomizeSparklePos(v2& SparklePos, v2 BPos, int& SparkleTime, ulo
                                                                                   BPos, TILE_V2, ValidityArraySize,
                                                                                   GetSparkleFlags());
 
-  if(SparklePos != ERROR_V2)
-  {
-    SparkleTime = RAND() % 241;
-    femath::LoadSeed();
-    return true;
-  }
-  else
-  {
-    femath::LoadSeed();
+  if(SparklePos == ERROR_V2)
     return false;
-  }
+
+  SparkleTime = VRAND() % 241;
+  return true;
 }
 
 void object::UpdatePictures(graphicdata& GraphicData, v2 Position, int SpecialFlags, alpha MaxAlpha,

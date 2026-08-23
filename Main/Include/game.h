@@ -541,6 +541,13 @@ class game
   static dungeon** Dungeon;
   static ulong NextCharacterID;
   static ulong NextItemID;
+ public:
+  /* For the game trace only (harness.h): how many characters and items have
+     ever been created is the cheap half of a state digest. */
+
+  static ulong GetNextCharacterID() { return NextCharacterID; }
+  static ulong GetNextItemID() { return NextItemID; }
+ private:
   static ulong NextTrapID;
   static team** Team;
   static ulong LOSTick;

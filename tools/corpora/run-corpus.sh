@@ -19,6 +19,14 @@
 #                   ending in .js is run under node, which is how the same
 #                   script replays the Emscripten build.
 #        IVAN_DATA  directory holding Graphics/ Script/ Music/ Sound/ (default .)
+#        IVAN_CONF  newline-separated `Name = value;` lines to plant as the run's
+#                   config file. Empty by default, which writes no file at all, so
+#                   every option keeps its compiled-in default and an unset run is
+#                   byte-for-byte what it was before this knob existed.
+#        IVAN_ARGS  extra arguments appended to the pinned command line. Empty by
+#                   default. This is how fuzz-visual.sh varies --visual-seed; it is
+#                   not a general escape hatch, and anything set here that moves the
+#                   game trace invalidates the goldens for that run.
 
 set -eu
 
@@ -65,6 +73,15 @@ for d in Graphics Script Music Sound; do
   ln -sfn "$IVAN_DATA/$d" "$OUTDIR/$d"
 done
 
+# A config file is the only way to pin an option for one run: ivanconfig::Initialize
+# snapshots the window size and the zoom once, right after configsystem::Load(), and
+# nothing reassigns them afterwards. It is ivan.conf, not ivan.cfg -- the .cfg name is
+# inside #ifdef WIN32 (iconf.cpp:1315) and no target here takes that branch -- and it
+# goes in the run directory, which is GetUserDataDir() under PORTABLE_BUILD.
+if [ -n "${IVAN_CONF:-}" ]; then
+  printf '%s\n' "$IVAN_CONF" > "$OUTDIR/ivan.conf"
+fi
+
 # The two SDL_*DRIVER variables are redundant now that --headless never asks SDL
 # for a device, and are kept only so that dropping --headless by hand still runs
 # on a machine with no display. Note Emscripten does not forward the process
@@ -73,12 +90,16 @@ done
 cd "$OUTDIR"
 SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy ${IVAN_RUNNER} "$IVAN_BIN" \
   --replay "$CORPUS" \
-  --trace trace.jsonl \
+  --trace game.jsonl \
+  --frame-trace frames.jsonl \
   --text text.log \
   --shot screen.png \
   --headless \
+  ${IVAN_ARGS:-} \
   > run.log 2>&1
 
-# The trace's own header carries the seed and resolution, so a truncated run is
-# visible without reading the game's stdout.
-[ -s trace.jsonl ] || { echo "empty trace from $CORPUS" >&2; exit 1; }
+# Each trace's own header line carries what pinned it -- the seed for the game
+# trace, the visual seed and the resolution for the frame trace -- so a truncated
+# run is visible without reading the game's stdout.
+[ -s game.jsonl ] || { echo "empty game trace from $CORPUS" >&2; exit 1; }
+[ -s frames.jsonl ] || { echo "empty frame trace from $CORPUS" >&2; exit 1; }

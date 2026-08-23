@@ -465,6 +465,10 @@ void fluid::imagedata::Animate(blitdata& BlitData, int CurrentFlags) const
   if(!AlphaSum)
     return;
 
+  /* Presentation, and the one site a code read walked past twice: a stain does not look like a
+     visual effect, but one of these runs per on-screen stained square, so on the game's generator
+     the player's zoom would pick the next monster (docs/port-log.md §6.10). */
+
   if(!DripTimer)
   {
     DripPos = Picture->RandomizePixel();
@@ -495,7 +499,7 @@ void fluid::imagedata::Animate(blitdata& BlitData, int CurrentFlags) const
       BlitData.Bitmap->AlphaPutPixel(TrueDripPos + BlitData.Dest, DripColor, BlitData.Luminance, DripAlpha);
     }
     else
-      DripTimer = Min<long>(RAND() % (500000 / AlphaSum), 25000);
+      DripTimer = Min<long>(VRAND() % (500000 / AlphaSum), 25000);
   }
 
   --DripTimer;

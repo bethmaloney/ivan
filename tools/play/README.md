@@ -163,7 +163,7 @@ session.rec    regenerated from session.json every run
 screen.png     the final screen
 screen.txt     its text layer
 text.log       every string drawn all session
-trace.jsonl    per-frame hash trace
+game.jsonl     per-game-step trace (docs/port-log.md §6.10d)
 run.log        the game's stdout and stderr
 Save/          real save files, one set per run
 ```

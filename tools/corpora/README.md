@@ -3,15 +3,37 @@
 Three recordings, their golden traces and golden text logs, and the scripts that
 replay and check them. This is the oracle PORTING.md is built around, in the one
 form that makes it an oracle: committed artifacts rather than instructions for
-regenerating some.
+regenerating some. A fourth recording lives under `effects/` and has no golden on
+purpose — see below.
 
 ```bash
 tools/corpora/verify-corpora.sh            # 8 runs each, self-consistency + golden
 tools/corpora/verify-corpora.sh -n 1       # quick smoke test
 tools/corpora/verify-corpora.sh --update   # rewrite the goldens from this build
+
+tools/corpora/compare-targets.sh           # native vs WASM, all three corpora
+tools/corpora/compare-configs.sh           # one build at six DungeonGfxScale values
+tools/corpora/fuzz-visual.sh               # one build at six --visual-seed values
 ```
 
-About twelve seconds for all three at the default eight runs.
+Four scripts, four questions: *did this build change?*, *do these two builds
+agree?*, *does one build agree with itself when the player configured it
+differently?*, *does anything the game draws decide anything the game keeps?*
+Only the first is in CI.
+
+Each run writes two traces. `game.jsonl` is sampled from `game::Run`'s loop, one
+record per step of the game, and carries no screen-derived quantity -- not even a
+frame number. `frames.jsonl` hashes the double buffer, one record per frame whose
+pixels moved. They were one file until §6.10d; splitting them is what lets the
+game trace survive graphics crossing into `web/`, and what lets `fuzz-visual.sh`
+vary the picture while asserting the game held still.
+
+About twenty seconds for all three at the default eight runs — 18.6s wall, 86s
+user, on 22 idle cores. `fuzz-visual.sh` is 24s for four corpora at six seeds. Over half of that is `autoplay-2000`: one run of it
+costs 9.9s against 2.4s and 2.0s for the other two. It was twelve seconds for
+all three while that corpus made 6.3M random draws; §6.10's brackets moved it to
+10.7M and §6.10c's second generator took it back to 10.3M, the difference being
+the draws the brackets used to make and throw away.
 
 ## The corpora
 
@@ -22,8 +44,8 @@ two intro screens. Each is a prefix of the next.
 | | keys | lands on | exercises |
 |---|---|---|---|
 | `noncombat.rec` | 7 | UT lvl 1, turn 3, HP 37/37 | world gen, character creation, level gen, descent |
-| `autoplay-200.rec` | 210 | UT lvl 1, turn 161, HP 24/35 | the above plus combat, item use, equipment, hunger, death |
-| `autoplay-2000.rec` | 2010 | UT lvl 2, turn 1763, HP 43/43 | the above plus a **second dungeon level** — level 2 generation, both directions of the stairs, and seventeen turn-boundary autosaves |
+| `autoplay-200.rec` | 210 | UT lvl 1, turn 197, HP 36/36 | the above plus combat, item use, equipment, hunger, death |
+| `autoplay-2000.rec` | 2010 | UT lvl 2, turn 1972, HP 202/202 | the above plus a **second dungeon level** — level 2 generation, both directions of the stairs, and twenty-one turn-boundary autosaves |
 
 `down left >` is **specific to seed 999**: it walks onto the cave mouth one tile
 west of the start and enters. Another seed generates another island.
@@ -48,10 +70,12 @@ are recorded across docs/port-log.md §6.6a–d as the check values for those fi
 
 | | noncombat | autoplay-200 | autoplay-2000 |
 |---|---|---|---|
-| trace frames | 365 | 592 | 2,675 |
-| cumulative RNG draws | 1,075,023 | 1,517,713 | 6,329,412 |
-| final HP | 37/37 | **24/35** | **43/43** |
-| final turn | 3 | 161 | 1,763 |
+| game steps (`game.jsonl`) | 311 | 5,950 | 49,151 |
+| trace frames (`frames.jsonl`) | 365 | 595 | 2,741 |
+| cumulative RNG draws | 1,074,979 | 1,769,279 | 10,261,035 |
+| game-stream draws (`grng`) | 1,074,979 | 1,769,125 | 10,253,524 |
+| final HP | 37/37 | **36/36** | **202/202** |
+| final turn | 3 | 197 | 1,972 |
 
 These moved once, deliberately, in the commit that made the game compiler
 independent (docs/port-log.md §9.4). The key sequences did not change and neither did
@@ -68,8 +92,80 @@ says the fixes were as narrow as they claimed. Its old values (2,698 frames,
 5,038,226 draws, HP 41/43, turn 1,750) describe a run in which a room read its
 no-monster-generation flag out of freed heap.
 
+`game steps` and `trace frames` are new rows: §6.10d split the one trace into
+two, and `trace frames` is no longer the count it was, because a record is now
+emitted when the pixels move rather than when the pixels or the draw count move.
+`autoplay-2000` reads 2,741 where the single trace read 2,758.
+
+All three `cumulative RNG draws` figures moved a fourth time, in the commit that
+gave presentation its own generator (§6.10c) — and *only* that row moved. The
+brackets' draws stopped being made rather than being made and discarded, so
+`grng` did not move a single row and neither did any text log. What did move is
+the frame hashes on the 290 of 596 `autoplay-200` records and 744 of 2,759
+`autoplay-2000` records where a drip or an explosion drew; `noncombat` reaches
+none and its hashes are untouched.
+
+Both auto-play columns moved a third time, in the commit that put
+`femath::SaveSeed` brackets around the random draws of four visual effects
+(docs/port-log.md §6.10): `fluid::imagedata::Animate`'s blood drip,
+`level::DrawExplosion`'s mirror flag, `lsquare::DrawParticles` and
+`lsquare::DrawLightning`. Those draws were being made on the *game's* stream
+once per on-screen stained square or explosion, so the player's
+`DungeonGfxScale` decided how many of them happened and two players sharing a
+seed did not share a game. Moving these goldens is what fixing that costs, and
+it is not a small correction: the drip alone runs 2,048 times on
+`autoplay-200` and 6,382 times on `autoplay-2000` (gdb breakpoint counts), and
+none of those draws is on the game stream any more.
+
+`noncombat` is byte-identical to its previous golden, which is the check that
+says the change was as narrow as it claims — it reaches none of the four
+functions, 0 hits on all of them. Both auto-play corpora first differ at frame
+381, and that frame is the signature of the fix rather than of a behaviour
+change: the frame hash is unchanged (`309fecf0a8598d40`) and `rng` is unchanged
+(1,119,452) while `grng` drops by exactly five, 1,119,408 to 1,119,403. Five
+draws moved off the game stream; the same total was drawn and the same pixels
+came out. The first hash change is one frame later, and the trajectory shifts
+from there, which is how a five-draw difference becomes 36 more turns on
+`autoplay-200` and 209 more on `autoplay-2000`.
+
+`compare-configs.sh` is the check that says the property was actually bought:
+every corpus now ends on the same `grng` at all six `DungeonGfxScale` values,
+where before `autoplay-200` ended at 1,714,427 at scales 1-5 against 1,813,687
+at 6. Read that narrowly — it is one integer per corpus, over four recordings,
+at one window size, with `EnhancedLights` pinned off, and §6.10a is the list of
+what it still cannot see.
+
+One thing that move cost, worth knowing before you rely on either auto-play
+corpus for the death path: the characters now survive. Distinct death phrases
+fell 12 → 2 on `autoplay-200` and 14 → 2 on `autoplay-2000`, while distinct
+"is slain" subjects rose 1 → 4 and 6 → 8. The keys are unchanged, so this is
+the new trajectory rather than a different recording.
+
 `nest` must be 0 on every frame of both. If it ever goes positive the single
 `mtb` backup slot is corrupting the game stream — docs/port-log.md §6.5a.
+
+## `effects/` — recordings with no golden, on purpose
+
+`effects/beams.rec` is 84 keys: the same seed 999 prefix, wizard mode, `1` five
+times so the character survives its own beams, `$` for scrolls of wishing, three
+wishes and two zaps. It exists because **no committed corpus casts anything**, so
+without it `compare-configs.sh` would be asserting a property that holds
+vacuously.
+
+It has no golden trace and no golden text log, and **must not acquire one**. What
+it exercises is a wand animation that is meant to look different at a different
+zoom; its assertion is cross-arm equality rather than equality against a
+committed artifact, and keeping it out of `verify-corpora.sh`'s `*.rec` glob
+keeps it out of the way of the three corpora that do have goldens. It is outside
+`compare-targets.sh`'s glob for the same reason, which is what that decision
+costs: the two `lsquare` sites are the only ones in §6.10 never compared
+native-vs-WASM.
+
+Measured, it reaches `lsquare::DrawParticles` 6 times and `level::DrawExplosion`
+once, and `lsquare::DrawLightning` **not at all** — the fireball zap detonates a
+gas grenade, warp gas teleports the character across the level, and the last key
+lands on an apply prompt instead of firing the wand. So re-record it, wishing the
+lightning wand *last*; do not give it a golden. §6.10b.
 
 ## Regenerating
 
@@ -149,14 +245,22 @@ one contaminate each other. `run-corpus.sh` enforces both.
 not saves. Level files and `.wm` do reproduce now (§6.6d — eight ordinary runs,
 one distinct level file, no fixed heap fill and no ASLR trick), but `.sav`
 carries `GetTimeSpent`, one byte recording whether the replay crossed a
-wall-clock second. On `autoplay-200` that byte reads 2 or 3 depending on machine
-load, which is 2 distinct `.sav` files across 8 runs and is expected. Use
-`savediff --ignore-timespent` for save comparison; it pairs files by role rather
-than by name, which matters because `game::SaveName` stamps the stem with a
-timestamp. `compare-targets.sh` runs it across the two targets and reports it
-without letting it decide the exit status; since §9.11 every level file and `.wm`
-of all three corpora is byte-identical there, and `GetTimeSpent` is the only
-thing left that differs.
+wall-clock second. On `autoplay-200` it reads 1 or 2 in `.sav` and 2 or 3 in
+`AutoSave.sav` depending on machine load: eight runs on an idle machine give
+one distinct file of each role, eight against a saturated one give two, and
+both are expected. Use `savediff --ignore-timespent` for save comparison; it
+pairs files by role rather than by name, which matters because `game::SaveName`
+stamps the stem with a timestamp. `compare-targets.sh` runs it across the two
+targets and reports it without letting it decide the exit status; since §9.11
+every level file and `.wm` of all three corpora is byte-identical there, and
+`GetTimeSpent` is the only thing left that differs.
+
+**Any configuration but the compiled-in defaults.** `run-corpus.sh` writes no
+config file at all unless `IVAN_CONF` is set, which is what makes every golden
+comparable — and is also why the player's zoom sat in the game's random stream
+for the whole port (§6.10). `compare-configs.sh` is the only thing that varies a
+setting, it varies one (`DungeonGfxScale`), and it pins `EnhancedLights` off
+where the shipped default is on. Window size, in particular, is never varied.
 
 **Anything outside these three corpora.** Every determinism number in PORTING.md
 is a property of the levels these key sequences generate. `autoplay-2000` reaches

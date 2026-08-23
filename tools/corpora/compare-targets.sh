@@ -10,7 +10,12 @@
 # The two builds are compared against *each other*, not against the committed
 # goldens. verify-corpora.sh does the golden check and answers a different
 # question ("did this build change?"); this one answers "do these two builds
-# agree?", and both are needed.
+# agree?", and compare-configs.sh asks the third, "does one build agree with
+# itself when the player configured it differently?" (docs/port-log.md §6.10a).
+# All three are needed.
+#
+# Like verify-corpora.sh this replays $HERE/*.rec only, so the recordings under
+# effects/ are not compared across targets -- §6.10b says what that costs.
 #
 # Usage: compare-targets.sh
 # Env:   IVAN_BIN_A  first build   (default build/Main/ivan)
@@ -49,7 +54,7 @@ for rec in "$HERE"/*.rec; do
   wait
 
   bad=0
-  for artifact in trace.jsonl text.log screen.png screen.txt; do
+  for artifact in game.jsonl frames.jsonl text.log screen.png screen.txt; do
     if ! cmp -s "$WORK/$name/a/$artifact" "$WORK/$name/b/$artifact"; then
       [ "$bad" -eq 0 ] && printf '\n'
       bad=1; FAILED=1
@@ -57,7 +62,7 @@ for rec in "$HERE"/*.rec; do
 
       # The first differing trace record is the useful part: its rng field says
       # whether the *game* diverged or only the animation did (docs/port-log.md §6.5a).
-      if [ "$artifact" = trace.jsonl ]; then
+      if [ "$artifact" = game.jsonl ]; then
         diff "$WORK/$name/a/$artifact" "$WORK/$name/b/$artifact" \
           | head -3 | sed 's/^/    /'
       fi

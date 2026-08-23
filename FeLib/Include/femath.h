@@ -45,6 +45,20 @@
  * &&, || and ?: sequence their operands by definition.
  */
 
+/*
+ * Two generators, and which one a draw lands on is a correctness question, not
+ * a style one. RAND is the game's: the seed reproduces it, saves persist it and
+ * anything it decides is shared by two players who typed the same seed. VRAND
+ * is the presentation's, and nothing it returns may reach game state, a save
+ * file or the game trace (docs/port-log.md §6.10c).
+ *
+ * The rule for choosing is not "is this drawing pixels" - fluid::imagedata's
+ * blood drip walked past that reading twice. It is: could the number of times
+ * this runs depend on anything outside the game? A draw behind a visibility
+ * test depends on the camera, which depends on the player's window size and
+ * zoom, and that is §6.10 - the defect this split exists to make unwritable.
+ */
+
 #define RAND femath::Rand
 #define RAND_N femath::RandN
 #define RAND_2 (femath::Rand() & 1)
@@ -57,9 +71,31 @@
 #define RAND_256 (femath::Rand() & 255)
 #define RAND_GOOD femath::RandGood
 
+#define VRAND visualrand::Rand
+#define VRAND_16 (visualrand::Rand() & 15)
+#define VRAND_32 (visualrand::Rand() & 31)
+
 class outputfile;
 class inputfile;
 template <class type> struct fearray;
+
+/* One Mersenne Twister. Two instances exist and the difference between them is
+   the whole of docs/port-log.md §6.10: femath's decides the game and is what a
+   shared seed reproduces, visualrand's decides nothing that outlives the frame
+   it is drawn on. */
+
+class mtgen
+{
+ public:
+  void SetSeed(ulong);
+  long Draw();
+
+ private:
+  ulong mt[624];
+  long mti = 625; /* > 624, so Draw() seeds itself rather than read garbage */
+
+  friend class femath; /* SaveSeed needs the raw state; see the note there */
+};
 
 class femath
 {
@@ -94,10 +130,50 @@ class femath
   }
 
  protected:
-  static ulong mt[];
-  static long mti;
+  static mtgen Game;
   static ulong mtb[];
   static long mtib;
+};
+
+/*
+ * The presentation stream. Two kinds of caller share it:
+ *
+ *   VRAND()   the caller wants "some" randomness and does not care that two
+ *             runs differ - fluid drips, explosion mirroring, particles, the
+ *             wand beams.
+ *   SetKey(K) then VRAND(), for a caller that needs the same picture from the
+ *             same object every frame - bitmap::CreateFlames, CreateFlies,
+ *             CreateLightning, object::RandomizeSparklePos. igraph caches a
+ *             drawn tile under the item's graphic id (igraph.cpp:282) and
+ *             regenerates it on a miss, so a regenerated tile has to come out
+ *             looking like the one it replaced. These are upstream's original
+ *             SaveSeed users; that seed was always a key and never an isolation
+ *             bracket.
+ *
+ * SetKey mixes the key with --visual-seed rather than using it raw, and that
+ * one xor is the whole reason this is one generator and not two. Without it a
+ * key overwrites the stream with a value the seed never touched -- measured on
+ * autoplay-200, 681 keys against 3,152 draws -- so the seed reaches almost
+ * nothing and any test that varies it passes vacuously. With it the seed
+ * reaches every presentation draw of both kinds, while a fixed seed still gives
+ * a key the same picture every time (docs/port-log.md §6.10c).
+ *
+ * There is no SaveSeed here and there is not meant to be. Restoring state is
+ * what the game's generator needs so a discarded draw stays discarded; this one
+ * has nothing to discard, and the absence of the mechanism is what makes the
+ * brackets' nesting hazard (harness.h) unreachable from presentation.
+ */
+
+class visualrand
+{
+ public:
+  static long Rand();
+  static void SetSeed(ulong);
+  static void SetKey(ulong);
+
+ private:
+  static mtgen Visual;
+  static ulong Base;
 };
 
 struct interval

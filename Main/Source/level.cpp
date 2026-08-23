@@ -1147,7 +1147,11 @@ truth level::DrawExplosion(const explosion* Explosion) const
   if(BPos.Y + SizeVect.Y > RES.Y)
     SizeVect.Y = RES.Y - BPos.Y;
 
-  int Flags = RAND() & 7;
+  /* Mirroring only, but the clipping above returns before it when the explosion is off screen and
+     the camera follows game::GetScreenXSize(), so on the game's generator the player's zoom would
+     move the stream (docs/port-log.md §6.10). */
+  int Flags = VRAND() & 7;
+
   blitdata BlitData = { 0,
                         { PicPos.X, PicPos.Y },
                         { 0, 0 },

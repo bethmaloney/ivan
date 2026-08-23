@@ -71,7 +71,9 @@ coverage they are about to lose, and why `web/e2e/` exists.
 | | |
 |---|---|
 | Each corpus, 8 isolated runs — trace, text log, PNG | **1 distinct outcome**, matching the committed golden |
-| The longest corpus, 16 concurrent runs on a saturated machine | **1 distinct outcome** — 2,800 turns, 36 deaths, 9.7M RNG draws |
+| The longest corpus, 16 concurrent runs on a saturated machine | **1 distinct outcome**, byte-identical to the unloaded run — 1,972 turns, 2 deaths, 10.7M RNG draws |
+| Each corpus at six `DungeonGfxScale` values, one build | **the same game-stream position (`grng`)** at every scale, with distant lights off (§6.10a) |
+| Each corpus at six `--visual-seed` values, one build | **a byte-identical game trace**, and a frame trace that differs — the liveness half (§6.10d) |
 | Native vs WASM, all three corpora | trace, text log, screenshot, sidecar, `.wm` and every level file **byte-identical** |
 | Native `--headless` vs native windowed | **byte-identical** on every artifact |
 | valgrind uninitialized reads, every corpus | **0 errors / 0 contexts** |
@@ -82,7 +84,10 @@ coverage they are about to lose, and why `web/e2e/` exists.
 
 The CPU-load row is the meaningful one *for the risk it was designed to test* — wall-clock leaking
 into game state. Saturating the machine and still getting identical output is real evidence about the
-clock.
+clock. Its turns/deaths/draws read "2,800 turns, 36 deaths, 9.7M RNG draws" until §6.10 re-measured
+them: those figures came from an ad-hoc auto-play run made while the harness was being written,
+before any corpus was committed, and never described `autoplay-2000.rec`. The "1 distinct outcome"
+half was right then and is right now.
 
 **Read all of it narrowly.** Every number is a property of the levels these three key sequences
 generate. Native-vs-WASM is unblocked *for the reached paths* and unproven elsewhere:
@@ -96,6 +101,12 @@ generate. Native-vs-WASM is unblocked *for the reached paths* and unproven elsew
   time a corpus change alone surfaced a family that three earlier passes had walked past.
 - **`.wm` still has the §6.2 residue**, and no corpus visits enough of the world map to write the
   whole file.
+- **Every run above uses one window size and one zoom.** `run-corpus.sh` pins the configuration,
+  which is what makes the comparisons mean anything and is also why the player's `DungeonGfxScale`
+  sat in the game's random stream unnoticed for the whole port (§6.10). `compare-configs.sh` varies
+  that one axis on four recordings and compares one integer each; §6.10a is the list of what it
+  still cannot see, starting with the fact that it pins `EnhancedLights` off and the shipped default
+  is on.
 
 ## Builds
 
@@ -188,16 +199,34 @@ repeatedly, which is what `tools/web/serve.py` is for.
 ## Testing
 
 The oracle is three committed recordings with golden traces, text logs and screenshots —
-`tools/corpora/README.md` has the table, the check values and how to regenerate them. Two scripts
-answer different questions and you want both:
+`tools/corpora/README.md` has the table, the check values and how to regenerate them. Four scripts
+answer four different questions and you want all of them:
 
 - **`verify-corpora.sh`** compares a build against the committed goldens: *did this build change?*
 - **`compare-targets.sh`** replays each corpus on native and WASM and compares them against each
   other: *do these two builds agree?*
+- **`compare-configs.sh`** replays each corpus at every `DungeonGfxScale` on one build and compares
+  the game-stream draw count: *does one build agree with itself when the player configured it
+  differently?* It is the newest and the narrowest — one integer per corpus, one config axis — and
+  §6.10a is the honest account of its reach.
+- **`fuzz-visual.sh`** replays each corpus varying only `--visual-seed` and compares the game trace:
+  *does anything the game draws decide anything the game keeps?* It and `compare-configs.sh` cover
+  different mistakes and neither contains the other — the sweep sees a *game*-generator draw behind a
+  visibility test, this sees a *presentation*-generator value reaching game state, and a
+  game-generator draw that is not camera-gated (`bodypart::DrawScars`) is seen by neither. §6.10c has
+  the table. **CI runs only the first** (`deploy.yml`), so no invariance property has a regression
+  test.
 
 A change that moves both builds identically passes the second and fails the first; a
 compiler-dependent expression (§9.4) does the reverse, which is why a dozen such bugs survived every
-determinism test in this repo.
+determinism test in this repo. The third asks about the *player's* configuration rather than the
+build's, and it found a bug the other two could not express: until §6.10 every run in the tree shared
+one window size, so nothing could see that the zoom level was moving the game's random stream.
+
+A fourth recording, `tools/corpora/effects/beams.rec`, sits under `effects/` with **no golden and
+deliberately no way to acquire one** — it exists so `compare-configs.sh` has a corpus that casts
+something, and its animation is *meant* to differ between zoom levels. It is outside the other two
+scripts' globs, which is what §6.10b costs and records.
 
 **Run `verify-corpora.sh` before and after any change to `Main/`, `FeLib/`, the compiler flags or the
 build.** A change that moves the goldens has changed the game. That may be correct, but it is never
@@ -236,9 +265,20 @@ longer corpora were generated.
 ```
 --record   [file]     Record every key the game reads to file.
 --replay   [file]     Play back a recording instead of reading real input.
---trace    [file]     Write a per-frame JSONL hash trace to file.
+--trace    [file]     Write the game's JSONL trace: one record per game step,
+                      carrying the turn, the clock, the player, the creation
+                      counters and the draw counts. Nothing in it comes from the
+                      screen, so it outlives the renderer (§6.10d).
+--frame-trace [file]  Write the presentation's JSONL trace: one record per frame
+                      whose pixels differ from the previous frame's, carrying a
+                      hash of the double buffer.
 --seed     [number]   Pin the RNG seed. Continuing a saved game ignores this
                       (the seed is stored in the save).
+--visual-seed [n|random]
+                      Seed the presentation generator (§6.10c), which decides
+                      nothing the game keeps. Fixed by default, because frame
+                      hashes and screenshots have to reproduce; "random" is the
+                      arm that asserts nothing leaks from it into grng.
 --shot     [file.png] Write the screen when the run ends, plus a file.txt
                       sidecar holding every string on that screen.
 --shot-dir [dir]      Write every frame that differs from the one before it to
@@ -278,7 +318,9 @@ namespace harness
 
   void RecordKey(int);
   truth NextReplayKey(int&);
-  void TraceFrame();
+  void TraceGameStep();            // game::Run's loop, and TraceFrame
+  void TraceFrame();               // BlitDBToScreen
+  void SetGameStateReader(gamestatereader);
 
   inline truth IsCapturingText();
   void RecordText(const void* Target, int X, int Y, int Color, cchar*);
@@ -286,11 +328,19 @@ namespace harness
 
   inline truth IsHeadless();       // read by graphics.cpp, whandler.cpp, sfx.cpp
 
-  inline void CountRand();         // ++RandCount
+  inline void CountRand();         // ++RandCount, the game generator
   inline ulong GetRandCount();
+  inline ulong GetGameRandCount(); // the same count, brackets excluded
+
+  inline void CountVisualRand();   // ++VisualRandCount, the presentation one
+  inline ulong GetVisualRandCount();
+
+  inline void EnterSeedBracket();  // femath::SaveSeed/LoadSeed only; Enter
+  inline void LeaveSeedBracket();  // counts a bracket entered at depth > 0
 
   truth HasSeedOverride();
   ulong GetSeedOverride();
+  ulong GetVisualSeed();           // --visual-seed; always has a value
 }
 ```
 
@@ -302,7 +352,7 @@ formatting or I/O.
 |---|---|
 | `FeLib/Source/whandler.cpp` | record/replay at every `GetKey`/`ReadKey` return path; `IsHeadless()` guards `SDL_ShowWindow` |
 | `FeLib/Source/graphics.cpp` | `TraceFrame()` in all three `BlitDBToScreen` definitions; `IsHeadless()` guards `SDL_Init`'s video bit, the window, the renderer, the texture, `SetScale`, `SwitchMode` and the blit |
-| `FeLib/Source/femath.cpp` | `CountRand()` in `femath::Rand()` |
+| `FeLib/Source/femath.cpp` | `CountRand()` in `femath::Rand()`, `CountVisualRand()` in `visualrand::Rand()`; `Enter`/`LeaveSeedBracket()` in `SaveSeed`/`LoadSeed` |
 | `FeLib/Source/rawbit.cpp` | `RecordText()` in `Printf` and `PrintfUnshaded` |
 | `FeLib/Source/sfx.cpp` | `IsHeadless()` declines to open an audio device |
 | `Main/Source/main.cpp` | `ParseArgs`, seed override, `Shutdown`, `--help` text |
@@ -337,22 +387,43 @@ whole table.
 
 ### Trace format
 
+Two files, and **which one a fact belongs in is the question worth getting right** (§6.10d). The game
+trace outlives the renderer; the frame trace is replaced by whatever draws the game next.
+
 ```json
-{"frame":-1,"hash":"0000000000000000","rng":0,"index":-1,"ver":1,"seed":999,"w":800,"h":600}
-{"frame":1,"hash":"1f9775f69f20a1a2","rng":0,"index":0,"grng":0,"nest":0,"depth":0}
+{"trace":"game","ver":2,"seed":999}
+{"step":0,"turn":0,"tick":0,"dl":[0,0],"pos":[0,0],"hp":0,"chars":0,"items":0,"rng":0,"grng":0,"nest":0,"depth":0}
 ```
 
-The header carries version, seed and resolution. Frames identical to the preceding one are omitted,
-so frame numbers skip.
+```json
+{"trace":"frames","ver":2,"visual_seed":6818,"w":800,"h":600}
+{"frame":1,"hash":"1f9775f69f20a1a2","vrng":0,"index":0}
+```
+
+The game trace is sampled from `game::Run`'s loop — one iteration is one step of the game, and none
+of it depends on anything being drawn. A record is emitted when the game moved, so a game blocked on
+a key costs one line. It carries **no frame number on purpose**: that was the one screen-derived
+quantity that could have stayed, in the file whose point is not to have any, and a recording's `K`
+lines carry `rng` beside the frame, so a key still cross-references to a record through a number
+both files take from the game.
+
+The frame trace is sampled from `BlitDBToScreen`. Frames identical to the preceding one are omitted,
+so frame numbers skip, and `vrng` — the presentation generator's draws — is the only draw count in
+it.
 
 **`rng` is the diagnostic that matters.** When two builds diverge, the RNG counter localises it to a
-specific draw — usually thousands of frames before anything visible changes. Without it you are
-bisecting pixels; with it you get something close to a stack trace.
+specific draw — usually long before anything visible changes. Without it you are bisecting pixels;
+with it you get something close to a stack trace. Sampling per game step rather than per frame made
+it sharper and the goldens larger: `autoplay-2000` went from 2,759 records to 49,152, 273KB to
+6.9MB, 64KB to 746KB gzipped. That is the price of localising a divergence to a game step, and the
+trigger is one function (`SameState`, `harness.cpp`) if it ever needs paying back.
 
-`grng`, `nest` and `depth` are the draw-attribution fields of §6.5a. `rng` counts *every* MT draw
-including ones inside `femath::SaveSeed`/`LoadSeed` brackets that are later discarded; **`grng` is
-the same count with those excluded, and it is the one to compare first** — it says whether the *game*
-diverged or only its animation. `nest` must stay 0.
+`grng`, `nest` and `depth` are the draw-attribution fields of §6.5a. Both count the **game**
+generator only: presentation draws are `visualrand`'s and reach neither (§6.10c). `rng` counts every
+draw on it including ones inside a `femath::SaveSeed`/`LoadSeed` bracket that are later discarded;
+**`grng` is the same count with those excluded, and it is the one to compare first** — it says
+whether the *game* diverged or only its animation. `nest` must stay 0, and since §6.10c there is one
+bracket left in the tree that could move it (`character::ActivateRandomState`).
 
 ### Screen capture
 
@@ -459,6 +530,18 @@ Things that have cost real time here, beyond the flags above.
 - **A value that looks like a pointer is evidence about the chunk's history, not the writer's
   intent** (§6.4b). And a raw pointer is not an identity once the object it named can be freed
   (§9.11).
+- **A player's configuration is an input to the game's random stream.** `game::PosCurrentlyOnScreen`
+  is built from the window size and `DungeonGfxScale`, so a `RAND()` behind a visibility test puts
+  the player's zoom into the stream the monsters roll from — four effects were doing it (§6.10).
+  Anything that draws per on-screen square, or returns early when something is off screen, belongs on
+  `VRAND` (§6.10c); `compare-configs.sh` is the check, and nothing in CI runs it. **The test is not
+  "is this drawing pixels"** — a blood stain is not what anyone pictures as a visual effect and is
+  the site the §6.10 code read walked past. It is *could the number of times this runs depend on
+  anything outside the game*.
+- **A save/restore bracket around a draw is a second generator spelled the expensive way** (§6.10c).
+  If the reason for a bracket is "this must not advance the shared stream", the honest shape is a
+  separate stream; a bracket is right only when the *same* stream must be rewound, which in this tree
+  is one caller.
 - **Check the deployed bytes, not the deploy command's exit code.** `wrangler` without
   `--branch main` labels the upload `Preview`, prints a URL that serves the new build perfectly, and
   leaves the production site on the previous deployment (§9.10).
@@ -475,6 +558,9 @@ The ones worth knowing about before touching anything:
 | §6.5a | the diagnostics in the trace, and the eight-run rule |
 | §6.6 | why `= default` on a struct that gets memcmp'd or raw-written is a bug |
 | §6.9 | the strict aliasing violation, and why a Heisenbug that evaporates when you take an address is this class's signature |
+| §6.10 | the player's zoom in the game's RNG — and why the code read found the sites that did not matter while the differential test found the ones that did |
+| §6.10c | the game and presentation generators, why the brackets that preceded them were the same idea at three times the cost, and which mistake each corpus script can and cannot see |
+| §6.10d | why the trace is two files, and which facts belong in the half that outlives the renderer |
 | §9.4 | the twelve places the program left a choice to the compiler, and the technique that found them |
 | §9.7 | why the audio boundary sits below the regex |
 | §9.12 | why the bridge contract test exists, and what the browser suite is replacing |

@@ -960,12 +960,51 @@ void game::DeInit()
   DangerMap.clear();
 }
 
+/* The game trace's payload (harness.h). Registered rather than called directly
+   because FeLib cannot see game::; everything here is a plain member read. */
+
+static truth ReadGameStateForTrace(harness::gamestate& State)
+{
+  State.Turn = game::GetTurn();
+  State.Tick = game::GetTick();
+  State.Dungeon = game::GetCurrentDungeonIndex();
+  State.Level = game::GetCurrentLevelIndex();
+  State.NextCharacterID = game::GetNextCharacterID();
+  State.NextItemID = game::GetNextItemID();
+
+  /* GetPos() dereferences the square under the player and there is not always
+     one -- unguarded it segfaults in the wilderness, at autoplay-2000 turn 2.
+     GetSquareUnderSafely is the null-checked form the game already has for it. */
+
+  ccharacter* Player = game::GetPlayer();
+  square* Square = Player ? Player->GetSquareUnderSafely() : 0;
+
+  if(Square)
+  {
+    State.PlayerX = Square->GetPos().X;
+    State.PlayerY = Square->GetPos().Y;
+  }
+  else
+    State.PlayerX = State.PlayerY = 0;
+
+  State.PlayerHP = Player ? Player->GetHP() : 0;
+
+  return true;
+}
+
 void game::Run()
 {
   PrepareStretchRegionsLazy();
+  harness::SetGameStateReader(ReadGameStateForTrace);
 
   for(;;)
   {
+    /* One iteration is one step of the game, and nothing about that depends on
+       anything being drawn -- which is why the game trace samples here and not
+       from BlitDBToScreen (docs/port-log.md §6.10d). */
+
+    harness::TraceGameStep();
+
     if(!InWilderness)
     {
       /* Temporary places */

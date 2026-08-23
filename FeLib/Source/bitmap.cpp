@@ -1570,8 +1570,10 @@ void bitmap::AlphaLuminanceBlit(cblitdata& BlitData) const
 
 void bitmap::CreateFlames(rawbitmap* RawBitmap, v2 RawPos, ulong SeedNFlags, int Frame)
 {
-  femath::SaveSeed();
-  femath::SetSeed(SeedNFlags);
+  /* Keyed on the material flags, so one item's flames are the same flames on every frame -- the
+     tile cache regenerates them on a miss (igraph.cpp:282). That is what this seed has always been
+     for; it was never an isolation bracket, and the isolation is now the generator (femath.h). */
+  visualrand::SetKey(SeedNFlags);
   int FlameTop[16], FlameBottom[16], FlamePhase[16];
   int x, y;
 
@@ -1584,14 +1586,14 @@ void bitmap::CreateFlames(rawbitmap* RawBitmap, v2 RawPos, ulong SeedNFlags, int
       {
         if(1 << RawBitmap->GetMaterialColorIndex(RawPos.X + x, RawPos.Y + y) & SeedNFlags)
         {
-          FlamePhase[x] = RAND_16;
+          FlamePhase[x] = VRAND_16;
 
           if(y > 1)
           {
             FlameBottom[x] = y - 1;
 
             if(y >= 5)
-              FlameTop[x] = (y - (RAND_32 * y >> 5)) >> 1;
+              FlameTop[x] = (y - (VRAND_32 * y >> 5)) >> 1;
             else
               FlameTop[x] = 0;
           }
@@ -1621,8 +1623,6 @@ void bitmap::CreateFlames(rawbitmap* RawBitmap, v2 RawPos, ulong SeedNFlags, int
       }
     }
   }
-
-  femath::LoadSeed();
 }
 
 void bitmap::CreateSparkle(v2 SparklePos, int Frame)
@@ -1646,18 +1646,17 @@ void bitmap::CreateSparkle(v2 SparklePos, int Frame)
 
 void bitmap::CreateFlies(ulong Seed, int Frame, int FlyAmount)
 {
-  femath::SaveSeed();
-  femath::SetSeed(Seed);
+  visualrand::SetKey(Seed);
 
   for(int c = 0; c < FlyAmount; ++c)
   {
-    double Constant = double(RAND() % 10000) / 10000 * FPI;
-    cint StartX = RAND() % 6;
-    cint StartY = RAND() % 6;
+    double Constant = double(VRAND() % 10000) / 10000 * FPI;
+    cint StartX = VRAND() % 6;
+    cint StartY = VRAND() % 6;
     v2 StartPos = v2(5 + StartX, 5 + StartY);
     double Temp = (double(16 - Frame) * FPI) / 16;
 
-    if(RAND() & 1)
+    if(VRAND() & 1)
       Temp = -Temp;
 
     v2 Where;
@@ -1665,14 +1664,11 @@ void bitmap::CreateFlies(ulong Seed, int Frame, int FlyAmount)
     Where.Y = int(StartPos.Y + portmath::Sin(2 * (Constant + Temp)) * 3);
     PowerPutPixel(Where.X, Where.Y, MakeRGB16(40, 40, 60), 255, FLY_PRIORITY);
   }
-
-  femath::LoadSeed();
 }
 
 void bitmap::CreateLightning(ulong Seed, col16 Color)
 {
-  femath::SaveSeed();
-  femath::SetSeed(Seed);
+  visualrand::SetKey(Seed);
   v2 StartPos;
   v2 Direction(0, 0);
 
@@ -1680,9 +1676,9 @@ void bitmap::CreateLightning(ulong Seed, col16 Color)
   {
     do
     {
-      if(RAND() & 1)
+      if(VRAND() & 1)
       {
-        if(RAND() & 1)
+        if(VRAND() & 1)
         {
           StartPos.X = 0;
           Direction.X = 1;
@@ -1693,11 +1689,11 @@ void bitmap::CreateLightning(ulong Seed, col16 Color)
           Direction.X = -1;
         }
 
-        StartPos.Y = RAND() % Size.Y;
+        StartPos.Y = VRAND() % Size.Y;
       }
       else
       {
-        if(RAND() & 1)
+        if(VRAND() & 1)
         {
           StartPos.Y = 0;
           Direction.Y = 1;
@@ -1708,14 +1704,12 @@ void bitmap::CreateLightning(ulong Seed, col16 Color)
           Direction.Y = -1;
         }
 
-        StartPos.X = RAND() % Size.X;
+        StartPos.X = VRAND() % Size.X;
       }
     }
     while(GetPixel(StartPos) != TRANSPARENT_COLOR);
   }
   while(!CreateLightning(StartPos, Direction, NO_LIMIT, Color));
-
-  femath::LoadSeed();
 }
 
 struct pixelvectorcontroller
@@ -1747,14 +1741,14 @@ truth bitmap::CreateLightning(v2 StartPos, v2 Direction, int MaxLength, col16 Co
 
   for(;;)
   {
-    cint MoveX = RAND() & 3;
-    cint MoveY = RAND() & 3;
+    cint MoveX = VRAND() & 3;
+    cint MoveY = VRAND() & 3;
     v2 Move(1 + MoveX, 1 + MoveY);
 
-    if(Direction.X < 0 || (!Direction.X && RAND() & 1))
+    if(Direction.X < 0 || (!Direction.X && VRAND() & 1))
       Move.X = -Move.X;
 
-    if(Direction.Y < 0 || (!Direction.Y && RAND() & 1))
+    if(Direction.Y < 0 || (!Direction.Y && VRAND() & 1))
       Move.Y = -Move.Y;
 
     LimitRef(Move.X, -StartPos.X, Size.X - StartPos.X - 1);
@@ -2188,7 +2182,7 @@ v2 bitmap::RandomizePixel() const
   if(!RandMap[1])
     return ERROR_V2;
 
-  long Rand = RAND();
+  long Rand = VRAND(); /* fluid::imagedata::Animate is the only caller */
   ulong c, RandMask = 1;
   ulong MapSize = XSizeTimesYSize << 1;
 
