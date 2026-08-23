@@ -40,7 +40,7 @@
    the length of one composite -- are writes into the scratch tile that
    composite builds. humanoid::DrawBodyParts blits the destination region
    *into* igraph::TileBuffer, composites the body parts over it and copies the
-   result back (human.cpp:2856), so the map render reads the double buffer;
+   result back (human.cpp:2866), so the map render reads the double buffer;
    recording that group rather than running it is what puts the read back in
    replay order instead of forcing the list out ahead of it (§10.4).
 

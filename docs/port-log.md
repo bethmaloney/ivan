@@ -2894,7 +2894,7 @@ because which of them is a delegate is a property of the art, not of the code.
 
 **The read barrier is the number phase C exists to remove.** `humanoid::DrawBodyParts` blits the
 destination region *into* `igraph::TileBuffer`, composites the body parts over it with a per-pixel
-priority test and copies the result back (`human.cpp:2856`), so the map render reads the double
+priority test and copies the result back (`human.cpp:2866`), so the map render reads the double
 buffer. A blit whose source is the capture target flushes first. 3,943 on autoplay-2000 — one per
 humanoid composite, the same 3,943 the pre-A1 instrumentation attributed to the write-back. The order
 of the two tests in `Intercept` is load bearing: the source test must precede the destination test, or
@@ -3224,5 +3224,147 @@ the read-barrier count there goes 411 → 0 and 93 → 0.
 **It costs nothing measurable.** Five interleaved A/B replays of autoplay-2000, same machine, same
 run: before 12.07/12.01/12.20/11.79/12.05s, after 12.09/11.59/11.91/12.20/11.73s. The means differ by
 1.0% in the new build's favour and the spread inside either arm is three times that. If there is a
-real effect is the 59,007 alias scans that no longer happen: every write into the scratch tile used to
+real effect it is the 59,007 alias scans that no longer happen: every write into the scratch tile used to
 walk the pending list looking for itself, and now it is simply recorded.
+
+### 10.5 What the map render actually writes, and three claims in issue #16
+
+Phase A was planned from a reading of the tree and began with a count, because the plan turns on what
+is on the *source* side of each blit and a grep cannot see that. The numbers sit here rather than in
+§10.1 because they are about the map render rather than about the draw list, and because two of them
+say the plan was scoped wrong.
+
+**How it was counted.** A counter on every `bitmap` write method; a flag set for the duration of
+`GetCurrentArea()->Draw(AnimationDraw)` (`game.cpp:3016`), so nothing outside the map render is
+counted; the destination compared against `DOUBLE_BUFFER`, to separate a write to the screen from one
+into a scratch bitmap; and the caller named by walking a return address through `dladdr` and
+demangling it, which is what makes the figures attributable instead of a bare total. **The count is
+meaningless without a re-entrancy guard**, because the blit family delegates within itself:
+`LuminanceBlit` tail-calls `NormalBlit` at `NORMAL_LUMINANCE`, `LuminanceMaskedBlit` and
+`AlphaMaskedBlit` both end in `NormalMaskedBlit`, `AlphaLuminanceBlit` reaches one of those two,
+`MaskedPriorityBlit` falls back to `LuminanceMaskedBlit` whenever either side lacks a priority map —
+which for `DOUBLE_BUFFER` is always — and `AlphaPriorityBlit` falls back to either of two others.
+Counting every entry counts one write two or three times: the `TileBuffer` figure below is **48,610
+counting outermost entries and 84,824 counting all of them**. Only the outermost is counted. §10.1's
+interposition later leans on the same property for the opposite purpose — recording before the
+delegation is what makes its capture complete.
+
+**What the map render writes**, on autoplay-2000:
+
+| destination | writes |
+|---|---|
+| `DOUBLE_BUFFER` | 56,504 |
+| scratch bitmaps | 58,458, of which 48,610 into `igraph::TileBuffer` |
+
+Slightly under half of what the map render draws (49.2%) reaches the screen at all; the rest builds
+composites that are then copied onto it. The screen half, by entry method:
+
+| method | writes | what the source is |
+|---|---|---|
+| `FastBlit(bitmap*, v2)` | 26,532 | `lsquare::StaticContentCache` 22,589, the character write-back 3,943 |
+| `LuminanceBlit` | 15,553 | `lsquare::FowMemorized` 12,507, cached tiles 3,046 |
+| `AlphaLuminanceBlit` | 11,212 | cached tiles |
+| `AlphaPriorityBlit` | 2,012 | cached tiles |
+| `LuminanceMaskedBlit` | 1,195 | cached tiles |
+
+By caller, from the `dladdr` attribution: `lsquare::Draw` is the largest and 22,589 of it is the one
+`FastBlit` of the cache; `lsquare::DrawMemorized` 12,507; `character::Draw` 3,943 write-backs plus
+153; `stack::Draw` 5,016 across three methods; `bodypart::Draw` 1,453; `lsquare::DrawStaticContents`
+1,278; `item::Draw` 700; `worldmap::Draw` 24.
+
+**The three calls issue #16 names are about half of the map render, and the other half is the part
+that matters.** #16 says the map render "funnels to three calls" — `LuminanceMaskedBlit`,
+`LuminanceBlit` and `AlphaLuminanceBlit` (`item.cpp:1518`, `lterra.cpp:418`, `item.cpp:1516` in
+today's tree) — and that every one of the seventeen `Draw(blitdata&)` implementations "bottoms out in
+one of those three". Measured, those three methods take **27,960 of 56,504 writes, 49.5%**. Of the
+remaining 28,544, one is a fourth blend mode the issue does not name (`AlphaPriorityBlit`, 2,012) and
+26,532 are a whole-bitmap `FastBlit` of something the game composed itself. Split by source rather
+than by method it is starker, because 12,507 of the `LuminanceBlit`s are `FowMemorized`, a composite
+too: **17,465 writes (30.9%) are a cached tile going to the screen and 39,039 (69.1%) are a bitmap
+the render built one square at a time** — `StaticContentCache` 22,589, `FowMemorized` 12,507, the
+body-part tile 3,943.
+
+#16 is not wrong that the seam is narrow. Five methods carry the whole map render and four of them
+carry it through a `blitdata`, which is what let §10.1 interpose at all. It is wrong about what is on
+the far side of it. "Tile index + destination + colour multiply + one of three blend modes is a
+single instanced WebGL draw call" describes 31% of the map render as it stood; the rest is an opaque
+16x16 bitmap that C++ would have gone on building, once per square per frame, for a renderer that
+only understands tiles. **That is where phase A grew an A2.** Converting the three composites is not
+an optimisation of the draw list, it is the difference between a list a page can consume and a
+channel for pixels. #16 has no phase for it, so by default it would have landed in C —
+against a browser and a draw-list hash rather than against the framebuffer goldens. §10.2, §10.3 and
+§10.4 are the three composites, all done natively while the old oracle still works.
+
+**The framebuffer is read back, 3,943 times a run, and it is not a `GetPixel`.** #16's third fact —
+"Nothing in game logic reads the framebuffer back. Six `GetPixel` calls in all of `Main/Source` — five
+in `igraph` building tiles, one in `fluid.cpp:476` sampling a tile's own picture. Zero from
+`DOUBLE_BUFFER`. This is the precondition for a draw-list architecture and it holds." — is exactly
+true of `GetPixel`, and still is: six calls, five in `igraph`, one now at `fluid.cpp:480`, none on the
+double buffer. The read does not go through `GetPixel`. `humanoid::DrawBodyParts` (`human.cpp:2844`)
+copies the destination's own 16x16 region into `igraph::TileBuffer` with `RealBitmap->NormalBlit(B)`,
+composites the body parts and their equipment over it under the two-field priority test, and copies
+the result back — **a blit whose source is the framebuffer**, 3,943 of them on autoplay-2000, one per
+humanoid on screen per frame. It shows up only if you look for a blit whose *source* is the
+destination, which is not a shape a search for `GetPixel` can have.
+
+So the precondition #16 wanted did not hold. It does now, and buying it is what §10.4 is. §10.1 paid
+for it first with a read barrier — flush the list whenever a blit's source is the capture target —
+which is correct and is exactly the coupling phase C cannot ship, since a browser renderer will not
+read its own framebuffer back once per character per frame. §10.4 removed it by recording the
+composite as a group of commands with its own destination rather than running it. The barrier counter
+stays because the zero is the claim:
+
+| corpus | read barriers, §10.1 | after §10.4 |
+|---|---|---|
+| noncombat | 6 | **0** |
+| autoplay-200 | 431 | **0** |
+| autoplay-2000 | 3,943 | **0** |
+
+**The player's map memory was in the save file as raw screen pixels.** `lsquare::Save` wrote
+`Memorized` through `operator<<(outputfile&, cbitmap*)` (`bitmap.cpp:1489`), which is a presence byte,
+the size as a raw `v2` (8 bytes) and then `bitmap::Save` (`bitmap.cpp:177`): 512 bytes of 16x16 packed
+5/6/5, an alpha-map flag, a priority-map flag and a `FastFlag` byte. **524 bytes per memorized
+square** — an earlier note in this work put it at 514, counting the pixels and the two map flags and
+missing both the `FastFlag` byte and the nine-byte record header. Measured on a real level file from
+autoplay-2000, by scanning for the 16x16 record header and validating its trailer: 724 of the 80x20
+level's 1,600 squares were memorized, 379,376 bytes, **28.9% of the 1,313,269-byte file**; on the
+160x20 autosave, 856 of 3,200 squares, 448,544 bytes, 18.2%.
+
+That is the third thing the count changed about the plan. #16 treats the tile cache as the thing to
+move and the save format as #13's problem, but the map memory is a renderer artifact that got
+serialised: there is no version of phase C in which the page renders from a draw list while the save
+file holds screen pixels the page never produced, in a format written by a blitter that is being
+deleted. §10.3 is what it cost to fix — `SAVE_FILE_VERSION` 138 → 139, `BONE_FILE_VERSION` 121 → 122,
+`graphicid` converted field by field with it — and what it bought: a memorized square costs 3 bytes
+plus 72 per tile entry, at 2.48 entries per saved square, and autoplay-2000's level file went
+1,313,269 → 1,069,674 bytes, −18.5%.
+
+**What moved the goldens.** One of the four steps, one file, two corpora. A1 (§10.1), A2a (§10.2) and
+A2c (§10.4) each left all nine golden files byte-identical, which is the whole of their proof: an
+order-preserving deferral and an exactly-equal rewrite should move nothing, and did not. A2b (§10.3)
+moved `frames.jsonl` on autoplay-200 (242 of 762 hashes, 31.8%) and autoplay-2000 (1,030 of 2,886,
+35.7%), first divergence frame 504 in both, and not at all on noncombat. `game.jsonl` — the file with
+nothing screen-derived in it, and the gate — is byte-identical on all three corpora through every
+step, and so is `text.log`.
+
+**And it was the right call, on three grounds.** The magnitude is small and bounded: 49,874 and
+116,927 pixels over entire runs, worst single frame 522 of 480,000 (0.109%), worst channel move +7 of
+64 levels. The cause is known exactly rather than assumed — clamp order, not rounding, with 0 of
+5,595,136 non-saturating combinations differing (§10.3) — so it is a pixel change that is provably
+not a game change, which is precisely the distinction the two trace files exist to make (§6.10d). And
+the alternative was keeping a per-square pixel buffer and its save format forever, which is the thing
+the phase is for removing. `--update` was run once, with §10.3 as the written reason, and it rewrote
+`frames.jsonl` for the two corpora that moved and byte-identical copies of everything else, because
+it has no per-file switch.
+
+**What this does not settle.** Nothing here has crossed into `web/`: every command is still replayed
+by the same C++ bitmap methods into the same double buffer, and phases B to E are untouched. The
+frame trace still hashes that buffer, so the oracle that proved all four steps is the one phase C
+retires. One coupling is left in the list and it got worse rather than better — `fluid.cpp:200-201`
+and `:427-428` blit through `igraph::FlagBuffer` via `BlitAndCopyAlpha`, which writes two planes and
+cannot be recorded at all, so it takes an alias barrier instead: 679 flushes on autoplay-2000 at
+§10.1 and 983 after §10.4, each one a full flush standing between the current state and one flush per
+frame. And two in-window branches are still invisible to every check in the tree: the hit-effect path
+needs `HitIndicator` turned up and an `LD_PRELOAD` shim to be comparable at all (§10.1), and
+`item::Draw`'s rotation scratch needs `RotateTimesPerSquare`, which defaults off. Both are covered by
+the alias barrier, which is a construction rather than a test.
