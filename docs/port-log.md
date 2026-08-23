@@ -833,26 +833,27 @@ get one. `nest` is checked per arm, and is a *cumulative* counter (`if(SeedDepth
 And `rng` moving while `grng` does not is reported but never fatal: that is the signature of a
 working bracket, not a failure.
 
-**What a pass establishes**, stated exactly: among the draws these four recordings reach, at 800x600,
-with `EnhancedLights` off, no remaining `RAND` site's call count follows `DungeonGfxScale`. That is
-four key sequences, one camera axis, one window size and one of the config file's options. It is real
-evidence and it is narrow. What it does **not** establish, in the order a future reader is likely to
-need it:
+**What a pass establishes**, stated exactly: among the draws these four recordings reach, in the
+shipped configuration, no remaining `RAND` site's call count follows `DungeonGfxScale` *or*
+`WindowWidth`/`WindowHeight` within the range swept. That is four key sequences and both of the
+camera's config inputs, with no option pinned away. It is real evidence and it is narrow. What it
+does **not** establish, in the order a future reader is likely to need it:
 
-- **It is green in a configuration the shipped game does not run.** `EnhancedLights` defaults to
-  `true` (`iconf.cpp:170-173`) and the script pins it off, because `level::RevealDistantLightsToPlayer`
-  (`level.cpp:3141`) reveals map squares by iterating the on-screen rectangle (`:3152-3155`) — so
-  with it on, the zoom decides how much of the map the player knows and the auto-play corpora part
-  company long before they reach any visual effect. Measured on `autoplay-200`, scale 1 against
-  scale 2: `grng` 1,517,633 against 1,714,427 with distant lights on, and equal with them off. **So
-  the honest claim is "no remaining *draw* follows the zoom, with distant lights off", not "zoom is
-  a preference about pixels".** That function makes no draws at all — it mutates reveal state — so it
-  is not a `SaveSeed` candidate; it is the same defect one layer up, and it is open.
-- **It varies one of the camera's two config inputs.** `WindowWidth` and `WindowHeight` are ordinary
-  player options with a settings-menu entry (`iconf.cpp:102-115`), defaulting to 800x600 with minima
-  of 640x480 and no upper bound. At 800x600 the six arms sample 42/21/14/10/8/7 tiles across; a
-  player at 640 gets 32 and at 1280 gets 72, and the swept set is neither a superset nor a worst
-  case of those. Widening `-s` cannot close this — only a second `IVAN_CONF` axis can.
+- **It no longer pins `EnhancedLights` off — that was the biggest hole and it is closed.**
+  `level::RevealDistantLightsToPlayer` (`level.cpp:3136`) bounded reveal by the camera rectangle, so
+  with the option at its shipping default of `true` (`iconf.cpp:170`) the zoom decided how much of
+  the map the player knows and the auto-play corpora parted company long before reaching any visual
+  effect. It is bounded by `2*PERCEPTION` now and the pin is gone; §6.10e is the fix, the before and
+  after numbers, and the proof that it takes nothing away from the player. **The claim is "zoom and
+  window are preferences about pixels" again, without a caveat naming an option.**
+- **Its window axis stops at width 1024, and not for a reason about the camera.**
+  `WindowWidth`/`WindowHeight` are ordinary player options (`iconf.cpp:102-115`), defaulting to
+  800x600 with minima of 640x480 and no upper bound, and the sweep now varies them — which is the
+  only way to reach `game::GetMaxScreenXSize()` (`game.cpp:268`), the window with no scale in it,
+  read by `message.cpp:236`, `char.cpp:6311-6315`, `command.cpp:1975` and `iconf.cpp:623`. Above
+  width 1024 the *backdrop* changes the game (§7.12), so an arm there would fail for a reason this
+  script is not asking about. A player at 1280 or 1920 is therefore still unswept, and closing that
+  means fixing §7.12 first, not widening `-w`.
 - **It cannot see a site the corpora never reach.** That is not hypothetical here: the two `lsquare`
   sites are reached by no committed corpus, which is why `effects/beams.rec` had to be written at
   all, and `DrawExplosion` was detected by one recording out of four.
@@ -1106,6 +1107,80 @@ liveness half is not decoration: the first cut of §6.10c passed this check whil
 all, and the check as written would have said so. Measured, all four corpora: one game trace over six
 seeds, six distinct frame traces.
 
+#### 6.10e The camera stopped deciding how much of the map the player learns
+
+`level::RevealDistantLightsToPlayer` (`level.cpp:3136`) was §6.10 one layer up, and the one member of
+the family no `femath::SaveSeed` bracket could reach: it makes no draws at all, it mutates reveal
+state. It iterated the camera rectangle, so **how much of the map the player learned was a function
+of their window size and zoom** — and `EnhancedLights` defaults to `true` (`iconf.cpp:170`), so that
+was the shipped configuration rather than an opt-in. Measured on this build's parent with the option
+at its default, `DungeonGfxScale` 1 through 6: `autoplay-200` ended at `grng` 1,769,125 / 1,554,583 /
+1,554,583 / 1,553,631 / 1,566,177 / 1,566,177, and `autoplay-2000` at 10,253,524 / 5,794,042 /
+5,428,734 / 7,144,088 / 6,612,194 / 6,612,194. Same seed, same keys, six different games.
+
+**The replacement bound is not a policy choice, it is the loop's own arithmetic.** The widest gate in
+the body is `CanBeSeenFrom(PLAYER->GetPos(), lMaxDist*iMultDist)` with `iMultDist` at most 4, and
+`lMaxDist` is `v2(PERCEPTION,0).GetLengthSquare()` — `PERCEPTION` squared. `CanBeSeenFrom`'s first
+test is `(Pos - FromPos).GetLengthSquare() <= MaxDistance` (`lsquare.cpp:1048`), so nothing further
+than **`2*PERCEPTION` on either axis** can be revealed at any window size. That box is therefore the
+tightest rectangle containing every square the existing tests could accept, and bounding the loop by
+it changes what the function computes in exactly one way: it stops taking squares away.
+
+Two properties had to hold, and they were established differently.
+
+**Nothing is lost — measured, not argued.** The claim is that the old set is a subset of the new one,
+which follows from the paragraph above but is worth checking rather than deriving. A temporary
+counter on the current code, incremented whenever a reveal landed outside the `±2*PERCEPTION` box,
+returned **0 on every corpus at the shipped 800x600** across 4,140 calls and 7,627 reveals. The
+player's `PERCEPTION` never exceeded 10 on the auto-play corpora and 15 on `effects/beams.rec`.
+
+**It is a no-op wherever the camera was not clipping — byte-identical traces.** Where the camera
+rectangle already contains the box, the two versions must agree exactly: the new box is a subset, the
+squares in `old \ new` fail their distance test and so perform no writes, everything else they touch
+is a const read (`CanBeSeenByPlayer` is `LastSeen == GetLOSTick()`, `lsquare.cpp:1041`), and both
+iterate x-major ascending so the relative order of the squares that survive is unchanged. Instrumented
+with a containment counter and run on four arms chosen so that counter read zero, `game.jsonl`,
+`frames.jsonl` and `text.log` were **byte-identical before and after** across 3,754 calls and 172,800
+reveals — `effects/beams.rec` and `noncombat.rec` at 1024x1072, and two auto-play corpora recorded at
+1728x1776 by `tools/play/play.py`.
+
+**Why those arms had to be recorded rather than reused, and the defect that forced it.** Containment
+needs the whole level on screen, because the camera scrolls lazily — `character::ShowNewPosInfo`
+recentres only within 3 tiles of the edge (`char.cpp:4544`), so the player sits near the camera edge
+while the box sticks out well past it. A 64-tile level therefore needs 64 visible tiles, which needs
+`WindowWidth` 1152. Raising the width that far **changes the game**, for a reason that has nothing to
+do with reveal: `igraph::CreateBackGround` (`igraph.cpp:589`) rounds `GetStartingWindowWidth()` up to
+the next multiple of 1024 (`:597`) and runs a diamond-square over `Side x Side` cells at about one
+draw per cell, and its three `RAND()` sites (`femath.cpp:421`, `:446`, `:472`) are on the game
+generator with no bracket. Measured on `autoplay-200`, seed 999, width 1024 against 1040: the game
+rand count on the first key after world generation is 1,067,066 against 4,215,455 — a jump of
+3,148,389 against the 3,147,776 cells `2049² - 1025²` predicts — the rolled character goes from
+AStr 11 / Will 10 / Cha 10 / Mana 10 / Gold 50 to AStr 10 / Will 9 / Cha 11 / Mana 11 / Gold 54, and
+the committed recording desynchronises: it ends at turn 1 instead of turn 197. **The player's window
+width decides the character they roll**, height never enters it, and the threshold is exactly the
+1024 in that line. That is §7.12, and it is why the new window axis stops at 1024.
+
+**What moved.** At the shipped 800x600 almost nothing: `game.jsonl` is unchanged on all three golden
+corpora, and the only golden that moved is **one frame hash** in `autoplay-2000.frames.jsonl`, frame
+1632, where 74 more squares are revealed over the run (7,456 to 7,530, +1.0%). The corpora spend
+their time in New Attnam, where what the camera was cutting is mostly out of perception range anyway;
+a player at a small window or a high zoom sees a much larger difference, and always in the direction
+of seeing more. `compare-targets.sh` still agrees on both targets, with the same single documented
+`AutoSave.sav` `SUSPECT` block §9.11 already attributes to `GetTimeSpent`.
+
+**The `bXBRZandFelist` gate was justified, not changed.** `game.cpp:2981` computes
+`IsXBRZScale() && felist::isAnyFelistCurrentlyDrawn()` and `game.cpp:3007` skips the reveal call when
+it is true, so with xBRZ on, opening a menu suppresses map reveal for as long as it is open — the
+same class of defect, a different input. `XBRZScale` defaults to `false` (`iconf.cpp:226`), which is
+why the gate is inert in every corpus run and why no recording covers it. It is left alone
+deliberately: scaling becomes the browser's job when graphics crosses into `web/`, and `xbrzscale/`
+goes with it — 1,644 lines, ~80 references, a CMake subdirectory and the `SDL2_INCLUDE_DIR` coupling
+§9.13 already calls a leftover. Fixing a gate that is scheduled for deletion would be work spent
+twice. **The reveal call is also still made once per `DrawEverythingNoBlit` rather than once per LOS
+update**, so how often the map is revealed follows how often the game redraws; it is idempotent
+within an LOS tick, so this is a layering wart rather than a live defect, and it belongs with the
+graphics port.
+
 ---
 
 ## 7. Open items, and one closed one
@@ -1315,23 +1390,23 @@ suggested in the first place. Three findings for whoever does it:
 
 ### 7.10 What §6.10 left open
 
-Four items, in the order they matter, all of them narrow and all of them measured rather than
-suspected.
+Two of the four are done. Item 1 is §6.10e — reveal is bounded by `2*PERCEPTION` instead of by the
+camera, and `compare-configs.sh` pins nothing. Item 3's second axis is in, as a star rather than a
+cross product, with the reasoning in that script's header. What is left, all of it narrow and all of
+it measured rather than suspected:
 
-1. **`EnhancedLights` is on by default and the zoom still forks the game with it on.**
-   `level::RevealDistantLightsToPlayer` (`level.cpp:3141`) reveals map squares by iterating the
-   on-screen rectangle, so how much of the map the player knows follows `DungeonGfxScale`. It makes
-   no draws, so no `SaveSeed` bracket applies; the fix is to stop deriving reveal state from the
-   camera. Until then `compare-configs.sh` has to pin the option off, and the property holds only
-   for the configuration it pins.
-2. **Re-record `effects/beams.rec` so it reaches `lsquare::DrawLightning`** — wish the lightning
+1. **Re-record `effects/beams.rec` so it reaches `lsquare::DrawLightning`** — wish the lightning
    wand last (§6.10b). Today that bracket, the most intricate of the four, is exercised by nothing.
-3. **Give the sweep a second axis and a self-consistency arm.** `WindowWidth`/`WindowHeight` are the
-   camera's other input and are never varied; each arm is a single run, against §6.5a's eight-run
-   rule.
+   Re-counted with gdb after §6.10e, on the same recording: `lsquare::DrawParticles` 6,
+   `level::DrawExplosion` 1, `lsquare::DrawLightning` 0, unchanged.
+2. **Give each sweep arm §6.5a's eight runs.** Every arm is still a single run; the eight-run rule
+   exists because a pair agreeing is not evidence, and this script never applies it.
+3. **The window axis cannot pass width 1024 until §7.12 is fixed**, so a player at 1280 or 1920 is
+   swept by nothing.
 4. **Put `compare-configs.sh` in CI.** `deploy.yml` replays the corpora and nothing else, so a
    reintroduced camera-gated draw shows up only as moved goldens — which a reader is entitled to
-   explain and `--update` away.
+   explain and `--update` away. It is ~50s on 22 idle cores at 10 arms, against 16.4s at the 6 it
+   had before, so the cost is no longer negligible against `corpora`'s own runtime.
 
 ---
 
@@ -1343,6 +1418,31 @@ draws (§6.10d). That call disappears with the renderer. Before it does, generat
 that is not a blit: `level::Generate`'s per-room loop is the obvious candidate, and the check that it
 is enough is that a deliberate divergence planted in generation still localises to a few thousand
 draws rather than to "before step 0".
+
+### 7.12 The menu backdrop puts the window width into the character you roll — issue #19
+
+`igraph::CreateBackGround` (`igraph.cpp:589`) rounds `ivanconfig::GetStartingWindowWidth()` up to the
+next multiple of 1024 (`:597`) and runs `femath::GenerateFractalMap` over `Side x Side` cells, `Side`
+being that multiple plus one. The three `RAND()` sites in that diamond-square (`femath.cpp:421`,
+`:446`, `:472`) are on the **game** generator and bracketed by nothing, at about one draw per cell —
+so the backdrop alone costs ~1025² draws at any width up to 1024, which is `noncombat`'s
+1,067,066-draw pre-`game::Run` phase almost exactly (§6.10d), and ~2049² above it.
+
+Measured on `autoplay-200`, seed 999, width 1024 against 1040: the game rand count on the first key
+after world generation is 1,067,066 against 4,215,455 — a jump of 3,148,389 against the 3,147,776
+cells `2049² - 1025²` predicts. The rolled character goes from AStr 11 / Will 10 / Cha 10 / Mana 10 /
+Gold 50 to AStr 10 / Will 9 / Cha 11 / Mana 11 / Gold 54, and the committed recording desynchronises:
+it ends at turn 1 in the wilderness instead of turn 197 on dungeon level 4. Height never enters it;
+the threshold is exactly the literal `1024` in `igraph.cpp:597`, and every width from 640 to 1024
+rolls the same character.
+
+This is the same family as §6.10 and §6.10e — presentation deciding game state — but it is the worst
+instance found so far, because it lands before the player exists and because the quantity it moves is
+1,050,625 draws rather than a handful. Unlike §6.10 it *is* a `SaveSeed` candidate: the backdrop is
+pure presentation and nothing it computes reaches the game, so bracketing `GenerateFractalMap` takes
+the whole of it off the game generator. That would move every golden by construction, which is why it
+is filed here rather than folded into §6.10e. It also blocks `compare-configs.sh`'s window axis above
+1024 (§6.10a) and any containment experiment that needs a whole level on screen (§6.10e).
 
 ---
 

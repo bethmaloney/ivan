@@ -72,7 +72,7 @@ coverage they are about to lose, and why `web/e2e/` exists.
 |---|---|
 | Each corpus, 8 isolated runs — trace, text log, PNG | **1 distinct outcome**, matching the committed golden |
 | The longest corpus, 16 concurrent runs on a saturated machine | **1 distinct outcome**, byte-identical to the unloaded run — 1,972 turns, 2 deaths, 10.7M RNG draws |
-| Each corpus at six `DungeonGfxScale` values, one build | **the same game-stream position (`grng`)** at every scale, with distant lights off (§6.10a) |
+| Each corpus at ten display configs (six zooms, four windows), one build | **the same game-stream position (`grng`)** in every arm, nothing pinned (§6.10a) |
 | Each corpus at six `--visual-seed` values, one build | **a byte-identical game trace**, and a frame trace that differs — the liveness half (§6.10d) |
 | Native vs WASM, all three corpora | trace, text log, screenshot, sidecar, `.wm` and every level file **byte-identical** |
 | Native `--headless` vs native windowed | **byte-identical** on every artifact |
@@ -104,9 +104,9 @@ generate. Native-vs-WASM is unblocked *for the reached paths* and unproven elsew
 - **Every run above uses one window size and one zoom.** `run-corpus.sh` pins the configuration,
   which is what makes the comparisons mean anything and is also why the player's `DungeonGfxScale`
   sat in the game's random stream unnoticed for the whole port (§6.10). `compare-configs.sh` varies
-  that one axis on four recordings and compares one integer each; §6.10a is the list of what it
-  still cannot see, starting with the fact that it pins `EnhancedLights` off and the shipped default
-  is on.
+  both axes on four recordings and compares one integer each; §6.10a is the list of what it still
+  cannot see, starting with the fact that its window axis stops at width 1024, where the menu
+  backdrop starts deciding the character you roll (§7.12).
 
 ## Builds
 
@@ -205,10 +205,10 @@ answer four different questions and you want all of them:
 - **`verify-corpora.sh`** compares a build against the committed goldens: *did this build change?*
 - **`compare-targets.sh`** replays each corpus on native and WASM and compares them against each
   other: *do these two builds agree?*
-- **`compare-configs.sh`** replays each corpus at every `DungeonGfxScale` on one build and compares
-  the game-stream draw count: *does one build agree with itself when the player configured it
-  differently?* It is the newest and the narrowest — one integer per corpus, one config axis — and
-  §6.10a is the honest account of its reach.
+- **`compare-configs.sh`** replays each corpus at every `DungeonGfxScale` and several window sizes
+  on one build and compares the game-stream draw count: *does one build agree with itself when the
+  player configured it differently?* It is the newest and the narrowest — one integer per corpus,
+  two config axes swept as a star — and §6.10a is the honest account of its reach.
 - **`fuzz-visual.sh`** replays each corpus varying only `--visual-seed` and compares the game trace:
   *does anything the game draws decide anything the game keeps?* It and `compare-configs.sh` cover
   different mistakes and neither contains the other — the sweep sees a *game*-generator draw behind a
@@ -539,6 +539,13 @@ Things that have cost real time here, beyond the flags above.
   "is this drawing pixels"** — a blood stain is not what anyone pictures as a visual effect and is
   the site the §6.10 code read walked past. It is *could the number of times this runs depend on
   anything outside the game*.
+- **And a function that draws nothing at all can still read the camera into game state.**
+  `level::RevealDistantLightsToPlayer` iterated the on-screen rectangle to decide which map squares
+  the player learns, so no `VRAND` and no bracket applied — the fix was to bound it by the game's own
+  quantity, the player's `PERCEPTION` (§6.10e). The worst instance is not in the game loop at all:
+  the menu's fractal backdrop is sized from `WindowWidth` and spends ~1M unbracketed game draws, so
+  the window width decides the character you roll (§7.12). **Grep for `GetScreenXSize`, `GetCamera`
+  and `RES` outside draw code, not just for `RAND` inside it.**
 - **A save/restore bracket around a draw is a second generator spelled the expensive way** (§6.10c).
   If the reason for a bracket is "this must not advance the shared stream", the honest shape is a
   separate stream; a bracket is right only when the *same* stream must be rewound, which in this tree

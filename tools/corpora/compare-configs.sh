@@ -1,52 +1,87 @@
 #!/bin/sh
-# Replay every corpus at several dungeon zoom levels on one build and check the game did not change.
+# Replay every corpus at several player display settings on one build and check the game did not change.
 #
 # A third question, beside the two the other scripts ask. verify-corpora.sh asks "did this build
 # change?" and compare-targets.sh asks "do these two builds agree?"; this one asks "does one build
 # agree with *itself* when the player has configured it differently?", and the answer has to be yes:
-# a zoom level is a preference about pixels, not a fork in the game.
+# a window size and a zoom level are preferences about pixels, not a fork in the game.
 #
 # It is not a hypothetical. game::GetScreenXSize() (game.cpp:286) is the window width in tiles
 # divided by ivanconfig::GetStartingDungeonGfxScale(), game::PosCurrentlyOnScreen() is built from
-# it, and every visual effect that gates on that and then calls RAND() puts the player's zoom level
-# into the game's random stream unless a femath::SaveSeed bracket keeps it out.
+# it, and every visual effect that gates on that and then calls RAND() puts the player's display
+# settings into the game's random stream unless a femath::SaveSeed bracket keeps it out.
 #
-# Usage: compare-configs.sh [-s "SCALES"] [-c NAME]
-#        -s  DungeonGfxScale values to compare; the first is the reference arm. Only 1-6 are
-#            accepted: cycleoption::LoadValue does not clamp (config.cpp:285), and
+# Usage: compare-configs.sh [-s "SCALES"] [-w "WxH ..."] [-c NAME]
+#        -s  DungeonGfxScale values, swept at the default window. The first is the reference arm.
+#            Only 1-6 are accepted: cycleoption::LoadValue does not clamp (config.cpp:285), and
 #            DungeonGfxScale = 0 divides by zero in game::GetScreenXSize.
+#        -w  WindowWidth x WindowHeight pairs, swept at the reference scale. See the ceiling below.
 #        -c  one corpus by name instead of all of them
 # Env:   IVAN_BIN  build to test (default build/Main/ivan)
 #        WORK      scratch directory (default build/corpus-configs)
 #
-# Exit: 0 if every corpus ends on the same game-stream position at every scale, 1 otherwise.
+# Exit: 0 if every corpus ends on the same game-stream position in every arm, 1 otherwise.
 #
 # docs/port-log.md §6.10a is the write-up: exactly what a pass establishes, and what it cannot see.
 #
-# The default covers the whole 1-6 range because the tree is now clean across it. It was not, and
-# the site that closed it is worth writing down as history: fluid::imagedata::Animate
+# Two axes, not one, and they are swept as a star rather than as a cross product: the scales at one
+# window, the windows at one scale. The cross product buys only combinations, and the mapping is two
+# integer divisions that collide a lot -- at 640/800/1280/1920 by scales 1-6, X=8 appears at both
+# 640/s4 and 800/s5, X=14 at both 800/s3 and 1280/s5. What the window axis does buy, and what no
+# widening of -s can, is game::GetMaxScreenXSize() (game.cpp:268): the window with no scale in it,
+# read by message.cpp:236, char.cpp:6311-6315, command.cpp:1975 and iconf.cpp:623. Those are equal
+# at every scale by construction, so the zoom axis is structurally blind to them.
+#
+# **The window axis stops at width 1024 on purpose, and the reason is a defect this script cannot
+# fix.** igraph::CreateBackGround (igraph.cpp:589) sizes the menu's fractal backdrop by rounding
+# ivanconfig::GetStartingWindowWidth() up to the next multiple of 1024 (igraph.cpp:597) and runs a
+# diamond-square over Side x Side cells, where Side is that multiple plus one. Its three RAND() sites
+# (femath.cpp:421, :446, :472) are on the *game* generator and bracketed by nothing, at about one
+# draw per cell. So the backdrop costs ~1025^2 draws at any width up to 1024 and ~2049^2 above it,
+# and the player's window width decides the character they roll. Measured on autoplay-200, seed 999,
+# width 1024 against 1040: the game rand count on the first key after world generation is 1,067,066
+# against 4,215,455, a jump of 3,148,389 against the 3,147,776 cells 2049^2 - 1025^2 predicts. The
+# rolled character goes from AStr 11 / Will 10 / Cha 10 / Mana 10 / Gold 50 to AStr 10 / Will 9 /
+# Cha 11 / Mana 11 / Gold 54, and the recording desynchronises -- it ends at turn 1 instead of turn
+# 197. Height never enters it. Until that is fixed, an arm wider than 1024 fails for a reason that
+# has nothing to do with what this script is asking, so the validation below rejects one.
+#
+# The default covers the whole 1-6 scale range because the tree is now clean across it. It was not,
+# and the site that closed it is worth writing down as history: fluid::imagedata::Animate
 # (fluid.cpp:463) started a blood drip with an unbracketed RandomizePixel(), once per stained
 # square that level::Draw puts on screen -- the only site of this class the committed corpora
 # reach. Unbracketed, measured with -s "1 2 3 4 5 6": autoplay-200 ended at grng 1,714,427 at
 # scales 1-5 and 1,813,687 at 6, and autoplay-2000 at 6,106,089 at scales 1-3 against 7,220,615,
 # 7,744,800 and 8,361,791. Bracketed -- with level::DrawExplosion (level.cpp:1157), which this
-# sweep then found on autoplay-2000 alone -- every corpus agrees at every scale: grng 1,566,177,
-# 6,612,194, 1,074,979 and 1,098,228. Moving those goldens was the point of that change.
+# sweep then found on autoplay-2000 alone -- every corpus agreed at every scale. Moving those
+# goldens was the point of that change.
 #
-# Read a pass narrowly. The oracle is one integer per corpus, over four recordings, at one window
-# size, with EnhancedLights pinned off below. A pass says that no draw these keys reach follows the
-# zoom; it cannot see a site the corpora never reach, one gated on the window size rather than the
-# scale, or a screen-derived value that reaches game state without drawing at all.
+# EnhancedLights is deliberately *not* pinned here any more, so every arm runs the shipped
+# configuration. It used to be pinned off because level::RevealDistantLightsToPlayer reveals map
+# squares by iterating the on-screen rectangle, which made the zoom decide how much of the map the
+# player learns; §6.10e is that fix. Measured on this build's parent, EnhancedLights at its default,
+# scales 1-6: autoplay-200 ended at grng 1,769,125 / 1,554,583 / 1,554,583 / 1,553,631 / 1,566,177 /
+# 1,566,177 and autoplay-2000 at 10,253,524 / 5,794,042 / 5,428,734 / 7,144,088 / 6,612,194 /
+# 6,612,194. It is one number per corpus now.
+#
+# Read a pass narrowly. The oracle is one integer per corpus, over four recordings, at widths no
+# greater than 1024. A pass says that no draw these keys reach follows the zoom or the window size;
+# it cannot see a site the corpora never reach, or a screen-derived value that reaches game state
+# without drawing at all.
 
 set -eu
 
 SCALES="1 2 3 4 5 6"
+WINDOWS="640x480 1024x600 800x1072 1024x1072"
+REF_W=800
+REF_H=600
 ONLY=
 while [ $# -gt 0 ]; do
   case $1 in
     -s) SCALES=$2; shift 2 ;;
+    -w) WINDOWS=$2; shift 2 ;;
     -c) ONLY=$2; shift 2 ;;
-    *) echo "usage: $0 [-s \"SCALES\"] [-c NAME]" >&2; exit 2 ;;
+    *) echo "usage: $0 [-s \"SCALES\"] [-w \"WxH ...\"] [-c NAME]" >&2; exit 2 ;;
   esac
 done
 
@@ -57,17 +92,55 @@ for s in $SCALES; do
   esac
 done
 
+# numberoption::LoadValue is the same unclamped one-liner as the cycleoption one (config.cpp:276):
+# it takes whatever the file says. The 640/480 minima live only in WindowWidthChanger and
+# WindowHeightChanger (iconf.cpp:851, :866), which the config-file path never calls -- so
+# `WindowWidth = 100;` is accepted and gives 100/16 - 8 = -2 tiles. The 1024 ceiling is the
+# fractal backdrop described in the header, not a layout limit.
+for wh in $WINDOWS; do
+  # %x / #*x rather than %%x / ##*x so that a second separator survives into $w$h and is caught by
+  # the digits-only test below; without that, "800" parses as 800x800 and "8x6x4" as 8x4.
+  w=${wh%x*}; h=${wh#*x}
+  case $wh in
+    *x*) ;;
+    *) echo "$0: window '$wh' is not WIDTHxHEIGHT" >&2; exit 2 ;;
+  esac
+  case $w$h in
+    *[!0-9]*|'') echo "$0: window '$wh' is not WIDTHxHEIGHT" >&2; exit 2 ;;
+  esac
+  [ "$w" -ge 640 ] || { echo "$0: WindowWidth $w is below the game's 640 minimum" >&2; exit 2; }
+  [ "$h" -ge 480 ] || { echo "$0: WindowHeight $h is below the game's 480 minimum" >&2; exit 2; }
+  [ "$w" -le 1024 ] || { echo "$0: WindowWidth $w is above 1024, where igraph::CreateBackGround"\
+                              "changes the game itself -- see the header" >&2; exit 2; }
+done
+
 HERE=$(cd "$(dirname "$0")" && pwd)
 REPO=$(cd "$HERE/../.." && pwd)
 IVAN_BIN=${IVAN_BIN:-$REPO/build/Main/ivan}
 WORK=${WORK:-$REPO/build/corpus-configs}
-REFERENCE=$(echo "$SCALES" | { read -r first _; echo "$first"; })
+REF_SCALE=$(echo "$SCALES" | { read -r first _; echo "$first"; })
+REFERENCE="${REF_W}x${REF_H}s${REF_SCALE}"
 FAILED=0
+
+# The arms, as WIDTHxHEIGHTsSCALE tokens. The reference comes first; the scale axis runs at the
+# reference window and the window axis at the reference scale, so every arm shares an edge with it.
+ARMS=$REFERENCE
+for s in $SCALES; do
+  [ "$s" = "$REF_SCALE" ] || ARMS="$ARMS ${REF_W}x${REF_H}s${s}"
+done
+for wh in $WINDOWS; do
+  [ "$wh" = "${REF_W}x${REF_H}" ] || ARMS="$ARMS ${wh}s${REF_SCALE}"
+done
+
+arm_conf() { # WIDTHxHEIGHTsSCALE -> the ivan.conf body for that arm
+  printf 'WindowWidth = %s;\nWindowHeight = %s;\nDungeonGfxScale = %s;\n' \
+         "${1%%x*}" "$(echo "$1" | sed -E 's/^[0-9]+x([0-9]+)s[0-9]+$/\1/')" "${1##*s}"
+}
 
 rm -rf "$WORK"
 
 echo "build:  $IVAN_BIN"
-echo "scales: $SCALES"
+echo "arms:   $ARMS"
 echo
 
 # The committed corpora, then the ones under effects/. Those are separate because they have no
@@ -89,16 +162,9 @@ for rec in "$HERE"/*.rec "$HERE"/effects/*.rec; do
   [ -z "$ONLY" ] || [ "$ONLY" = "$name" ] || continue
   printf '%s:' "$name"
 
-  # EnhancedLights is pinned off for the same reason the harness options are pinned on:
-  # level::RevealDistantLightsToPlayer (level.cpp:3141) reveals squares by iterating the on-screen
-  # rectangle, so with it on the zoom decides how much of the map the player knows and the
-  # auto-play corpora part company long before they reach a visual effect. Measured on autoplay-200
-  # at scale 1 against scale 2: grng 1,517,633 against 1,714,427 with it on, 1,714,427 both with it
-  # off. That is a defect of the same family and not a SaveSeed candidate -- the function makes no
-  # draws, it mutates Reveal state -- so it is not this script's to find.
-  for s in $SCALES; do
-    IVAN_CONF="DungeonGfxScale = $s;
-EnhancedLights = 0;" IVAN_BIN=$IVAN_BIN "$HERE/run-corpus.sh" "$rec" "$WORK/$name/$s" &
+  for arm in $ARMS; do
+    IVAN_CONF=$(arm_conf "$arm") IVAN_BIN=$IVAN_BIN \
+      "$HERE/run-corpus.sh" "$rec" "$WORK/$name/$arm" &
   done
   wait
 
@@ -112,8 +178,8 @@ EnhancedLights = 0;" IVAN_BIN=$IVAN_BIN "$HERE/run-corpus.sh" "$rec" "$WORK/$nam
   # the column would call that a failure. frames.jsonl, screen.png and the map-area text differ
   # legitimately too -- the dungeon is drawn at a different size, which is the point of the option.
   bad=0
-  for s in $SCALES; do
-    trace=$WORK/$name/$s/game.jsonl
+  for arm in $ARMS; do
+    trace=$WORK/$name/$arm/game.jsonl
     grng=$(sed -n 's/.*"grng":\([0-9]*\).*/\1/p' "$trace" | tail -1)
     rng=$(sed -n 's/.*"rng":\([0-9]*\).*/\1/p' "$trace" | tail -1)
     nest=$(sed -n 's/.*"nest":\([0-9]*\).*/\1/p' "$trace" | sort -u | tr -d '\n')
@@ -121,11 +187,11 @@ EnhancedLights = 0;" IVAN_BIN=$IVAN_BIN "$HERE/run-corpus.sh" "$rec" "$WORK/$nam
     if [ "$nest" != 0 ]; then
       [ "$bad" -eq 0 ] && printf '\n'
       bad=1; FAILED=1
-      printf '  FAIL scale %s: nest reached %s -- the single mtb backup slot is being reused\n' \
-             "$s" "$nest"
+      printf '  FAIL %s: nest reached %s -- the single mtb backup slot is being reused\n' \
+             "$arm" "$nest"
     fi
 
-    if [ "$s" = "$REFERENCE" ]; then
+    if [ "$arm" = "$REFERENCE" ]; then
       expected=$grng
       reference_rng=$rng
       continue
@@ -134,21 +200,21 @@ EnhancedLights = 0;" IVAN_BIN=$IVAN_BIN "$HERE/run-corpus.sh" "$rec" "$WORK/$nam
     if [ "$grng" != "$expected" ]; then
       [ "$bad" -eq 0 ] && printf '\n'
       bad=1; FAILED=1
-      printf '  FAIL scale %s ends at grng %s, scale %s at %s\n' \
-             "$s" "$grng" "$REFERENCE" "$expected"
+      printf '  FAIL %s ends at grng %s, %s at %s\n' \
+             "$arm" "$grng" "$REFERENCE" "$expected"
     fi
 
     # The arms have to be genuinely different runs, or every comparison above is vacuous. A planted
     # config that the game never read -- ivan.cfg instead of ivan.conf is the way to get that, since
     # only WIN32 takes the .cfg branch (iconf.cpp:1315) -- produces two byte-identical traces and a
-    # pass that means nothing. It is the *frame* trace that must differ: the zoom is meant to change
-    # what is drawn, and the game trace is the thing being asserted equal, so checking that one for
-    # liveness would demand the failure it is testing for.
-    if cmp -s "$WORK/$name/$REFERENCE/frames.jsonl" "$WORK/$name/$s/frames.jsonl"; then
+    # pass that means nothing. It is the *frame* trace that must differ: the zoom and the window are
+    # meant to change what is drawn, and the game trace is the thing being asserted equal, so
+    # checking that one for liveness would demand the failure it is testing for.
+    if cmp -s "$WORK/$name/$REFERENCE/frames.jsonl" "$WORK/$name/$arm/frames.jsonl"; then
       [ "$bad" -eq 0 ] && printf '\n'
       bad=1; FAILED=1
-      printf '  FAIL scale %s produced a trace identical to scale %s: the config was not read\n' \
-             "$s" "$REFERENCE"
+      printf '  FAIL %s produced a trace identical to %s: the config was not read\n' \
+             "$arm" "$REFERENCE"
     fi
   done
 
@@ -157,7 +223,7 @@ EnhancedLights = 0;" IVAN_BIN=$IVAN_BIN "$HERE/run-corpus.sh" "$rec" "$WORK/$nam
   # and it has not moved on any corpus; kept because the one surviving bracket could still move it.
   # Reported, never fatal.
   if [ "$bad" -eq 0 ]; then
-    printf ' grng %s at every scale' "$expected"
+    printf ' grng %s in every arm' "$expected"
     [ "$rng" != "$reference_rng" ] && printf ', rng %s to %s' "$reference_rng" "$rng"
     printf '\n'
   fi
