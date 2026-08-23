@@ -276,13 +276,6 @@ class lsquare : public square
   void ChangeLuminance(col24&, col24);
   void RemoveLuminance(col24&);
   void CalculateEmitation();
-  void UpdateStaticContentCache(col24) const;
-  mutable struct staticcontentcache
-  {
-    staticcontentcache() : Bitmap(0), Luminance(0) { }
-    bitmap* Bitmap;
-    col24 Luminance;
-  } StaticContentCache;
   fluid* Fluid;
   smoke* Smoke;
   hiteffect* HitEffect;

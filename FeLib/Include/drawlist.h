@@ -38,8 +38,8 @@
 
    Only writes whose destination is the capture target are recorded. Writes
    into the scratch bitmaps the map render composites through -- igraph's
-   TileBuffer and FlagBuffer, lsquare::Memorized, lsquare::StaticContentCache
-   -- run immediately, and the composite then arrives as one opaque command.
+   TileBuffer and FlagBuffer, lsquare::Memorized -- run immediately, and the
+   composite then arrives as one opaque command.
 
    Two barriers keep that safe, and both are counted because Phase C exists to
    drive the first of them to zero:

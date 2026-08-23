@@ -2946,3 +2946,56 @@ say what that has to beat. One invariant to carry into it: every `Alpha*` blit a
 reads the destination pixel it blends onto, so the list is only sound while it replays into one
 destination in the recorded order with nothing else writing in between. Reordering it, batching it by
 source or dropping overpainted commands is a pixel change, whatever a profile suggests.
+
+### 10.2 Deleting the static content cache
+
+`lsquare::StaticContentCache` was a second bitmap per square holding `Memorized` multiplied by the
+square's luminance, keyed on that luminance and copied to the screen by a whole-bitmap `FastBlit`
+(`lsquare.cpp:210-231` before this change). Since a draw-list command already carries luminance as a
+field, the staging bitmap bought nothing the list does not: `DrawStaticContents`'s fast path now emits
+one `LuminanceBlit` of `Memorized` straight at the destination.
+
+**It is exactly pixel-identical, and the argument is static rather than empirical.** `LuminanceBlit`'s
+inner loop is a pure function of the source pixel — `LOAD_SRC`, three clamped per-channel adds,
+`STORE_COLOR`, no `LOAD_DEST`, no mask test, no alpha (`bitmap.cpp:548-562`) — so
+`Memorized -> cache -> screen` and `Memorized -> screen` write the same bytes. At `NORMAL_LUMINANCE`
+`LuminanceBlit` tail-calls `NormalBlit`, whose whole-bitmap `memcpy` shortcut needs
+`Border == B.Bitmap->Size` (`bitmap.cpp:379-381`), false for a 16x16 border into an 800x600
+`DOUBLE_BUFFER`, so it lands on the per-row `memcpy` at `bitmap.cpp:387-388` — byte for byte the loop
+`FastBlit` used at `bitmap.h:200-201`. Clipping is identically absent both ways because `Memorized`
+carries `FastFlag` (`lsquare.cpp:2821-2827`) and `LuminanceBlit` gates the whole clip block on
+`!FastFlag`. Neither bitmap ever acquires an alpha or priority map, and `LuminanceBlit` writes neither.
+
+**The one thing the replacement must not do is pass the caller's `BlitData` through.** The `FastBlit`
+it replaces read only `Bitmap` and `Dest` and ignored `Src`, `Border`, `MaskColor` and `Flags`, where
+`LuminanceBlit` honours the first two. Those fields happen to hold `{0,0}` and `{16,16}` at every call
+site today, and five separate mutators inside the map render reset them by convention alone — one of
+them (`stack.cpp:68`) carrying its own `/// check` marker. The fast path builds a fresh blitdata.
+
+Measured: **byte-identical everywhere**. All nine golden files match on all three corpora, and so does
+`screen.png`, which no golden covers — before and after trees compared file by file. `compare-targets.sh`
+reports the native and WASM builds agreeing on all three. The draw list's own counters are unchanged to
+the command: 1,202/6/707/6/0, 9,591/401/707/431/0 and 79,290/3,527/753/3,943/679 for the three corpora,
+the same figures §10.1 tabulates — one `FastBlit` command became one `LuminanceBlit` command and the
+shape of the list did not move. Counting the fast path directly with a temporary counter: **22,589 hits
+on autoplay-2000**, 2,703 on autoplay-200, 11 on noncombat. The first is exactly the 22,589 of §10.1's
+26,532 `FastBlit(bitmap*, v2)` commands the pre-A1 instrumentation attributed to the cache, so
+autoplay-2000's op mix is now 3,943 `FastBlit(bitmap*, v2)` — the character write-backs alone — against
+38,142 `LuminanceBlit`.
+
+**What the corpora could not have told us, and no longer need to.** Survey work for this step measured
+zero hits on `level::BlurMemory`, `level::Amnesia`, `lsquare::SwapMemorized`, `lsquare::DestroyMemorized`
+and `lsquare::PreProcessForBone` across all three corpora — the five routes by which the cache could
+have gone stale against the `Memorized` it mirrored, and `SwapMemorized` swapped `Memorized` between two
+squares while leaving each square's cache and its luminance key behind. A green `verify-corpora.sh` was
+never evidence about that path. It does not have to be any more: there is no second copy to be stale.
+The flag discipline that closed it (`level.cpp:3254-3256` and `:3349-3351` set
+`MEMORIZED_UPDATE_REQUEST` before every swap or destroy) is now load-bearing for nothing.
+
+Gone with it: one `new bitmap(TILE_V2)` per memorized square, the `staticcontentcache` struct and its
+`col24` key, `UpdateStaticContentCache`, and an `ActivateFastFlag()` that had never done anything —
+`FastFlag` is only ever read as `this->FastFlag` inside a blit method (eleven `if(!FastFlag)` guards
+in `bitmap.cpp`, the first at `:359`), and the cache bitmap was only ever a destination or the
+receiver of an unconditional inline
+`FastBlit`. The cache was never serialised: `lsquare::Save` writes `Memorized` alone (`lsquare.cpp:602`),
+so no save format moves and `SAVE_FILE_VERSION` stays at 138.

@@ -82,7 +82,6 @@ lsquare::~lsquare()
 
   delete Memorized;
   delete FowMemorized;
-  delete StaticContentCache.Bitmap;
   delete [] GroundBorderPartnerTerrain;
   delete [] OverBorderPartnerTerrain;
 
@@ -196,39 +195,26 @@ void lsquare::UpdateMemorized()
       igraph::GetFOWGraphic()->FastBlit(FowMemorized);
     }
 
-    if(!StaticContentCache.Bitmap)
-    {
-      StaticContentCache.Bitmap = new bitmap(TILE_V2);
-      StaticContentCache.Bitmap->ActivateFastFlag();
-    }
-
-    UpdateStaticContentCache(Luminance);
     Flags &= ~MEMORIZED_UPDATE_REQUEST;
   }
-}
-
-void lsquare::UpdateStaticContentCache(col24 Luminance) const
-{
-  blitdata B = { StaticContentCache.Bitmap,
-                 { 0, 0 },
-                 { 0, 0 },
-                 { TILE_SIZE, TILE_SIZE },
-                 { Luminance },
-                 0,
-                 0 };
-
-  Memorized->LuminanceBlit(B);
-  StaticContentCache.Luminance = Luminance;
 }
 
 void lsquare::DrawStaticContents(blitdata& BlitData) const
 {
   if(BlitData.CustomData & ALLOW_ANIMATE && !StaticAnimatedEntities && Memorized && !game::GetSeeWholeMapCheatMode())
   {
-    if(StaticContentCache.Luminance != BlitData.Luminance)
-      UpdateStaticContentCache(BlitData.Luminance);
+    /* Not BlitData itself: the per-square cache this replaced reached the screen
+       through a whole-bitmap FastBlit, which ignores Src and Border where
+       LuminanceBlit honours them. */
+    blitdata B = { BlitData.Bitmap,
+                   { 0, 0 },
+                   BlitData.Dest,
+                   { TILE_SIZE, TILE_SIZE },
+                   { BlitData.Luminance },
+                   0,
+                   0 };
 
-    StaticContentCache.Bitmap->FastBlit(BlitData.Bitmap, BlitData.Dest);
+    Memorized->LuminanceBlit(B);
     return;
   }
 
