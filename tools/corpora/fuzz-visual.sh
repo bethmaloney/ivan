@@ -9,18 +9,18 @@
 # trace. frames.jsonl and screen.png are *expected* to differ; that is what the
 # seed is for and it is the liveness check below.
 #
-# This is strictly stronger than compare-configs.sh at the leak question. That
-# script varies the camera, so by construction it can only see a draw whose
-# count is camera-gated, and docs/port-log.md §6.10a names bodypart::DrawScars as
-# a real site it is blind to. Varying the visual seed sees a leak from
-# presentation into game state whatever gates it. It is strictly weaker at the
-# other question -- a *game*-stream draw on a camera-gated path -- which moves no
-# visual seed and which only compare-configs.sh can express. Both, then.
+# This and compare-configs.sh answer different questions and neither contains the
+# other. That one varies the camera, so it sees a draw on the *game* generator
+# whose call count is camera-gated -- §6.10's bug. This one varies the visual
+# seed, so it sees a value from the *presentation* generator reaching game state.
+# It does NOT see bodypart::DrawScars (docs/port-log.md §6.10a): that is a game
+# generator draw, and no visual seed touches it. Nothing here covers that row.
 #
 # What a pass establishes, exactly: over the draws these recordings reach,
-# nothing on the visualrand generators (femath.h) reaches the game trace. It says
-# nothing about a site no corpus reaches, and effects/beams.rec is in the sweep
-# for the same reason compare-configs.sh needs it (§6.10b).
+# nothing visualrand produced (femath.h) reaches the game trace or the message
+# stream. It says nothing about a site no corpus reaches, which is why
+# effects/beams.rec is in the sweep -- the same reason compare-configs.sh needs
+# it (§6.10b).
 #
 # Usage: fuzz-visual.sh [-n RUNS]
 # Env:   IVAN_BIN  path to the ivan binary (default build/Main/ivan)

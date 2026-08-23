@@ -210,10 +210,12 @@ answer four different questions and you want all of them:
   differently?* It is the newest and the narrowest — one integer per corpus, one config axis — and
   §6.10a is the honest account of its reach.
 - **`fuzz-visual.sh`** replays each corpus varying only `--visual-seed` and compares the game trace:
-  *does anything the game draws decide anything the game keeps?* It sees a leak whatever gates it,
-  where `compare-configs.sh` sees only camera-gated ones; it cannot see the converse, a game-stream
-  draw on a camera-gated path, so the two are complementary rather than redundant (§6.10d).
-  **CI runs only the first** (`deploy.yml`), so neither invariance property has a regression test.
+  *does anything the game draws decide anything the game keeps?* It and `compare-configs.sh` cover
+  different mistakes and neither contains the other — the sweep sees a *game*-generator draw behind a
+  visibility test, this sees a *presentation*-generator value reaching game state, and a
+  game-generator draw that is not camera-gated (`bodypart::DrawScars`) is seen by neither. §6.10c has
+  the table. **CI runs only the first** (`deploy.yml`), so no invariance property has a regression
+  test.
 
 A change that moves both builds identically passes the second and fails the first; a
 compiler-dependent expression (§9.4) does the reverse, which is why a dozen such bugs survived every
@@ -557,7 +559,7 @@ The ones worth knowing about before touching anything:
 | §6.6 | why `= default` on a struct that gets memcmp'd or raw-written is a bug |
 | §6.9 | the strict aliasing violation, and why a Heisenbug that evaporates when you take an address is this class's signature |
 | §6.10 | the player's zoom in the game's RNG — and why the code read found the sites that did not matter while the differential test found the ones that did |
-| §6.10c | the two generators, and why the brackets that preceded them were the same idea at three times the cost |
+| §6.10c | the game and presentation generators, why the brackets that preceded them were the same idea at three times the cost, and which mistake each corpus script can and cannot see |
 | §6.10d | why the trace is two files, and which facts belong in the half that outlives the renderer |
 | §9.4 | the twelve places the program left a choice to the compiler, and the technique that found them |
 | §9.7 | why the audio boundary sits below the regex |

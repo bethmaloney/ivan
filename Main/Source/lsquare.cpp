@@ -1454,7 +1454,7 @@ v2 lsquare::DrawLightning(v2 StartPos, long Color, int Direction, truth DrawHere
 
   if(Direction != YOURSELF)
   {
-    while(!Empty.CreateLightning(StartPos, game::GetMoveVector(Direction), 16, Color, visualrand::FreeStream()));
+    while(!Empty.CreateLightning(StartPos, game::GetMoveVector(Direction), 16, Color));
     v2 EndPos(0, 0);
 
     switch(Direction)
@@ -1469,14 +1469,14 @@ v2 lsquare::DrawLightning(v2 StartPos, long Color, int Direction, truth DrawHere
      case SOUTHEAST: EndPos = v2(15, 15); break;
     }
 
-    while(!Empty.CreateLightning(EndPos, -game::GetMoveVector(Direction), NO_LIMIT, Color, visualrand::FreeStream()));
+    while(!Empty.CreateLightning(EndPos, -game::GetMoveVector(Direction), NO_LIMIT, Color));
   }
   else
   {
     static v2 Dir[4] = { v2(0, -1), v2(-1, 0), v2(1, 0), v2(0, 1) };
 
     for(int d = 0; d < 4; ++d)
-      while(!Empty.CreateLightning(StartPos + Dir[d], ZERO_V2, 10, Color, visualrand::FreeStream()));
+      while(!Empty.CreateLightning(StartPos + Dir[d], ZERO_V2, 10, Color));
   }
 
   if(DrawHere)

@@ -694,15 +694,15 @@ v2 rawbitmap::RandomizeSparklePos(cv2* ValidityArray, v2* PossibleBuffer, v2 Pos
   v2 Return;
 
   if(Preferred)
-    Return = PreferredPossible[KRAND() % Preferred] - Pos;
+    Return = PreferredPossible[VRAND() % Preferred] - Pos;
   else if(Bad[3])
-    Return = BadPossible[3][KRAND() % Bad[3]] - Pos;
+    Return = BadPossible[3][VRAND() % Bad[3]] - Pos;
   else if(Bad[2])
-    Return = BadPossible[2][KRAND() % Bad[2]] - Pos;
+    Return = BadPossible[2][VRAND() % Bad[2]] - Pos;
   else if(Bad[1])
-    Return = BadPossible[1][KRAND() % Bad[1]] - Pos;
+    Return = BadPossible[1][VRAND() % Bad[1]] - Pos;
   else if(Bad[0])
-    Return = BadPossible[0][KRAND() % Bad[0]] - Pos;
+    Return = BadPossible[0][VRAND() % Bad[0]] - Pos;
   else
     Return = ERROR_V2;
 

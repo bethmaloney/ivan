@@ -955,34 +955,39 @@ blood stain is not what anyone pictures as a visual effect, and that is precisel
 code read walked past. It is *could the number of times this runs depend on anything outside the
 game*, which is what a visibility gate makes true.
 
-**Two presentation disciplines, and they need two generators — which the first attempt got wrong.**
-*Free-running* callers want some randomness and do not care that two runs differ: the drip, the
-explosion mirror, the particles, the wand beams. *Keyed* callers reseed from an object identity
-first, so an item draws the same flames on every frame: `bitmap::CreateFlames`, `CreateFlies`,
-`CreateLightning`, `object::RandomizeSparklePos`. Those four are upstream's original `SaveSeed` users
-and were **never isolation brackets** — the seed is a key, and the borrowed mechanism is what §6.10
-then reused for a different problem.
+**Two kinds of presentation caller share one generator, and one xor is what makes that work.** Most
+callers just want some randomness and do not care that two runs differ: the drip, the explosion
+mirror, the particles, the wand beams. Four callers instead reseed from an object identity first, so
+an item draws the same flames every frame — `bitmap::CreateFlames`, `CreateFlies`, `CreateLightning`,
+`object::RandomizeSparklePos`. They need that because `igraph` caches a drawn tile under the item's
+graphic id and regenerates it on a miss (`igraph.cpp:282`, evicted by refcount at `:348`), so a
+regenerated tile has to come out looking like the one it replaced. Those four are upstream's original
+`SaveSeed` users and were **never isolation brackets** — the seed was always a key, and the borrowed
+mechanism is what §6.10 then reused for a different problem.
 
-The first cut gave both disciplines one generator, reasoning that a keyed caller reseeding the shared
-stream is harmless because it reseeds immediately before drawing, so its own output is a pure
-function of its key whatever ran before it. That reasoning is correct and the conclusion is still
-wrong, because it is about *correctness* and the thing it breaks is *testing*: the keyed reseeds land
-on the free-running stream too, so the free-running sites are driven by whatever key happened to be
-set last rather than by the startup seed. Measured with gdb ignore-counts on `autoplay-200`,
-`visualrand::SetSeed` was hit **681 times** against 3,152 draws — about one reseed every five draws.
-The symptom was a `--visual-seed` sweep that changed **nothing**: 0 of 596 frame hashes moved. A
-knob whose whole purpose is to fuzz the isolation property was passing vacuously, which is the same
-failure mode `compare-configs.sh`'s liveness check exists to catch one layer up, found the same way —
-by checking that the arm differed from the reference at all before believing that it agreed.
+Left alone, a key overwrites the stream with a value `--visual-seed` never touched, so the seed
+governs only the draws before the first keyed site runs. Measured with gdb ignore-counts on
+`autoplay-200`: **681 keys against 3,152 draws**, about one every five. The symptom was a
+`--visual-seed` sweep that changed **nothing** — 0 of 596 frame hashes moved. A knob whose whole
+purpose is to fuzz the isolation property was passing vacuously, which is the failure mode
+`compare-configs.sh`'s liveness check exists to catch one layer up, and it was found the same way: by
+checking that the arm differed from the reference at all before believing that it agreed.
 
-So `VRAND` and `KRAND` are separate streams. `bitmap::CreateLightning`'s four-argument form is the
-one draw routine both disciplines call — the keyed two-argument form traces an item's crackle with
-it, `lsquare::DrawLightning` traces a wand beam — and it takes the stream as an `mtgen&` rather than
-consulting a "which one is current" flag, so the choice is visible at each call site. Counting moved
-into `mtgen::Draw` for the same reason: a stream handed out by reference has to be counted wherever
-it is drawn from. With the split, `--visual-seed 424242` moves 250 of `autoplay-200`'s 596 frame
-hashes and leaves `grng`, `rng` and `text.log` byte-identical, which is the property stated as a
-measurement rather than as an intention.
+The fix is `SetKey(Key)` seeding on `Key ^ Base`, where `Base` is `--visual-seed`. The seed then
+reaches every presentation draw of both kinds, while a fixed seed — the default — still gives a key
+the same picture every time, which is all the tile cache requires. Measured: `--visual-seed 424242`
+moves **270 of `autoplay-200`'s 596** frame hashes and leaves `game.jsonl` and `text.log`
+byte-identical.
+
+**Two separate generators were built first and reverted, and the reason is worth keeping.** Splitting
+free-running from keyed also makes the seed reach everything, and it works — 250 of 596 — but it
+costs about forty lines across seven files and forces `bitmap::CreateLightning`'s four-argument form,
+which both kinds call, to take the stream as an `mtgen&` parameter. The xor is three lines and
+reaches *more*, because under the split the keyed sites ignore `--visual-seed` entirely. The error
+behind the split was conflating two requirements: *isolation* (the two kinds must not perturb each
+other) with *reachability* (the seed must reach every draw). Only the second was ever required. The
+first was assumed because the game/presentation boundary above it genuinely does need isolation, and
+the same word was reused one level down where it buys nothing.
 
 Each of the four keyed sites now costs one `visualrand::SetKey` where it used to cost a 624-word
 save, a 624-step reseed and a 624-word restore.
@@ -1009,13 +1014,26 @@ than made and thrown away.
 `--visual-seed` is the new knob and it is fixed by default (`0x1AA2`), because the frame hashes and
 the screenshots have to reproduce and `verify-corpora.sh` compares them across eight runs. What it
 is *for* is the arm that cannot exist while presentation and game share a stream: replay a corpus
-repeatedly varying only that seed, and any presentation draw that reaches game state moves `grng`.
-That is
-strictly stronger than `compare-configs.sh` at the leak question, which by construction sees only
-camera-gated sites and is blind to `bodypart::DrawScars` (§6.10a); it is strictly weaker at the other
-question, a game-stream draw on a camera-gated path, which varying the visual seed cannot express.
-Both, then. The arm itself needs the trace split (§6.10d) to have something to compare, so it lands
-with it.
+repeatedly varying only that seed, and any value the presentation generator produced that reached
+game state shows up as a moved game trace.
+
+**Be exact about what that does and does not cover, because the first draft of this section was
+not.** `fuzz-visual.sh` and `compare-configs.sh` answer different questions and neither contains the
+other:
+
+| the mistake | what it looks like | caught by |
+|---|---|---|
+| a presentation site draws from `femath::Rand`, behind a visibility test | the camera moves the game's stream — §6.10 itself | `compare-configs.sh` |
+| the same, but not camera-gated | the game's stream moves for no reason the sweep can vary — `bodypart::DrawScars` (§6.10a) | **neither** |
+| a value from `visualrand` reaches game state | the game follows the visual seed | `fuzz-visual.sh` |
+
+So `fuzz-visual.sh` is **not** stronger than the config sweep, and it does **not** catch
+`DrawScars` — that is a draw on the *game* generator, which no visual seed touches. What it is, is a
+regression detector for the one mistake that becomes easy to make once `VRAND` exists and is sitting
+right there next to `RAND`, plus an end-to-end statement that the presentation stream decides nothing
+the game keeps. The row neither script covers is still open and is still §6.10a's to state.
+
+The arm needs the trace split (§6.10d) to have something to compare, so it lands with it.
 
 #### 6.10d One trace became two, and the game's half stopped depending on the screen
 

@@ -202,7 +202,7 @@ truth object::RandomizeSparklePos(v2& SparklePos, v2 BPos, int& SparkleTime, ulo
   if(SparklePos == ERROR_V2)
     return false;
 
-  SparkleTime = KRAND() % 241;
+  SparkleTime = VRAND() % 241;
   return true;
 }
 

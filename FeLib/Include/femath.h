@@ -73,9 +73,7 @@
 
 #define VRAND visualrand::Rand
 #define VRAND_16 (visualrand::Rand() & 15)
-#define KRAND visualrand::KeyedRand
-#define KRAND_16 (visualrand::KeyedRand() & 15)
-#define KRAND_32 (visualrand::KeyedRand() & 31)
+#define VRAND_32 (visualrand::Rand() & 31)
 
 class outputfile;
 class inputfile;
@@ -89,16 +87,10 @@ template <class type> struct fearray;
 class mtgen
 {
  public:
-  explicit mtgen(ulong* Counter = 0) : Counter(Counter) {}
   void SetSeed(ulong);
   long Draw();
 
  private:
-  /* Counted here rather than in the callers so that a stream handed out by
-     reference - bitmap::CreateLightning takes one - is still counted. Null on
-     the game's, whose counter also has to decide grng; femath::Rand does it. */
-
-  ulong* Counter;
   ulong mt[624];
   long mti = 625; /* > 624, so Draw() seeds itself rather than read garbage */
 
@@ -144,29 +136,31 @@ class femath
 };
 
 /*
- * The presentation streams. Two of them, because they answer to different
- * things:
+ * The presentation stream. Two kinds of caller share it:
  *
- *   VRAND  free-running. The caller wants "some" randomness and does not care
- *          that two runs differ - fluid drips, explosion mirroring, particles,
- *          the wand beams. Seeded once from --visual-seed and never again.
- *   KRAND  keyed. The caller reseeds from an object identity first, so an item
- *          draws the same flames on every frame - bitmap::CreateFlames,
- *          CreateFlies, CreateLightning, object::RandomizeSparklePos. These are
- *          upstream's original SaveSeed users and were never isolation
- *          brackets; the seed is a key.
+ *   VRAND()   the caller wants "some" randomness and does not care that two
+ *             runs differ - fluid drips, explosion mirroring, particles, the
+ *             wand beams.
+ *   SetKey(K) then VRAND(), for a caller that needs the same picture from the
+ *             same object every frame - bitmap::CreateFlames, CreateFlies,
+ *             CreateLightning, object::RandomizeSparklePos. igraph caches a
+ *             drawn tile under the item's graphic id (igraph.cpp:282) and
+ *             regenerates it on a miss, so a regenerated tile has to come out
+ *             looking like the one it replaced. These are upstream's original
+ *             SaveSeed users; that seed was always a key and never an isolation
+ *             bracket.
  *
- * Sharing one generator between the two was tried and is wrong, for a reason
- * that is about testing rather than correctness: a keyed site reseeds
- * immediately before drawing, so its own output is a pure function of its key
- * whatever ran before it, but it lands on the free-running stream as well.
- * Measured on autoplay-200, 681 keyed reseeds against 3,152 draws - which left
- * --visual-seed reaching nothing and the fuzz arm passing vacuously
- * (docs/port-log.md §6.10c).
+ * SetKey mixes the key with --visual-seed rather than using it raw, and that
+ * one xor is the whole reason this is one generator and not two. Without it a
+ * key overwrites the stream with a value the seed never touched -- measured on
+ * autoplay-200, 681 keys against 3,152 draws -- so the seed reaches almost
+ * nothing and any test that varies it passes vacuously. With it the seed
+ * reaches every presentation draw of both kinds, while a fixed seed still gives
+ * a key the same picture every time (docs/port-log.md §6.10c).
  *
  * There is no SaveSeed here and there is not meant to be. Restoring state is
- * what the game's generator needs so a discarded draw stays discarded; these
- * have nothing to discard, and the absence of the mechanism is what makes the
+ * what the game's generator needs so a discarded draw stays discarded; this one
+ * has nothing to discard, and the absence of the mechanism is what makes the
  * brackets' nesting hazard (harness.h) unreachable from presentation.
  */
 
@@ -175,18 +169,11 @@ class visualrand
  public:
   static long Rand();
   static void SetSeed(ulong);
-  static long KeyedRand();
   static void SetKey(ulong);
 
-  /* For the one draw routine both disciplines call, bitmap::CreateLightning's
-     four argument form: its caller says which stream it is tracing on. */
-
-  static mtgen& FreeStream();
-  static mtgen& KeyedStream();
-
  private:
-  static mtgen Free;
-  static mtgen Keyed;
+  static mtgen Visual;
+  static ulong Base;
 };
 
 struct interval

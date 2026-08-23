@@ -70,8 +70,8 @@ truth basequadricontroller::SectorCompletelyClear;
 #define TEMPERING_SHIFT_L(y) (y >> 18)
 
 mtgen femath::Game;
-mtgen visualrand::Free(&harness::VisualRandCount);
-mtgen visualrand::Keyed(&harness::VisualRandCount);
+mtgen visualrand::Visual;
+ulong visualrand::Base = 0;
 
 /* backups, for femath::SaveSeed - the game generator's only */
 
@@ -93,9 +93,6 @@ void mtgen::SetSeed(ulong Seed)
 
 long mtgen::Draw()
 {
-  if(Counter)
-    ++*Counter;
-
   ulong y;
   static ulong mag01[2]={0x0, MATRIX_A};
 
@@ -145,12 +142,25 @@ void femath::SetSeed(ulong Seed)
   Game.SetSeed(Seed);
 }
 
-long visualrand::Rand() { return Free.Draw(); }
-void visualrand::SetSeed(ulong Seed) { Free.SetSeed(Seed); }
-long visualrand::KeyedRand() { return Keyed.Draw(); }
-void visualrand::SetKey(ulong Key) { Keyed.SetSeed(Key); }
-mtgen& visualrand::FreeStream() { return Free; }
-mtgen& visualrand::KeyedStream() { return Keyed; }
+long visualrand::Rand()
+{
+  harness::CountVisualRand();
+  return Visual.Draw();
+}
+
+void visualrand::SetSeed(ulong Seed)
+{
+  Base = Seed;
+  Visual.SetSeed(Seed);
+}
+
+/* The xor is what puts --visual-seed in front of a keyed draw as well as a
+   free-running one; see the note above the class. */
+
+void visualrand::SetKey(ulong Key)
+{
+  Visual.SetSeed(Key ^ Base);
+}
 
 double femath::NormalDistributedRand(double StandardDeviation)
 {

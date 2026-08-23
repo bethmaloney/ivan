@@ -1570,9 +1570,9 @@ void bitmap::AlphaLuminanceBlit(cblitdata& BlitData) const
 
 void bitmap::CreateFlames(rawbitmap* RawBitmap, v2 RawPos, ulong SeedNFlags, int Frame)
 {
-  /* Keyed on the material flags, so one item's flames are the same flames on every frame. That is
-     what this seed has always been for; it was never an isolation bracket, and the isolation is
-     now the generator itself (femath.h). */
+  /* Keyed on the material flags, so one item's flames are the same flames on every frame -- the
+     tile cache regenerates them on a miss (igraph.cpp:282). That is what this seed has always been
+     for; it was never an isolation bracket, and the isolation is now the generator (femath.h). */
   visualrand::SetKey(SeedNFlags);
   int FlameTop[16], FlameBottom[16], FlamePhase[16];
   int x, y;
@@ -1586,14 +1586,14 @@ void bitmap::CreateFlames(rawbitmap* RawBitmap, v2 RawPos, ulong SeedNFlags, int
       {
         if(1 << RawBitmap->GetMaterialColorIndex(RawPos.X + x, RawPos.Y + y) & SeedNFlags)
         {
-          FlamePhase[x] = KRAND_16;
+          FlamePhase[x] = VRAND_16;
 
           if(y > 1)
           {
             FlameBottom[x] = y - 1;
 
             if(y >= 5)
-              FlameTop[x] = (y - (KRAND_32 * y >> 5)) >> 1;
+              FlameTop[x] = (y - (VRAND_32 * y >> 5)) >> 1;
             else
               FlameTop[x] = 0;
           }
@@ -1650,13 +1650,13 @@ void bitmap::CreateFlies(ulong Seed, int Frame, int FlyAmount)
 
   for(int c = 0; c < FlyAmount; ++c)
   {
-    double Constant = double(KRAND() % 10000) / 10000 * FPI;
-    cint StartX = KRAND() % 6;
-    cint StartY = KRAND() % 6;
+    double Constant = double(VRAND() % 10000) / 10000 * FPI;
+    cint StartX = VRAND() % 6;
+    cint StartY = VRAND() % 6;
     v2 StartPos = v2(5 + StartX, 5 + StartY);
     double Temp = (double(16 - Frame) * FPI) / 16;
 
-    if(KRAND() & 1)
+    if(VRAND() & 1)
       Temp = -Temp;
 
     v2 Where;
@@ -1676,9 +1676,9 @@ void bitmap::CreateLightning(ulong Seed, col16 Color)
   {
     do
     {
-      if(KRAND() & 1)
+      if(VRAND() & 1)
       {
-        if(KRAND() & 1)
+        if(VRAND() & 1)
         {
           StartPos.X = 0;
           Direction.X = 1;
@@ -1689,11 +1689,11 @@ void bitmap::CreateLightning(ulong Seed, col16 Color)
           Direction.X = -1;
         }
 
-        StartPos.Y = KRAND() % Size.Y;
+        StartPos.Y = VRAND() % Size.Y;
       }
       else
       {
-        if(KRAND() & 1)
+        if(VRAND() & 1)
         {
           StartPos.Y = 0;
           Direction.Y = 1;
@@ -1704,12 +1704,12 @@ void bitmap::CreateLightning(ulong Seed, col16 Color)
           Direction.Y = -1;
         }
 
-        StartPos.X = KRAND() % Size.X;
+        StartPos.X = VRAND() % Size.X;
       }
     }
     while(GetPixel(StartPos) != TRANSPARENT_COLOR);
   }
-  while(!CreateLightning(StartPos, Direction, NO_LIMIT, Color, visualrand::KeyedStream()));
+  while(!CreateLightning(StartPos, Direction, NO_LIMIT, Color));
 }
 
 struct pixelvectorcontroller
@@ -1731,11 +1731,7 @@ struct pixelvectorcontroller
 std::vector<v2> pixelvectorcontroller::PixelVector;
 bitmap* pixelvectorcontroller::CurrentSprite;
 
-/* Gen is the stream to trace on, because both presentation disciplines call this: the keyed
-   CreateLightning above traces an item's crackle, lsquare::DrawLightning traces a wand beam that
-   nothing redraws. Passing it beats a "which one is current" flag (femath.h). */
-
-truth bitmap::CreateLightning(v2 StartPos, v2 Direction, int MaxLength, col16 Color, mtgen& Gen)
+truth bitmap::CreateLightning(v2 StartPos, v2 Direction, int MaxLength, col16 Color)
 {
   pixelvectorcontroller::CurrentSprite = this;
   std::vector<v2>& PixelVector = pixelvectorcontroller::PixelVector;
@@ -1745,14 +1741,14 @@ truth bitmap::CreateLightning(v2 StartPos, v2 Direction, int MaxLength, col16 Co
 
   for(;;)
   {
-    cint MoveX = Gen.Draw() & 3;
-    cint MoveY = Gen.Draw() & 3;
+    cint MoveX = VRAND() & 3;
+    cint MoveY = VRAND() & 3;
     v2 Move(1 + MoveX, 1 + MoveY);
 
-    if(Direction.X < 0 || (!Direction.X && Gen.Draw() & 1))
+    if(Direction.X < 0 || (!Direction.X && VRAND() & 1))
       Move.X = -Move.X;
 
-    if(Direction.Y < 0 || (!Direction.Y && Gen.Draw() & 1))
+    if(Direction.Y < 0 || (!Direction.Y && VRAND() & 1))
       Move.Y = -Move.Y;
 
     LimitRef(Move.X, -StartPos.X, Size.X - StartPos.X - 1);
