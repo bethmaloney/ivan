@@ -1315,6 +1315,68 @@ source on both sides and the file levels decoded from the wavs themselves; that 
 content, not a recording. A capture of the native path — SDL's `disk` audio driver writes the mixed
 stream to a file — would close it, and would also settle the `punch.wav` question in the browser.
 
+**§9.7b took the trim back out**, having found the level was the smaller half of what was wrong with
+these files. The arithmetic above still holds; the 12dB now lives in `Sound/` instead of in `sfx.ts`.
+
+#### 9.7b The level moved into the files, and the variants stopped disagreeing
+
+§9.7a took 12dB off at the bus and said so plainly: a deliberate divergence, not a fix. It was also
+only half the problem, and the quieter half was the one that mattered more.
+
+**The spread, not the level.** Looping each file past the R128 gate and reading its integrated
+loudness puts the set across **27.3dB**, from `pickup3.wav` at −33.7 LUFS to `hyena2.wav` at −6.4.
+That is not a bed sitting too high, which a bus gain fixes; it is a bed that is not level, which no
+bus gain can touch. Worst inside one category: `SoundEffects.cfg:95` picks between five files for
+`You.* hit`, and **they span 18.3dB**, so how loud a blow lands is decided by the xorshift. The
+config's whole premise is that those five are interchangeable and they never were.
+
+**Where to anchor.** Matching the corpora's drawn text against the 153 patterns says **63% of the
+sound the game provokes is Fight** -- `miss*` and `blade*` above all -- so Fight is the workhorse and
+the level to preserve. `REFERENCE` is therefore Fight's median as it stood, −12.9 LUFS, minus the
+12.04dB the bus was taking: **−24.9 LUFS**. Each category's offset is likewise its own median
+relative to Fight's, so the balance between categories is the one the game already had. Preserved
+rather than designed -- Door sitting 10.9dB under Fight is not a judgement made here, it is what the
+files were doing, now written down where it can be argued with.
+
+Median was chosen over the energy mean and over a firing-weighted mean because for Fight all three
+agree within 1.5dB, and the frequency figures are approximate: they come from deduplicated screen
+text, not from a log of what `playSound` actually did.
+
+| | before | after |
+|---|---|---|
+| whole-set spread | **27.3dB** | 14.8dB, and all of it declared |
+| within Fight | **18.3dB** | 1.6dB |
+| within Door / Environment / Instruments | 7.0 / 10.5 / 8.6dB | **0.0dB** |
+| peaking within 1dB of full scale | 100 of 159 | 0; ceiling is −1dBFS |
+| not plain PCM | 10 | **0** |
+| `Sound/` on disk | 26.7MB | 25.3MB |
+| the page's bus | ×0.25 | **×1**, and native agrees to 0.07dB |
+
+**Three things fell out of rewriting every file.**
+
+- **`punch.wav` can play natively again.** §9.7a found it was MP3 inside a RIFF container, which
+  `SDL_wave.c:1753` answers with "MPEG formats not supported", so one of the five `You.* hit` files
+  had been silent on every native build there has ever been. It is `pcm_s16le` now, and so are the
+  three ADPCM files and the five float ones.
+- **8-bit sources went to 16-bit.** 31 of these were 8-bit, and attenuating one by 12dB and
+  re-quantising to 8 bits spends two of its bits on the attenuation. That is most of why the total
+  only fell 1.4MB while ten codecs went away.
+- **61 files carry RIFF tags, and they are the only provenance the set has.** `-map_metadata 0` is
+  passed explicitly so a pass that rewrites everything cannot quietly erase it. Some of it is not
+  good news: `explosion2.wav` says *Copyright 2000, Sounddogs.com*, `hit4.wav` *1999 Sonic Network
+  Inc.*, `hit3.wav` *A1 Free Sound Effects*, and `sprout.wav` *Copyright 1995 Melton Productions*.
+  33 are tagged `github.com/AquariusPower` and are presumably contributions under the project's own
+  licence. `LICENSING` covers the code and `Font2.png` and has never said anything about `Sound/`.
+
+**What is open.** Still nobody has listened. Every number here is a measurement of the files and of
+the two gain chains, and the arithmetic says the game is as loud as it was and internally consistent
+where it was not -- but "as loud as it was" was itself never checked by ear, and two of the offsets
+look more like accidents of scavenging than decisions: Door at −10.9 and Player Actions at −9.0 are a
+long way down. Ten files belong to more than one category and sit at the mean of their targets, which
+satisfies neither; `normalize.py` prints them rather than hiding them, and the fix for `holy.wav`
+being an explosion, a player action and a death at once is to give it three files. `coins.wav` is
+2.0dB under target because the ceiling caught it first.
+
 ### 9.8 Music, played by the page
 
 This is the change that **retires `audio/` on this target** rather than porting it. RtMidi, the MIDI

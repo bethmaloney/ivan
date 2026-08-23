@@ -185,12 +185,13 @@ sound. Everything that can fail — a missing file, a decode error, a context th
 autoplay policy has not released — fails on the JS side and is silent, which is
 what the SDL_mixer path does with a null chunk.
 
-**Effects play 12dB below native, on purpose.** The wavs are mastered at full scale — 98 of the 155
-decodable files under `Sound/` peak within 1dB of 0dBFS, and `blunt3.wav` is −9.2dBFS RMS under a
-0dBFS peak — and both builds play them at that level, 0.07dB apart. So a gain node between the voices
-and the shared master takes a quarter of it, and the master is left alone because the music hangs off
-it too. `docs/port-log.md` §9.7a has the arithmetic on both sides and the numbers. `?sfxgain=1` is
-native's level if you want to hear what was changed.
+**The level is in the files, and the bus is at unity.** It used not to be: the wavs were mastered at
+full scale — 100 of the 159 peaked within 1dB of 0dBFS — so this module took 12dB off everything it
+played, the one place the page deliberately disagreed with native (`docs/port-log.md` §9.7a). §9.7b
+moved that 12dB into `Sound/` and both builds agree again, 0.07dB apart. What a bus gain could never
+have fixed came with it: the five files behind `You.* hit` were spread over 18dB, so how loud a blow
+was depended on which one the xorshift picked. `tools/sound/normalize.py` holds the per-category
+targets and is what a batch of replacement sounds should be run through.
 
 ```js
 ivanSfx.stats()     // {played, dropped, failed, cached, voices, trim}
@@ -202,7 +203,7 @@ ivanSfx.bus()       // the effects gain node; set .gain.value to try a level by 
 ```
 ?sfx=off              never play anything (still records what would have)
 ?sfxbase=<url>        fetch from somewhere other than the page's own Sound/
-?sfxgain=<0..1>       the effects trim, default 0.25; 1 is what native sounds like
+?sfxgain=<0..1>       the effects bus, default 1, which is what native sounds like
 ```
 
 `played()` is the useful one when something is wrong, because it records the call
@@ -234,9 +235,10 @@ decode or the context.
 a reader would otherwise be free to "fix": the 16-voice cap drops rather than
 mixes, a failed fetch is cached as a failure so one missing file is one console
 line per session, a sound arriving more than 250ms late is thrown away, a
-suspended context drops instead of queueing, and the trim is on the bus with
-every voice routed through it — a voice reconnected straight to the master would
-play at native's level again and nothing else would notice.
+suspended context drops instead of queueing, and every voice is routed through
+the bus rather than the master — at unity that changes no sound, which is
+exactly why it needs a test: a voice reconnected straight to the master would
+ignore `?sfxgain` and `bus()` and nothing else would notice.
 
 ## Music — `src/audio/music.ts`
 
