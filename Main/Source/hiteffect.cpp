@@ -18,7 +18,7 @@
 int iDrawTot=3;
 int iCleanTot=2; //min 1
 
-hiteffect::hiteffect() : entity(HAS_BE), Next(NULL), iState(-1), bBlitdataWasSet(false) {DBGSTK;} //iState -1 indicates this constructor
+hiteffect::hiteffect() : entity(HAS_BE), Next(NULL), iDrawCount(0), iCleanCount(0), iState(-1), bBlitdataWasSet(false) {DBGSTK;} //iState -1 indicates this constructor
 
 square* hiteffect::GetSquareUnderEntity(int) const {
   return setup.LSquareUnder;
@@ -67,7 +67,7 @@ bool hiteffect::WhoHitsExists() const
 }
 
 hiteffect::hiteffect(hiteffectSetup s)
-: entity(HAS_BE), Next(NULL), iDrawCount(0), iState(0), bBlitdataWasSet(false), lStartTime(clock())
+: entity(HAS_BE), Next(NULL), iDrawCount(0), iCleanCount(0), iState(0), bBlitdataWasSet(false), lStartTime(clock())
 {
   chkCleanupAlready();
 
