@@ -3144,10 +3144,17 @@ int level::RevealDistantLightsToPlayer() //based on Draw() code
   if(!PLAYER->GetSquareUnder()) //NULL may happen on player's death, was polymorphed when the crash happened
     return 0;
 
-  cint XMin = Max(game::GetCamera().X, 0);
-  cint YMin = Max(game::GetCamera().Y, 0);
-  cint XMax = Min(XSize, game::GetCamera().X + game::GetScreenXSize());
-  cint YMax = Min(YSize, game::GetCamera().Y + game::GetScreenYSize());
+  /* Bounded by the player's perception, not by the camera. The widest gate below is
+     CanBeSeenFrom(.., lMaxDist*4) and lMaxDist is PERCEPTION squared, so nothing further than
+     2*PERCEPTION on either axis can be revealed however large the window is; the camera could only
+     ever take squares away, which made how much of the map the player learns a function of their
+     window size and zoom (docs/port-log.md 6.10e). */
+  cint Reach = 2 * PLAYER->GetAttribute(PERCEPTION);
+  cv2 PlayerPos = PLAYER->GetPos();
+  cint XMin = Max(PlayerPos.X - Reach, 0);
+  cint YMin = Max(PlayerPos.Y - Reach, 0);
+  cint XMax = Min(XSize, PlayerPos.X + Reach + 1);
+  cint YMax = Min(YSize, PlayerPos.Y + Reach + 1);
   culong LOSTick = game::GetLOSTick();
 
   long lMaxDist = v2(PLAYER->GetAttribute(PERCEPTION),0).GetLengthSquare();

@@ -85,7 +85,7 @@ traces, text logs and screenshots.
 tools/corpora/verify-corpora.sh          # 8 runs each: self-consistency + golden. ~17s
 tools/corpora/verify-corpora.sh -n 1     # smoke test
 tools/corpora/compare-targets.sh         # native vs WASM, all corpora. ~26s
-tools/corpora/compare-configs.sh         # one build at six DungeonGfxScale values. ~17s
+tools/corpora/compare-configs.sh         # one build at ten display configs. ~50s
 tools/corpora/fuzz-visual.sh             # one build at six --visual-seed values. ~24s
 ```
 
