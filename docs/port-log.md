@@ -2843,3 +2843,106 @@ compiled. **A different codegen backend cannot reintroduce a symbol the preproce
 this settles the link question that emcc was needed for; what CI adds is that the port flag's removal
 does not disturb anything else. It does not: `package` built both WASM targets and `browser` passed
 Playwright against the assembled `dist/`, first try.
+
+## 10. Graphics out of SDL
+
+Issue #16 plans this in five phases, A to E. What is here is A1.
+
+### 10.1 A draw list between the map render and the double buffer
+
+`FeLib/Include/drawlist.h` and `FeLib/Source/drawlist.cpp` interpose a command buffer between the map
+render and `DOUBLE_BUFFER`. The window is one RAII object around `GetCurrentArea()->Draw()` in
+`game::DrawEverythingNoBlit` (`game.cpp:3015`), inside the `if(!bXBRZandFelist)` block and *after*
+`RevealDistantLightsToPlayer()`, which rebuilds `Memorized` and is not a screen write. Everything
+drawn after the map — the panel, the message log, the cursor, the zoom — still writes the buffer
+directly. A1 changes no pixel and is worth nothing except as a base for A2 onwards, so **the goldens
+are the proof**: all nine golden files are byte-identical with it and the two targets still agree.
+
+**Fourteen recording points and two barrier-only ones, and the capture is complete by construction
+rather than by enumeration.** Every intercepted method calls `drawlist::Interpose` as its first statement and returns
+if it returns true. Because it returns *before* delegating — `LuminanceBlit` to `NormalBlit`,
+`AlphaPriorityBlit` to either of two others — a delegated inner call is never recorded under the outer
+one, and replaying the outer call re-delegates naturally. That is the argument `harness.cpp` uses for
+its two text funnels, and it is what makes "did we intercept everything?" a question the goldens can
+answer rather than one a grep has to. Its price is that the delegation is re-chosen at replay time out
+of live state (`Source->AlphaMap`, `Target->PriorityMap`), so nothing may add or remove either between
+a record and its flush. Nothing in the render does: `CreateAlphaMap` and `InitPriorityMap` are reached
+only from `igraph::AddUser` and the fluid picture rebuilds.
+
+**What the list carries**, measured on the three corpora and identical on native and WASM:
+
+| corpus | commands | map renders | peak list | read barriers | alias barriers |
+|---|---|---|---|---|---|
+| noncombat | 1,202 | 6 | 707 | 6 | 0 |
+| autoplay-200 | 9,591 | 401 | 707 | 431 | 0 |
+| autoplay-2000 | 79,290 | 3,527 | 753 | 3,943 | 679 |
+
+Twenty-two commands per render on average, 753 at the peak: tens of kilobytes of list, not the
+megabytes a per-frame reading of the pre-A1 blit counts would suggest. **Those counts were per run,
+not per frame.**
+
+By op on autoplay-2000: `FastBlit(bitmap*, v2)` 26,532, `Fill` 21,929, `LuminanceBlit` 15,553,
+`AlphaLuminanceBlit` 11,212, `AlphaPriorityBlit` 2,012, `LuminanceMaskedBlit` 1,195, `AlphaPutPixel`
+857. The five blits sum to **56,504, exactly what an independent instrumented run counted before any
+of this existed** — the interposition sees that set entry for entry. The remaining 22,786 are `Fill`
+and `AlphaPutPixel`, which that count never included because it counted blits; `AlphaPutPixel` is the
+one the draft interface had missed, and rain drops and fluid drips are 857 writes it would have let
+through in the wrong order. `NormalBlit`, `NormalMaskedBlit`, `AlphaMaskedBlit`, `MaskedPriorityBlit`,
+whole-bitmap `FastBlit`, `DrawRectangle` and `ClearToColor` record nothing on these corpora: inside the
+window they are reached only as delegates or with a scratch destination. They are intercepted anyway,
+because which of them is a delegate is a property of the art, not of the code.
+
+**The read barrier is the number phase C exists to remove.** `humanoid::DrawBodyParts` blits the
+destination region *into* `igraph::TileBuffer`, composites the body parts over it with a per-pixel
+priority test and copies the result back (`human.cpp:2856`), so the map render reads the double
+buffer. A blit whose source is the capture target flushes first. 3,943 on autoplay-2000 — one per
+humanoid composite, the same 3,943 the pre-A1 instrumentation attributed to the write-back. The order
+of the two tests in `Intercept` is load bearing: the source test must precede the destination test, or
+the flush replays the previous character's write-back *after* this read has overwritten `TileBuffer`.
+
+**The alias barrier is not optional, and the corpora prove it.** A write into a scratch bitmap that a
+pending command still names as its source would replay the wrong pixels. Nothing reads the target in
+that case, so the read barrier does not fire. Removing the alias barrier moves `autoplay-2000`'s frame
+trace at line 2,143, 342 records in all, with the game trace untouched — a pure pixel regression that
+`verify-corpora.sh` catches and nothing else would. **All 679 hits come from one site**, by backtrace:
+`fluid::Draw` (`fluid.cpp:200-201`) blits the fluid's picture into `igraph::FlagBuffer` and then blits
+`FlagBuffer` into the screen, so the next rotated fluid overwrites a source the list is still holding.
+`item::Draw`'s function-static rotation bitmap (`item.cpp:1503`) is the same shape at a site no corpus
+reaches; the barrier closes it by construction rather than by enumeration, which is why it is a scan of
+the pending list and not a list of known scratch buffers. `BlitAndCopyAlpha` and `FastBlitAndCopyAlpha`
+write two planes and cannot be recorded, so they take the barrier alone.
+
+**Cost, measured rather than assumed**, because the guard sits in `FastBlit`, which is inline in
+`bitmap.h` and is the single most frequent op. Five interleaved A/B replays of autoplay-2000: without
+the draw list 11.06/11.42/11.43/11.24/11.37s, with it 11.23/11.52/11.41/11.41/11.59s. The means differ
+by 1.1% and the spread inside either arm is three times that, so the null test costs nothing this
+measurement can see and the inlining stays.
+
+**The hit-effect branch, which no corpus reaches, held two defects of its own.** `ivanconfig`'s
+`HitIndicator` defaults to 0, so the `hiteffect` path is invisible to every check in the tree; driving
+it by hand with `IVAN_CONF="HitIndicator = 3;"` is what phase A owed it, and the first run diverged
+from the baseline in the *game* trace and then segfaulted in `hiteffect::DrawStep`. Neither was the
+draw list.
+
+- **`hiteffect::iCleanCount` was never initialised** (`hiteffect.h:88`), and `hiteffect::Be` counts an
+  effect's post-draw ticks with it, so the effect's lifetime was whatever the heap happened to hold.
+  Proven without the draw list anywhere near it: on the **unmodified** binary with `HitIndicator = 3`,
+  `MALLOC_PERTURB_=1` and `=170` produce one game and an unperturbed run produces another; with
+  `HitIndicator = 0` all three agree and match the golden. Fixed in both constructors. The draw list
+  allocates a vector, which is how it landed on different garbage and how this surfaced at all.
+- **The effect's direction is drawn from `clock()%2`** (`hiteffect.cpp:249-252`), so its *pixels* are a
+  function of process CPU time. With the draw list off and `clock()` forced odd against forced even
+  through an `LD_PRELOAD` shim, 18 frame-trace records move and the game trace does not.
+
+With the first fixed and the second pinned by that shim, **the draw list is byte-identical to no draw
+list on all five artifacts, both corpora, at `HitIndicator = 3`** — which is the evidence phase A owed
+the one in-window branch the goldens cannot see. It also means `HitIndicator` must stay out of any
+corpus until that second one is dealt with: no two builds can agree on it.
+
+**What A1 deliberately does not do.** The per-square composites ride the list as opaque bitmap handles
+— `StaticContentCache` as a `FastBlit`, `Memorized` as a `LuminanceBlit`, the body-part composite as
+the `TileBuffer` write-back. Converting them to tile-level commands is A2, and §10.1's measurements
+say what that has to beat. One invariant to carry into it: every `Alpha*` blit and `AlphaPutPixel`
+reads the destination pixel it blends onto, so the list is only sound while it replays into one
+destination in the recorded order with nothing else writing in between. Reordering it, batching it by
+source or dropping overpainted commands is a pixel change, whatever a profile suggests.

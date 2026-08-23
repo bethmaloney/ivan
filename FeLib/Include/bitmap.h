@@ -24,6 +24,18 @@ class festring;
 
 typedef void (*bitmapeditor)(bitmap*, truth);
 
+/* The draw list's hook, declared here rather than in drawlist.h because the two
+   FastBlits below are inline and drawlist.h includes this header. Target is
+   null outside the capture window, and that load is the whole cost of the hook
+   while it is closed. drawlist.h holds the rest of the interface. */
+
+namespace drawlist
+{
+  extern bitmap* Target;
+  truth InterceptFastBlit(const bitmap*, bitmap*);
+  truth InterceptFastBlitPos(const bitmap*, bitmap*, v2);
+}
+
 struct blitdata
 {
   bitmap* Bitmap;
@@ -169,11 +181,17 @@ inline void bitmap::SafeSetPriority(int x, int y, priority What)
 
 inline void bitmap::FastBlit(bitmap* Bitmap) const
 {
+  if(drawlist::Target && drawlist::InterceptFastBlit(this, Bitmap))
+    return;
+
   memcpy(Bitmap->Image[0], Image[0], XSizeTimesYSize * sizeof(packcol16));
 }
 
 inline void bitmap::FastBlit(bitmap* Bitmap, v2 Pos) const
 {
+  if(drawlist::Target && drawlist::InterceptFastBlitPos(this, Bitmap, Pos))
+    return;
+
   packcol16** SrcImage = Image;
   packcol16** DestImage = Bitmap->Image;
   cint Bytes = Size.X * sizeof(packcol16);

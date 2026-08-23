@@ -25,6 +25,7 @@
 #include "harness.h"
 
 #include "bitmap.h"
+#include "drawlist.h"
 #include "felibdef.h"
 #include "festring.h"
 #include "graphics.h"
@@ -559,6 +560,18 @@ void harness::Shutdown()
     std::cout << "harness: wrote " << ShotCount << " frame captures to "
               << ShotDirName << ", roughly "
               << ShotCount * 3 / 2 << "MB" << std::endl;
+
+  /* The draw list's shape, and the read-barrier count the graphics port has to
+     drive to zero (docs/port-log.md §10.1). It goes to stdout rather than into
+     a trace because it is a property of the renderer, not of the game, and
+     both traces are golden files. */
+
+  if(Tracing && drawlist::Renders)
+    std::cout << "harness: draw list " << drawlist::Recorded
+              << " commands over " << drawlist::Renders << " map renders, peak "
+              << drawlist::Peak << ", " << drawlist::Barriers
+              << " read barriers, " << drawlist::Aliases << " alias barriers"
+              << std::endl;
 
   if(RecordFile.is_open())
   {
