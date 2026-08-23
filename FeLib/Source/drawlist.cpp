@@ -32,11 +32,22 @@ namespace drawlist
   truth Reaches(const bitmap*, bitmap*);
 }
 
+namespace
+{
+  /* The buffer a taken list grows into, kept between takes. A sublist is a
+     local of lsquare::UpdateMemorized, so holding it in the object would start
+     every square from capacity 0: 47,019 reallocations over autoplay-2000's
+     15,317 takes, against 12 for the frame list, which Commands already keeps
+     across windows by being a static itself. */
+
+  std::vector<drawlist::command> TakeBuffer;
+}
+
 void drawlist::Open(bitmap* Bitmap)
 {
-  /* Unconditionally, and not in Close(): a window the map render left through
-     an exception never reached Close, and its commands name bitmaps the unwind
-     may already have deleted. */
+  /* Belt and braces: Close() always empties the list, and ~capture reaches it
+     while unwinding too, so a map render that leaves through an exception
+     replays the partial list into the target rather than discarding it. */
 
   Commands.clear();
   Target = Bitmap;
@@ -305,20 +316,22 @@ drawlist::sublist::sublist(bitmap* Bitmap, const bitmap* (*Stabiliser)(const bit
 : Outer(Target)
 {
   Commands.swap(Held);
+  Commands.swap(TakeBuffer);
   Target = Bitmap;
   Stabilise = Stabiliser;
   Taking = true;
   ++Sublists;
 }
 
-void drawlist::sublist::Take(std::vector<command>& Into)
+const std::vector<drawlist::command>& drawlist::sublist::Take() const
 {
-  Into.swap(Commands);
-  Commands.clear();
+  return Commands;
 }
 
 drawlist::sublist::~sublist()
 {
+  Commands.clear();
+  Commands.swap(TakeBuffer);
   Commands.swap(Held);
   Target = Outer;
   Stabilise = 0;

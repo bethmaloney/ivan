@@ -214,14 +214,17 @@ namespace drawlist
      be replayed into the target, so there is no order left to keep, and a
      source that is scratch is fatal here rather than merely early, because the
      replay is a turn or a reload away. Take() is what has to notice, by
-     resolving every source to an identity that outlives the frame. */
+     resolving every source to an identity that outlives the frame.
+
+     Take() hands back the list itself rather than a copy: the reference is
+     good until the window closes, which is also what clears it. */
 
   class sublist
   {
    public:
     sublist(bitmap*, const bitmap* (*)(const bitmap*));
     ~sublist();
-    void Take(std::vector<command>&);
+    const std::vector<command>& Take() const;
    private:
     std::vector<command> Held;
     bitmap* Outer;

@@ -101,7 +101,7 @@ class memorized
   };
 
   void Clear();
-  void Take(std::vector<drawlist::command>&);
+  void Take(const std::vector<drawlist::command>&);
   static const bitmap* Stabilise(const bitmap*);
   static col24 Combine(col24, col24);
   memorized(const memorized&);

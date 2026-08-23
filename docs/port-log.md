@@ -3034,8 +3034,9 @@ resolved at *record* time — not at take time, which matters — to one of four
 the tree are per-entity bitmaps generated pixel by pixel and already serialised as raw pixels by their
 owners: `fluid::imagedata::Picture` (`fluid.cpp:186`, blood and every other stain) and `web::Picture`
 (`traps.cpp:190`). Neither has a compact identity to name, so the memory takes a copy and saves it the
-way their owners do. That is 524 bytes where a tile is 48, and it is the one place the new format can
-lose to the old one.
+way their owners do. That is a 548-byte entry where a tile entry is 71, and **804 when the copy
+carries an alpha map**, which `fluid::imagedata` gives its `Picture` unconditionally
+(`fluid.cpp:514`). It is the one place the new format can lose to the old one.
 
 Resolving at record time rather than at take time is what makes the copy correct. `igraph::FlagBuffer`
 is rewritten one line before the blit that reads it (`fluid.cpp:200-201`), and `item::Draw`'s rotation
@@ -3078,9 +3079,19 @@ which is decoder work rather than a constant. It is still worth doing at the nex
 (−18.5%), `AutoSave.40` 1,329,402 → 1,086,341, `AutoSave.41` 2,459,336 → 2,210,756 (−10.1%). Split
 between the two changes: the draw list is −228,906 of that and the `graphicid` byte the remaining
 −14,689, which says the level file holds about fourteen thousand graphicids. A memorized square used
-to cost a flat 524 bytes; it now costs 3 plus 72 per tile entry, 25 per graphic entry and 548 per
-pixels entry, and the **2.48 entries per saved square** measured over the run (11,996 squares saved,
+to cost a flat 524 bytes; it now costs 3 plus, per entry, 24 fixed bytes and the identity: **71 for a
+tile** (24 + `graphicid`'s 47), 25 for a graphic, 24 for the dark-square fill, and 548 or **804** for
+a copied bitmap — 804 whenever it carries an alpha map, which `fluid`'s `Picture` always does and
+`web`'s never does. The **2.48 entries per saved square** measured over the run (11,996 squares saved,
 29,790 entries) is what puts it comfortably under. Seven tile entries is where it would break even.
+
+Those are the sizes on the wire, measured rather than counted off the serializer: instrumenting
+`memorized::Save` with the stream position around each entry over autoplay-2000 gives 28,475 tile
+entries at 71 bytes, 46 graphic entries at 25, 25 dark fills at 24, and 1,244 copied bitmaps of which
+**1,032 are 804 bytes and 212 are 548** — the 804s all `fluid::Draw`'s two alpha ops and the 548s all
+`web::Draw`'s `LuminanceMaskedBlit`. So the mean copied bitmap is 760 bytes, not 548: an earlier
+version of this section quoted a flat 548 and a flat 72, missing the alpha plane on the first and
+counting `graphicid` as 48 raw bytes on the second when the field-by-field write above is 47.
 
 The round trip is exercised rather than assumed: the same run **loads 1,441 memorized lists carrying
 3,313 entries**, and `game.jsonl` is byte-identical through it, which it could not be if the
@@ -3336,7 +3347,7 @@ serialised: there is no version of phase C in which the page renders from a draw
 file holds screen pixels the page never produced, in a format written by a blitter that is being
 deleted. §10.3 is what it cost to fix — `SAVE_FILE_VERSION` 138 → 139, `BONE_FILE_VERSION` 121 → 122,
 `graphicid` converted field by field with it — and what it bought: a memorized square costs 3 bytes
-plus 72 per tile entry, at 2.48 entries per saved square, and autoplay-2000's level file went
+plus 71 per tile entry, at 2.48 entries per saved square, and autoplay-2000's level file went
 1,313,269 → 1,069,674 bytes, −18.5%.
 
 **What moved the goldens.** One of the four steps, one file, two corpora. A1 (§10.1), A2a (§10.2) and
@@ -3368,3 +3379,60 @@ frame. And two in-window branches are still invisible to every check in the tree
 needs `HitIndicator` turned up and an `LD_PRELOAD` shim to be comparable at all (§10.1), and
 `item::Draw`'s rotation scratch needs `RotateTimesPerSquare`, which defaults off. Both are covered by
 the alias barrier, which is a construction rather than a test.
+
+### 10.6 What a review of phase A found
+
+Four findings survived a review of the four steps above. One was code and three were numbers, which
+is the split to expect from a phase whose whole proof is that the goldens did not move: nothing that
+moves a pixel gets this far, and what is left is arithmetic nobody re-ran.
+
+**The map memory's command buffer restarted from empty on every square.** `drawlist::sublist` is a
+member of `memorized::record`, which `lsquare::UpdateMemorized` makes as a local, so its parked
+`Held` vector was freshly constructed at capacity 0 and the take grew into it from nothing; `Take()`
+then swapped the grown buffer into a caller-owned temporary that freed it at scope exit. Counted with
+a temporary probe in `Record` — a growth being a push where `size() == capacity()` — autoplay-2000
+spends **47,019 reallocations over its 15,317 takes**, against **12** for the frame list, which is
+static and therefore keeps its buffer across windows. The take buffer is now a file static swapped in
+by the window and back out by it, and `Take()` hands back the list itself instead of donating the
+storage: 47,019 growths become **6**. An `LD_PRELOAD` counter over the same run puts the whole
+allocator traffic at **1,422,652 → 1,375,639 mallocs**, −47,013 and −3.3%, with the frees matching,
+so the accounting closes exactly on the growth count.
+
+**No runtime claim goes with it, and the wall clock is why.** Ten interleaved A/B replays of
+autoplay-2000 in each order give means of **11.49 s before and 11.69 s after** — the pooled build
+nominally 1.8% *slower*, reproducibly in both orders. That gap is not the change: 47,013 malloc/free
+pairs are ~5 ms at 100 ns each, and callgrind puts the actual work saved at **28,541,093,973 →
+28,528,114,670 instructions** on autoplay-2000 (−0.045%, 276 per pair) and 6,553,052,071 →
+6,551,217,574 on autoplay-200 (−0.028%), which is ~4 ms. Two binaries 32 bytes apart are enough to
+move a 11.5 s run by 1.8% through code alignment alone. The change does measurably less work and
+takes measurably the same time, and both halves of that are worth writing down.
+
+**A tile entry costs 71 bytes on the wire, not 72.** §10.3 said 72 in two places, which is the
+pre-conversion figure: 24 bytes of fixed fields plus `sizeof(graphicid)`, when the whole point of
+that step was that a `graphicid` goes out field by field as 47. **And a copied bitmap is 548 bytes
+only when it has no alpha map**; `memorized::Stabilise` copies the alpha plane because an alpha blit
+needs it, and `bitmap::Save` then writes 256 bytes more. Instrumenting `memorized::Save` with the
+output stream's position around each entry settles both: over autoplay-2000, **28,475 tile entries at
+71 bytes, 46 graphic entries at 25, 25 dark fills at 24, and 1,244 copied bitmaps of which 1,032 are
+804 bytes and 212 are 548** — the 804s `fluid::Draw`'s two alpha ops, the 548s `web::Draw`'s masked
+one. Both figures are corrected in §10.3 in place. Neither moves the −18.5% the format bought, and
+seven tile entries is still where a square would break even against the old flat 524.
+
+**Two comments had gone stale, in opposite ways.** `memorized.cpp` justifies never clearing the
+capture surface by saying drawlist.h's recording points are every write method the map render can
+reach — and counted **fourteen** of them, when §10.4 had just made `bitmap::FillPriority` the
+fifteenth. The argument holds; the enumeration it rests on did not, which is exactly the kind of
+comment that costs a maintainer an afternoon proving there is no bug. And `drawlist::Open`'s comment
+said a window the map render left through an exception never reached `Close`. It always does:
+`~capture` runs during unwinding and `Close` calls `Flush`, so a throw **replays the partial list into
+the target** rather than discarding it — the opposite of what the comment told a reader to assume,
+and contradicting drawlist.h's own note on the same class since the file was written. The clear in
+`Open` is belt and braces, not the defence it claimed to be. Nothing in the map render can throw
+today (the tree's only throw sites are `quitrequest`, `areachangerequest` and the prototype
+database's `genericException`, none reachable from `level::Draw`), so this was a documentation defect
+rather than a live bug — but replaying during unwind is the thing a reader has to reason about, and
+the comment sent them the other way.
+
+The pass moved nothing: all nine golden files byte-identical, `compare-targets.sh` agreeing on all
+three corpora, `compare-configs.sh` giving one `grng` per corpus across all thirteen arms and
+`fuzz-visual.sh` holding the game trace over six visual seeds on all four recordings.

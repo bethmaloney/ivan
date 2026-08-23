@@ -37,7 +37,7 @@ namespace
 
 /* The destination DrawStaticContents is pointed at while its commands are being
    taken. Its pixels are never written: a taken list is not replayed into the
-   target, and drawlist.h's fourteen recording points are every write method the
+   target, and drawlist.h's fifteen recording points are every write method the
    map render can reach, so nothing composites into it behind the list's back.
    It exists only to be a pointer the intercept can compare against. */
 
@@ -107,9 +107,7 @@ memorized::record::~record()
 
 void memorized::record::Commit(memorized* Into)
 {
-  std::vector<drawlist::command> Command;
-  Sub.Take(Command);
-  Into->Take(Command);
+  Into->Take(Sub.Take());
   Resolution.clear();
 }
 
@@ -118,7 +116,7 @@ void memorized::record::Commit(memorized* Into)
    releasing first would delete it out from under an iterator Stabilise took
    while it was still alive. */
 
-void memorized::Take(std::vector<drawlist::command>& Command)
+void memorized::Take(const std::vector<drawlist::command>& Command)
 {
   std::vector<entry> Fresh;
   Fresh.resize(Command.size());
