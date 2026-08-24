@@ -1418,11 +1418,19 @@ it measured rather than suspected:
 ### 7.11 A sampler for the generation phase
 
 `TraceFrame` samples the game trace as well as its own, because `game::Run`'s loop does not start
-until the menus, character creation and the first level generation are done — 87% of `noncombat`'s
-draws (§6.10d). That call disappears with the renderer. Before it does, generation needs a sampler
-that is not a blit: `level::Generate`'s per-room loop is the obvious candidate, and the check that it
-is enough is that a deliberate divergence planted in generation still localises to a few thousand
-draws rather than to "before step 0".
+until the menus, character creation and the first level generation are done. That call disappears
+with the renderer. Before it does, generation needs a sampler that is not a blit:
+`level::Generate`'s per-room loop is the obvious candidate, and the check that it is enough is that a
+deliberate divergence planted in generation still localises to a few thousand draws rather than to
+"before step 0".
+
+**This is much less urgent than it was, and the number here said so a version late.** It read "87% of
+`noncombat`'s draws", which was §6.10d's figure before that section corrected its own arithmetic to
+99.3% — and then §7.12 took the backdrop's million draws off the game generator, leaving the phase at
+**88 draws of 43,422**. A sampler for 88 draws buys very little, so this is no longer a prerequisite
+for the renderer leaving; it is worth doing only if the corpora are widened into levels whose
+generation is expensive on the game stream. Corrected in place: the stale 87% is what a reader
+sequencing phase C would have planned around.
 
 ### 7.12 The backdrop put the window width into the character you roll — issue #19, fixed
 
