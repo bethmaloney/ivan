@@ -12,7 +12,7 @@ tools/corpora/verify-corpora.sh -n 1       # quick smoke test
 tools/corpora/verify-corpora.sh --update   # rewrite the goldens from this build
 
 tools/corpora/compare-targets.sh           # native vs WASM, all three corpora
-tools/corpora/compare-configs.sh           # one build at six DungeonGfxScale values
+tools/corpora/compare-configs.sh           # one build at thirteen display configs
 tools/corpora/fuzz-visual.sh               # one build at six --visual-seed values
 ```
 

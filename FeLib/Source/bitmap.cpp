@@ -16,6 +16,7 @@
 #include <vector>
 
 #include "bitmap.h"
+#include "drawlist.h"
 #include "graphics.h"
 #include "save.h"
 #include "allocate.h"
@@ -262,6 +263,9 @@ void bitmap::Fill(v2 TopLeft, v2 FillSize, col16 Color)
 
 void bitmap::Fill(int X, int Y, int Width, int Height, col16 Color)
 {
+  if(drawlist::InterposeFill(this, X, Y, Width, Height, Color))
+    return;
+
   /* We crop the area in order to prevent buffer overflow. Take care! */
 
   if(X >= Size.X || Y >= Size.Y || Width <= 0 || Height <= 0 || X <= -Width || Y <= -Height)
@@ -305,6 +309,9 @@ void bitmap::Fill(int X, int Y, int Width, int Height, col16 Color)
 
 void bitmap::ClearToColor(col16 Color)
 {
+  if(drawlist::InterposeClearToColor(this, Color))
+    return;
+
   packcol16* Ptr = Image[0];
 
   if(Color >> 8 == (Color & 0xFF))
@@ -344,6 +351,9 @@ void bitmap::CopyLineFrom(int iYDest, bitmap* bmpFrom, int iYFrom, int iSize, bo
 
 void bitmap::NormalBlit(cblitdata& BlitData) const
 {
+  if(drawlist::Interpose(drawlist::OP_NORMAL_BLIT, this, BlitData))
+    return;
+
   blitdata B = BlitData;
 
   if(!FastFlag)
@@ -507,6 +517,9 @@ void bitmap::NormalBlit(cblitdata& BlitData) const
 
 void bitmap::LuminanceBlit(cblitdata& BlitData) const
 {
+  if(drawlist::Interpose(drawlist::OP_LUMINANCE_BLIT, this, BlitData))
+    return;
+
   blitdata B = BlitData;
 
   if(B.Luminance == NORMAL_LUMINANCE)
@@ -551,6 +564,9 @@ void bitmap::LuminanceBlit(cblitdata& BlitData) const
 
 void bitmap::NormalMaskedBlit(cblitdata& BlitData) const
 {
+  if(drawlist::Interpose(drawlist::OP_NORMAL_MASKED_BLIT, this, BlitData))
+    return;
+
   blitdata B = BlitData;
 
   if(!FastFlag)
@@ -727,6 +743,9 @@ void bitmap::NormalMaskedBlit(cblitdata& BlitData) const
 
 void bitmap::LuminanceMaskedBlit(cblitdata& BlitData) const
 {
+  if(drawlist::Interpose(drawlist::OP_LUMINANCE_MASKED_BLIT, this, BlitData))
+    return;
+
   blitdata B = BlitData;
 
   if(B.Luminance == NORMAL_LUMINANCE)
@@ -813,6 +832,9 @@ void bitmap::SimpleAlphaBlit(bitmap* Bitmap, alpha Alpha, col16 MaskColor) const
 
 void bitmap::AlphaMaskedBlit(cblitdata& BlitData) const
 {
+  if(drawlist::Interpose(drawlist::OP_ALPHA_MASKED_BLIT, this, BlitData))
+    return;
+
   blitdata B = BlitData;
 
   if(!AlphaMap)
@@ -1500,6 +1522,9 @@ void bitmap::DrawRectangle(v2 TopLeft, v2 BottomRight, col16 Color, truth Wide)
 
 void bitmap::DrawRectangle(int Left, int Top, int Right, int Bottom, col16 Color, truth Wide)
 {
+  if(drawlist::InterposeRectangle(this, Left, Top, Right, Bottom, Color, Wide))
+    return;
+
   DrawHorizontalLine(Left, Right, Top, Color, Wide);
   DrawHorizontalLine(Left, Right, Bottom, Color, Wide);
   DrawVerticalLine(Right, Top, Bottom, Color, Wide);
@@ -1508,6 +1533,9 @@ void bitmap::DrawRectangle(int Left, int Top, int Right, int Bottom, col16 Color
 
 void bitmap::AlphaLuminanceBlit(cblitdata& BlitData) const
 {
+  if(drawlist::Interpose(drawlist::OP_ALPHA_LUMINANCE_BLIT, this, BlitData))
+    return;
+
   if(BlitData.Luminance == NORMAL_LUMINANCE)
   {
     AlphaMaskedBlit(BlitData);
@@ -1792,6 +1820,8 @@ truth bitmap::CreateLightning(v2 StartPos, v2 Direction, int MaxLength, col16 Co
 
 void bitmap::BlitAndCopyAlpha(bitmap* Bitmap, int Flags) const
 {
+  drawlist::InterposeBarrier(Bitmap);
+
   if(!FastFlag)
   {
     if(!AlphaMap || !Bitmap->AlphaMap)
@@ -1998,6 +2028,9 @@ void bitmap::PowerPutPixel(int X, int Y, col16 Color, alpha Alpha, priority Prio
 
 void bitmap::MaskedPriorityBlit(cblitdata& BlitData) const
 {
+  if(drawlist::Interpose(drawlist::OP_MASKED_PRIORITY_BLIT, this, BlitData))
+    return;
+
   if(!PriorityMap || !BlitData.Bitmap->PriorityMap)
   {
     LuminanceMaskedBlit(BlitData);
@@ -2055,6 +2088,9 @@ void bitmap::MaskedPriorityBlit(cblitdata& BlitData) const
 
 void bitmap::AlphaPriorityBlit(cblitdata& BlitData) const
 {
+  if(drawlist::Interpose(drawlist::OP_ALPHA_PRIORITY_BLIT, this, BlitData))
+    return;
+
   if(!AlphaMap)
   {
     MaskedPriorityBlit(BlitData);
@@ -2135,11 +2171,16 @@ void bitmap::InitPriorityMap(priority InitialValue)
 
 void bitmap::FillPriority(priority Priority)
 {
+  if(drawlist::InterposeFillPriority(this, Priority))
+    return;
+
   memset(PriorityMap[0], Priority, XSizeTimesYSize);
 }
 
 void bitmap::FastBlitAndCopyAlpha(bitmap* Bitmap) const
 {
+  drawlist::InterposeBarrier(Bitmap);
+
   if(!FastFlag)
   {
     if(!AlphaMap || !Bitmap->AlphaMap)
@@ -2207,6 +2248,9 @@ void bitmap::CalculateRandMap()
 
 void bitmap::AlphaPutPixel(int x, int y, col16 SrcCol, col24 Luminance, alpha Alpha)
 {
+  if(drawlist::InterposeAlphaPutPixel(this, x, y, SrcCol, Luminance, Alpha))
+    return;
+
   int DestCol = Image[y][x];
   int NewRedLuminance = (Luminance >> 7 & 0x1F800) - 0x10000;
   int NewGreenLuminance = (Luminance >> 4 & 0xFE0) - 0x800;

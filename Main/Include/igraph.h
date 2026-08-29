@@ -30,11 +30,12 @@ class festring;
 struct graphicid
 {
   /* Every byte of this object is significant: operator< below memcmps the
-     whole struct because it is a std::map key, and the serializer writes the
-     whole struct with a raw Write. So padding is a real input to both the
-     graphics cache ordering and the save content, and = default left it
-     uninitialized - object::UpdatePictures builds its key on the stack, so the
-     padding carried whatever the last call left there.
+     whole struct because it is a std::map key. So padding is a real input to
+     the graphics cache ordering, and = default left it uninitialized -
+     object::UpdatePictures builds its key on the stack, so the padding carried
+     whatever the last call left there. It was an input to the save content too
+     until SAVE_FILE_VERSION 139, where the serializer became field by field
+     and stopped writing it (igraph.cpp).
 
      This struct is no longer packed, so it needs one byte of tail padding, and
      Padding below is that byte declared rather than left to the compiler.
@@ -67,15 +68,16 @@ struct graphicid
   uchar Padding;
 };
 
-/* The layout is the format. The serializer writes the whole struct with a raw
-   Write, so any member added, reordered or re-padded silently changes the save
-   file, and the browser tile registry will read these same offsets out of the
-   module's memory. Declaration order is guaranteed - all members are public, so
-   [class.mem] puts later ones at higher addresses - but the padding is not, and
-   a build flag moving it is exactly what docs/port-log.md §7.7 was. These pin
-   both, on every target, at compile time. Padding is the last member rather
-   than a hole so that sizeof is the sum of the members: with a hole, adding a
-   uchar leaves sizeof at 48 and nothing here fires. */
+/* The layout is not the save format any more - that is field by field since
+   version 139 - but it is still the layout the browser tile registry will read
+   out of the module's memory, and it is still what operator< memcmps.
+   Declaration order is guaranteed - all members are public, so [class.mem] puts
+   later ones at higher addresses - but the padding is not, and a build flag
+   moving it is exactly what docs/port-log.md §7.7 was. These pin both, on every
+   target, at compile time. Padding is the last member rather than a hole so
+   that sizeof is the sum of the members: with a hole, adding a uchar leaves
+   sizeof at 48 and nothing here fires - and a member added without a line here
+   is a member the serializer will not write. */
 
 #define GRAPHICID_AT(Field, Offset)\
   static_assert(offsetof(graphicid, Field) == Offset, "graphicid layout moved: " #Field)
@@ -151,11 +153,22 @@ class igraph
   static bitmap* GetTileBuffer() { return TileBuffer; }
   static void DrawCursor(v2, int, int = 0);
   static tilemap::iterator AddUser(const graphicid&);
+  static void AddUser(tilemap::iterator I) { ++I->second.Users; }
   static void RemoveUser(tilemap::iterator);
+
+  /* The tilemap read backwards. A recorded draw command holds the bitmap the
+     blit was called on, and a saved one cannot: lsquare's map memory needs the
+     graphicid that minted the tile, which is the only identity for a tile that
+     survives a save. Maintained by AddUser and RemoveUser, so it is exactly as
+     long as TileMap. */
+
+  static truth IdentifyTile(const bitmap*, tilemap::iterator&);
   static const rawbitmap* GetHumanoidRawGraphic() { return RawGraphic[GR_HUMANOID]; }
   static const rawbitmap* GetCharacterRawGraphic() { return RawGraphic[GR_CHARACTER]; }
   static const rawbitmap* GetEffectRawGraphic() { return RawGraphic[GR_EFFECT]; }
   static const rawbitmap* GetRawGraphic(int I) { return RawGraphic[I]; }
+  static cbitmap* GetGraphic(int I) { return Graphic[I]; }
+  static int IdentifyGraphic(const bitmap*);
   static cint* GetBodyBitmapValidityMap(int);
   static bitmap* GetFlagBuffer() { return FlagBuffer; }
   static std::vector<bitmap*> GetMenuGraphic() { return vMenu; }
@@ -181,6 +194,7 @@ class igraph
   static cchar* RawGraphicFileName[];
   static cchar* GraphicFileName[];
   static tilemap TileMap;
+  static std::map<const bitmap*, tilemap::iterator> TileByBitmap;
   static uchar RollBuffer[256];
   static bitmap* FlagBuffer;
   static int** BodyBitmapValidityMap;

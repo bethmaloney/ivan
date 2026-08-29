@@ -1287,7 +1287,10 @@ festring iosystem::ContinueMenu(col16 TopicColor, col16 ListColor,
       rfi.idOnList<<id;
 
       bool bValid=false;
-      static const int iOldSavegameVersionImportSince=131;
+      /* The floor moves with every format change, or AllowImportOldSavegame
+         hands the new reader an old file and it misdecodes instead of
+         refusing. 139 is the memorized-square draw list (port-log §10.3). */
+      static const int iOldSavegameVersionImportSince=139;
       if(!bValid && rfi.Version == iSaveFileVersion)
         bValid=true;
       if(!bValid && rfi.Version <  iSaveFileVersion)

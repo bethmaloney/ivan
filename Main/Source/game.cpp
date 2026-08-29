@@ -42,6 +42,7 @@
 #include "confdef.h"
 #include "command.h"
 #include "definesvalidator.h"
+#include "drawlist.h"
 #include "feio.h"
 #include "felist.h"
 #include "fetime.h"
@@ -74,8 +75,8 @@
 #include "dbgmsgproj.h"
 #include "portmath.h"
 
-#define SAVE_FILE_VERSION 138 // Increment this if changes make savefiles incompatible
-#define BONE_FILE_VERSION 121 // Increment this if changes make bonefiles incompatible
+#define SAVE_FILE_VERSION 139 // Increment this if changes make savefiles incompatible
+#define BONE_FILE_VERSION 122 // Increment this if changes make bonefiles incompatible
 
 #define LOADED 0
 #define NEW_GAME 1
@@ -3005,6 +3006,13 @@ void game::DrawEverythingNoBlit(truth AnimationDraw)
   if(!bXBRZandFelist){
     if(!IsInWilderness())
       GetCurrentLevel()->RevealDistantLightsToPlayer();
+
+    /* The map render, and only it: the panel, the message log and the cursor
+       below still write the double buffer directly. RevealDistantLightsToPlayer
+       stays outside because it rebuilds Memorized, which is not a screen write.
+       docs/port-log.md §10.1. */
+
+    drawlist::capture Capture(DOUBLE_BUFFER);
     GetCurrentArea()->Draw(AnimationDraw);
   }
   Player->DrawPanel(AnimationDraw);

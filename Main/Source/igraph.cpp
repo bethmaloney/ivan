@@ -47,6 +47,7 @@ cchar* igraph::GraphicFileName[] =
   "Graphics/Smiley.png"
 };
 tilemap igraph::TileMap;
+std::map<const bitmap*, tilemap::iterator> igraph::TileByBitmap;
 uchar igraph::RollBuffer[256];
 int** igraph::BodyBitmapValidityMap;
 std::vector<bitmap*> igraph::vMenu;
@@ -279,7 +280,9 @@ tilemap::iterator igraph::AddUser(const graphicid& GI)
     if(SpecialFlags & ST_LIGHTNING && !((Frame + 1) & 7))
       Bitmap->CreateLightning(GI.Seed + Frame, WHITE);
 
-    return TileMap.insert(std::make_pair(GI, tile(Bitmap))).first;
+    tilemap::iterator New = TileMap.insert(std::make_pair(GI, tile(Bitmap))).first;
+    TileByBitmap[Bitmap] = New;
+    return New;
   }
 }
 
@@ -351,20 +354,95 @@ void igraph::RemoveUser(tilemap::iterator Iterator)
 
   if(!--Tile.Users)
   {
+    TileByBitmap.erase(Tile.Bitmap);
     delete Tile.Bitmap;
     TileMap.erase(Iterator);
   }
 }
 
+int igraph::IdentifyGraphic(const bitmap* Bitmap)
+{
+  for(int c = 0; c < GRAPHIC_TYPES; ++c)
+    if(Graphic[c] == Bitmap)
+      return c;
+
+  return -1;
+}
+
+truth igraph::IdentifyTile(const bitmap* Bitmap, tilemap::iterator& Iterator)
+{
+  std::map<const bitmap*, tilemap::iterator>::iterator i = TileByBitmap.find(Bitmap);
+
+  if(i == TileByBitmap.end())
+    return false;
+
+  Iterator = i->second;
+  return true;
+}
+
+/* Field by field since SAVE_FILE_VERSION 139, where it used to be one raw
+   sizeof write. The layout asserts in igraph.h made that write safe on the two
+   targets the game builds for and would have caught a third moving it, but a
+   graphicid is now what a memorized square names its tiles by (§10.3), and the
+   list it sits in is on its way to being a wire format read outside the module
+   -- where "same compiler, same flags" stops being an argument. Padding is not
+   written: it is zero in every graphicid the constructor makes, and it is an
+   input to the tilemap's memcmp ordering rather than to the save. */
+
 outputfile& operator<<(outputfile& SaveFile, const graphicid& Value)
 {
-  SaveFile.Write(reinterpret_cast<cchar*>(&Value), sizeof(Value));
+  int c;
+  SaveFile << Value.BitmapPosX << Value.BitmapPosY;
+
+  for(c = 0; c < 4; ++c)
+    SaveFile << Value.Color[c];
+
+  SaveFile << Value.Frame << Value.FileIndex << Value.SpecialFlags;
+
+  for(c = 0; c < 4; ++c)
+    SaveFile << Value.Alpha[c];
+
+  SaveFile << Value.BaseAlpha << Value.SparkleFrame
+           << Value.SparklePosX << Value.SparklePosY;
+  SaveFile << Value.OutlineColor << Value.OutlineAlpha << Value.FlyAmount;
+  SaveFile << Value.Position.X << Value.Position.Y;
+
+  for(c = 0; c < 4; ++c)
+    SaveFile << Value.RustData[c];
+
+  for(c = 0; c < 4; ++c)
+    SaveFile << Value.BurnData[c];
+
+  SaveFile << Value.Seed << Value.WobbleData;
   return SaveFile;
 }
 
 inputfile& operator>>(inputfile& SaveFile, graphicid& Value)
 {
-  SaveFile.Read(reinterpret_cast<char*>(&Value), sizeof(Value));
+  int c;
+  SaveFile >> Value.BitmapPosX >> Value.BitmapPosY;
+
+  for(c = 0; c < 4; ++c)
+    SaveFile >> Value.Color[c];
+
+  SaveFile >> Value.Frame >> Value.FileIndex >> Value.SpecialFlags;
+
+  for(c = 0; c < 4; ++c)
+    SaveFile >> Value.Alpha[c];
+
+  SaveFile >> Value.BaseAlpha >> Value.SparkleFrame
+           >> Value.SparklePosX >> Value.SparklePosY;
+  SaveFile >> Value.OutlineColor >> Value.OutlineAlpha >> Value.FlyAmount;
+  SaveFile >> Value.Position.X >> Value.Position.Y;
+
+  for(c = 0; c < 4; ++c)
+    SaveFile >> Value.RustData[c];
+
+  for(c = 0; c < 4; ++c)
+    SaveFile >> Value.BurnData[c];
+
+  SaveFile >> Value.Seed >> Value.WobbleData;
+  Value.Padding = 0;
   return SaveFile;
 }
 

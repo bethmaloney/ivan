@@ -14,6 +14,7 @@
 
 #include "dbgmsgproj.h"
 #include <actions.h>
+#include "memorized.h"
 
 lsquare*** eyecontroller::Map;
 
@@ -46,7 +47,7 @@ lsquare::lsquare(level* LevelUnder, v2 Pos)
 : square(LevelUnder, Pos),
   Fluid(0), Smoke(0), HitEffect(0), bMaterialDetected(false), Rain(0), Trap(0),
   GLTerrain(0), OLTerrain(0),
-  Memorized(0), FowMemorized(0),
+  Memorized(0),
   Engraved(0),
   GroundBorderPartnerTerrain(0),
   GroundBorderPartnerInfo(0),
@@ -81,8 +82,6 @@ lsquare::~lsquare()
   }
 
   delete Memorized;
-  delete FowMemorized;
-  delete StaticContentCache.Bitmap;
   delete [] GroundBorderPartnerTerrain;
   delete [] OverBorderPartnerTerrain;
 
@@ -175,7 +174,7 @@ void lsquare::UpdateMemorized()
   {
     if(!IsDark() || CanBeFeltByPlayer())
     {
-      blitdata B = { Memorized,
+      blitdata B = { memorized::Surface(),
                      { 0, 0 },
                      { 0, 0 },
                      { TILE_SIZE, TILE_SIZE },
@@ -183,52 +182,22 @@ void lsquare::UpdateMemorized()
                      TRANSPARENT_COLOR,
                      ALLOW_ALPHA };
 
+      memorized::record Record;
       DrawStaticContents(B);
-      Memorized->FastBlit(FowMemorized);
-      B.Bitmap = FowMemorized;
-      B.Flags = 0;
-      B.MaskColor = 0;
-      igraph::GetFOWGraphic()->NormalMaskedBlit(B);
+      Record.Commit(Memorized);
     }
     else
-    {
-      Memorized->ClearToColor(0);
-      igraph::GetFOWGraphic()->FastBlit(FowMemorized);
-    }
+      Memorized->Darken();
 
-    if(!StaticContentCache.Bitmap)
-    {
-      StaticContentCache.Bitmap = new bitmap(TILE_V2);
-      StaticContentCache.Bitmap->ActivateFastFlag();
-    }
-
-    UpdateStaticContentCache(Luminance);
     Flags &= ~MEMORIZED_UPDATE_REQUEST;
   }
-}
-
-void lsquare::UpdateStaticContentCache(col24 Luminance) const
-{
-  blitdata B = { StaticContentCache.Bitmap,
-                 { 0, 0 },
-                 { 0, 0 },
-                 { TILE_SIZE, TILE_SIZE },
-                 { Luminance },
-                 0,
-                 0 };
-
-  Memorized->LuminanceBlit(B);
-  StaticContentCache.Luminance = Luminance;
 }
 
 void lsquare::DrawStaticContents(blitdata& BlitData) const
 {
   if(BlitData.CustomData & ALLOW_ANIMATE && !StaticAnimatedEntities && Memorized && !game::GetSeeWholeMapCheatMode())
   {
-    if(StaticContentCache.Luminance != BlitData.Luminance)
-      UpdateStaticContentCache(BlitData.Luminance);
-
-    StaticContentCache.Bitmap->FastBlit(BlitData.Bitmap, BlitData.Dest);
+    Memorized->Draw(BlitData);
     return;
   }
 
@@ -642,22 +611,6 @@ void lsquare::Load(inputfile& SaveFile)
   LoadLinkedList(SaveFile, Rain);
   LoadLinkedList(SaveFile, Trap);
   CalculateIsTransparent();
-
-  if(Memorized)
-  {
-    FowMemorized = new bitmap(TILE_V2);
-    FowMemorized->ActivateFastFlag();
-    Memorized->FastBlit(FowMemorized);
-    blitdata B = { FowMemorized,
-                   { 0, 0 },
-                   { 0, 0 },
-                   { TILE_SIZE, TILE_SIZE },
-                   { 0 },
-                   0,
-                   0 };
-
-    igraph::GetFOWGraphic()->NormalMaskedBlit(B);
-  }
 }
 
 void lsquare::CalculateLuminance()
@@ -1326,8 +1279,8 @@ void lsquare::DrawMemorized(blitdata& BlitData) const
   Flags &= ~STRONG_NEW_DRAW_REQUEST;
   BlitData.Luminance = ivanconfig::GetContrastLuminance();
 
-  if(FowMemorized)
-    FowMemorized->LuminanceBlit(BlitData);
+  if(Memorized)
+    Memorized->DrawFogged(BlitData);
   else
     DOUBLE_BUFFER->Fill(BlitData.Dest, BlitData.Border, 0);
 
@@ -1345,8 +1298,8 @@ void lsquare::DrawMemorizedCharacter(blitdata& BlitData) const
 {
   BlitData.Luminance = ivanconfig::GetContrastLuminance();
 
-  if(FowMemorized)
-    FowMemorized->LuminanceBlit(BlitData);
+  if(Memorized)
+    Memorized->DrawFogged(BlitData);
   else
     DOUBLE_BUFFER->Fill(BlitData.Dest, BlitData.Border, 0);
 
@@ -2834,10 +2787,7 @@ void lsquare::CalculateSunLightLuminance(ulong SeenBitMask)
 
 void lsquare::CreateMemorized()
 {
-  Memorized = new bitmap(TILE_V2);
-  Memorized->ActivateFastFlag();
-  FowMemorized = new bitmap(TILE_V2);
-  FowMemorized->ActivateFastFlag();
+  Memorized = new memorized;
 }
 
 truth lsquare::AcidRain(const beamdata& Beam)
@@ -2956,15 +2906,12 @@ void lsquare::Reveal(ulong Tick, truth IgnoreDarkness)
 void lsquare::DestroyMemorized()
 {
   delete Memorized;
-  delete FowMemorized;
   Memorized = 0;
-  FowMemorized = 0;
 }
 
 void lsquare::SwapMemorized(lsquare* Square)
 {
   Swap(Memorized, Square->Memorized);
-  Swap(FowMemorized, Square->FowMemorized);
   MemorizedDescription.SwapData(Square->MemorizedDescription);
 }
 
@@ -3165,7 +3112,7 @@ bool lsquare::TeleportAllTrapsAway()
 
 void lsquare::AddSpecialCursors()
 {
-  if((FowMemorized || game::GetSeeWholeMapCheatMode()) && OLTerrain)
+  if((Memorized || game::GetSeeWholeMapCheatMode()) && OLTerrain)
     OLTerrain->AddSpecialCursors();
 }
 

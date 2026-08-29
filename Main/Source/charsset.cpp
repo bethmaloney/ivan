@@ -29,6 +29,7 @@
 #include "graphics.h"
 #include "materias.h"
 #include "bitmap.h"
+#include "drawlist.h"
 #include "lterras.h"
 #include "save.h"
 #include "traps.h"

@@ -56,7 +56,7 @@ on seam 1. The browser build has never been compared against a golden and is not
 
 | Crossed into `web/` | Still C++ |
 |---|---|
-| sound effects (§9.7), music (§9.8), the harness (§9.6), saves (§9.10) | graphics, input, the UI |
+| sound effects (§9.7), music (§9.8), the harness (§9.6), saves (§9.10) | graphics (native groundwork only, §10), input, the UI |
 
 `audio/` — RtMidi, the MIDI parser, the playback engine, ~4,700 lines — is no longer compiled for
 Emscripten at all. `tools/web/` holds `shell.html`, the build tooling (`dist.py`, `serve.py`) and the
@@ -65,6 +65,16 @@ landing page; **there is no JavaScript in it and no `--pre-js` in the build**.
 What is left to cross is not a file move: SDL surfaces, an SDL event loop and a C++ menu system, so
 each is a rewrite against a browser API. The golden traces still cover all three — which is the
 coverage they are about to lose, and why `web/e2e/` exists.
+
+**Phase A of the graphics work has landed and none of it is in `web/`.** The map render appends to a
+command buffer instead of blitting, and the same C++ bitmap methods drain it into the same double
+buffer at the end of the render (§10.1) — native only, no JavaScript, and every golden either
+byte-identical or moved for a written reason. What it bought is the end of two couplings a page could
+not have carried: the map render no longer reads the double buffer back (3,943 times a run on
+autoplay-2000, now 0 — §10.4), and a square's map memory is a list of draw commands naming tiles by
+`graphicid` rather than 524 bytes of raw screen pixels in the save file (§10.3). The list is what
+crosses in phase C. Until then graphics is still C++, and the count that says how much of it the
+original plan had accounted for is §10.5.
 
 ### What is measured, and what that does and does not cover
 
@@ -484,10 +494,11 @@ reach the screen** — which is exactly the class §6.4 is about. §6.8 made `lo
 explicit little-endian bytes on every target, which closed the container-length problem with it, so a
 WASM save and a native save are byte-identical but for `GetTimeSpent`. `--word-size` survives for
 reading saves written before that change — its help text still describes the world before it, which
-§7.9d records. `graphicid` and `configid` were the two remaining raw `sizeof` writes and are now
-audited: `configid` is field-by-field, `graphicid`'s layout is pinned by `offsetof` asserts on both
-targets rather than converted, and nothing saved can reach 32 bits in a reachable game. §7.9 has the
-measurements and what a future `SAVE_FILE_VERSION` bump should carry.
+§7.9d records. `graphicid` and `configid` were the two remaining raw `sizeof` writes and are
+both field-by-field now — `configid` at §7.9, `graphicid` at version 139 (§10.3), where a memorized
+square started naming its tiles by one. `graphicid`'s `offsetof` asserts stay: they pin the layout the
+browser tile registry will read, and they catch a member added without a line in the serializer. §7.9
+has the measurements.
 
 - **Use savediff rather than a hand-rolled `cmp` loop.** The auto-play corpus produces two files
   whose extension is `.40` — `<stem>.40` and `<stem>.AutoSave.40` — so pairing by extension silently
@@ -573,3 +584,5 @@ The ones worth knowing about before touching anything:
 | §9.4 | the twelve places the program left a choice to the compiler, and the technique that found them |
 | §9.7 | why the audio boundary sits below the regex |
 | §9.12 | why the bridge contract test exists, and what the browser suite is replacing |
+| §10.1 | the draw list, its two barriers, and why intercepting before the delegation makes the capture complete |
+| §10.5 | what the map render actually writes, and the three claims in issue #16 that measurement corrected |
